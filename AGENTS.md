@@ -29,10 +29,11 @@ shibuya-analysis/
 ├── credentials/            # 認証情報（Git 管理外）
 │   └── *.json
 ├── notebooks/              # Jupyter Notebook + 同期された .py
-│   ├── 01_ga4_basic.ipynb  # GA4 基本データ取得サンプル
-│   └── 01_ga4_basic.py     # ↑ と Jupytext で同期
+│   ├── *.ipynb             # Notebook本体
+│   └── *.py                # ↑ と Jupytext で同期
+├── scripts/                # 実行スクリプト（直接実行する .py）
+├── lib/                    # 共通ユーティリティ（importして使う）
 ├── data/                   # 出力データ（CSV等）
-├── src/                    # 共通ユーティリティ（必要に応じて）
 ├── .gitignore              # Git 除外設定
 ├── jupytext.toml           # Jupytext 設定
 └── requirements.txt        # 依存ライブラリ
