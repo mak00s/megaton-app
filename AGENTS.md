@@ -33,7 +33,6 @@ shibuya-analysis/
 │   └── 01_ga4_basic.py     # ↑ と Jupytext で同期
 ├── data/                   # 出力データ（CSV等）
 ├── src/                    # 共通ユーティリティ（必要に応じて）
-├── .env                    # 環境変数（Git 管理外）
 ├── .gitignore              # Git 除外設定
 ├── jupytext.toml           # Jupytext 設定
 └── requirements.txt        # 依存ライブラリ
@@ -106,11 +105,10 @@ sites = config_df.to_dict('records')
 
 ### 認証情報
 - サービスアカウント JSON: `credentials/sa-shibuya-kyousei.json`
-- 環境変数 `MEGATON_CREDS_JSON` にパスを設定して使用
+- Notebook のセル1で `CREDS_PATH` に直接パスを指定
 
 ### 注意点
 - credentials/ フォルダは Git 管理外にすること
-- .env ファイルも Git 管理外
 - Notebook 実行前に GA4 プロパティの選択が必要
 
 ## リファレンス
