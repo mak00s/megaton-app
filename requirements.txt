@@ -1,3 +1,5 @@
+# Python 3.11 以上が必要
+
 # Megaton (GA4/GSC/BigQuery/Sheets 操作)
 git+https://github.com/mak00s/megaton.git
 
