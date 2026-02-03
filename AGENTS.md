@@ -43,9 +43,10 @@ shibuya-analysis/
 ### Phase 1: 環境構築（完了）
 - [x] プロジェクトドキュメント作成
 - [x] ディレクトリ構成作成
-- [x] 依存ライブラリ設定
-- [x] .gitignore / .env 設定
+- [x] 依存ライブラリ設定（Python 3.11+）
+- [x] .gitignore 設定
 - [x] GA4 基本データ取得 Notebook 作成
+- [x] 認証チェック機能追加
 
 ### Phase 2: 基本機能実装
 - [ ] GA4 からデータ取得・集計・グラフ表示の一連の流れ確認
@@ -64,8 +65,24 @@ shibuya-analysis/
 | 2026-02-03 | プロジェクト開始、ドキュメント・構成作成 |
 | 2026-02-03 | Jupytext 設定追加、運用ルール策定 |
 | 2026-02-03 | Git 初期化、初回コミット完了 |
+| 2026-02-03 | 認証チェック機能追加、env廃止、設定直書き方式に統一 |
 
 ## 運用ルール
+
+### Notebook セル構成
+
+```
+セル1: 設定・初期化・GA4選択
+  - CREDS_PATH, GCP_PROJECT_ID, CONFIG_SHEET_URL を直書き
+  - megaton 初期化 → JSON選択UI → GA4選択UI が表示される
+
+セル2: 認証チェック
+  - Search Console, Google Sheets, BigQuery の状態を info 表示
+  - ✓/✗/- で結果表示、エラーでも続行可能
+
+セル3以降: 本処理
+  - データ取得・加工・集計・可視化
+```
 
 ### Notebook 編集（Jupytext）
 
@@ -104,12 +121,14 @@ sites = config_df.to_dict('records')
 ## 課題・メモ
 
 ### 認証情報
-- サービスアカウント JSON: `credentials/sa-shibuya-kyousei.json`
-- Notebook のセル1で `CREDS_PATH` に直接パスを指定
+- サービスアカウント JSON: `credentials/` ディレクトリに格納
+- Notebook セル1で `CREDS_PATH = "../credentials"` とディレクトリを指定
+- ディレクトリ指定により megaton の JSON 選択 UI が表示される
 
 ### 注意点
-- credentials/ フォルダは Git 管理外にすること
-- Notebook 実行前に GA4 プロパティの選択が必要
+- credentials/ フォルダは Git 管理外
+- .env は使用しない（設定は Notebook セル1に直書き）
+- Notebook 実行時、セル1で JSON 選択 → GA4 プロパティ選択の順に UI が表示される
 
 ## リファレンス
 
