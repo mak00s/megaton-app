@@ -23,7 +23,7 @@ GA4 / Search Console / BigQuery のデータを API で取得し、加工・集�
 
 ```
 shibuya-analysis/
-├── PROJECT.md              # 本ドキュメント（方針・予定・進捗・課題）
+├── AGENTS.md               # 本ドキュメント（方針・予定・進捗・課題）
 ├── credentials/            # 認証情報（Git 管理外）
 │   └── *.json
 ├── notebooks/              # Jupyter Notebook + 同期された .py
@@ -62,6 +62,7 @@ shibuya-analysis/
 |------|------|
 | 2026-02-03 | プロジェクト開始、ドキュメント・構成作成 |
 | 2026-02-03 | Jupytext 設定追加、運用ルール策定 |
+| 2026-02-03 | Git 初期化、初回コミット完了 |
 
 ## 運用ルール
 
