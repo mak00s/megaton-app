@@ -9,7 +9,7 @@ GA4 / Search Console / BigQuery のデータを API で取得し、加工・集�
 - **UI**: Jupyter Notebook（ビジネスロジックに近い最低限のコードのみセルに記述）
 - **Notebook 同期**: Jupytext（.ipynb ↔ .py 同期）
 - **設定管理**: Google Sheets から分析ごとの可変設定をロード
-- **言語**: Python 3.8+
+- **言語**: Python 3.11+
 - **認証**: サービスアカウント JSON
 
 ### 設計原則
