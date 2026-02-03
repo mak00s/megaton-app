@@ -103,6 +103,31 @@ jupytext --sync notebooks/*.ipynb
 ```
 これで .py ファイルに変更が反映される。
 
+### スクリプト実行（headlessモード）
+
+Notebook を使わずにスクリプトから megaton を使う場合は、headless モードで初期化する。
+
+```python
+from megaton import start
+
+# headless モードで初期化（UIなし）
+mg = start.Megaton("credentials/sa-xxx.json", headless=True)
+
+# GA4 アカウント・プロパティを直接指定
+mg.ga['4'].account.select("ACCOUNT_ID")
+mg.ga['4'].property.select("PROPERTY_ID")
+
+# レポート実行（show=False で表示をスキップ）
+mg.report.set.dates(start_date, end_date)
+mg.report.run(d=[...], m=[...], show=False)
+df = mg.report.data
+```
+
+**ポイント:**
+- `headless=True`: UI（ipywidgets）を使わない
+- `show=False`: レポート実行後の自動表示をスキップ
+- アカウント・プロパティは ID を直接指定
+
 ### 設定管理（Google Sheets）
 
 分析ごとに可変の設定（対象サイト一覧、フィルタ条件、閾値など）は Google Sheets から読み込む。
