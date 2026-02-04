@@ -46,16 +46,17 @@ def execute_ga4_query(params: QueryParams) -> pd.DataFrame:
     # 期間設定
     mg.report.set.dates(params.date_range.start, params.date_range.end)
     
-    # フィルタ変換
-    filters = []
-    for f in params.filters:
-        filters.append((f.field, f.op, f.value))
+    # フィルタを文字列に変換（複数はセミコロン区切り）
+    filter_d = None
+    if params.filters:
+        filter_parts = [f"{f.field}{f.op}{f.value}" for f in params.filters]
+        filter_d = ";".join(filter_parts)
     
     # レポート実行
     mg.report.run(
         d=params.dimensions,
         m=params.metrics,
-        filters=filters if filters else None,
+        filter_d=filter_d,
         limit=params.limit,
         show=False,
     )

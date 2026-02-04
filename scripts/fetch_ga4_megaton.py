@@ -26,7 +26,7 @@ print(f"期間: {start_date} 〜 {end_date}\n")
 mg.report.run(
     d=['date'],
     m=['sessions'],
-    filters=[('defaultChannelGroup', '==', 'Organic Search')],
+    filter_d='defaultChannelGroup==Organic Search',  # 文字列で指定
     show=False  # headlessモードでは表示しない
 )
 
