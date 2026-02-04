@@ -257,6 +257,21 @@ mg.report.run(
 | `!~` | 正規表現不一致 | `pagePath!~/test/` |
 | `>`, `>=`, `<`, `<=` | 数値比較 | `sessions>100` |
 
+#### ソートの書式
+
+ソートは文字列で指定。降順は先頭に `-` を付ける。
+
+```python
+# 日付で昇順ソート
+mg.report.run(d=["date"], m=["sessions"], sort="date", show=False)
+
+# セッション数で降順ソート
+mg.report.run(d=["date"], m=["sessions"], sort="-sessions", show=False)
+
+# 複数ソート（カンマ区切り）：日付昇順 → セッション降順
+mg.report.run(d=["date", "country"], m=["sessions"], sort="date,-sessions", show=False)
+```
+
 #### よく使うディメンション・メトリクス
 
 **ディメンション:**
@@ -318,9 +333,151 @@ df = mg.search.data
 
 ### Google Sheets
 
+#### スプレッドシートを開く
+
 ```python
+# スプレッドシートを開く
 mg.open.sheet("https://docs.google.com/spreadsheets/d/xxxxx")
-df = mg.sheet.to_dataframe()
+
+# シートを選択
+mg.sheets.select("シート名")
+
+# シート一覧
+mg.sheets.list()
+
+# シート作成・削除
+mg.sheets.create("新規シート")
+mg.sheets.delete("削除するシート")
+```
+
+#### データの読み込み
+
+```python
+# 現在のシートをDataFrameとして取得
+df = mg.sheet.df()
+
+# セル単位で読み込み
+value = mg.load.cell(row=1, col=1)  # A1セル
+```
+
+#### データの保存（上書き）
+
+```python
+# シート名を指定して保存（シートがなければ作成）
+mg.save.to.sheet("シート名", df)
+
+# オプション
+mg.save.to.sheet("シート名", df, 
+    sort_by="date",        # ソート列
+    sort_desc=True,        # 降順
+    auto_width=True,       # 列幅自動調整
+    freeze_header=True     # ヘッダー行を固定
+)
+
+# 現在選択中のシートに保存
+mg.sheet.save(df)
+```
+
+#### データの追記
+
+```python
+# シート名を指定して追記（既存データの末尾に追加）
+mg.append.to.sheet("シート名", df)
+
+# 現在選択中のシートに追記
+mg.sheet.append(df)
+```
+
+#### データのアップサート（マージ）
+
+キー列を基準に、既存行は更新、新規行は追加。
+
+```python
+# シート名を指定してアップサート
+mg.upsert.to.sheet("シート名", df, keys=["id"])
+
+# 複数キー
+mg.upsert.to.sheet("シート名", df, keys=["date", "channel"])
+
+# オプション
+mg.upsert.to.sheet("シート名", df, 
+    keys=["id"],
+    columns=["name", "value"],  # 更新する列を限定
+    sort_by="id"                # ソート
+)
+
+# 現在選択中のシートにアップサート
+mg.sheet.upsert(df, keys=["id"])
+```
+
+#### セル・範囲の書き込み
+
+```python
+# セル単位で書き込み
+mg.sheet.cell.set("A1", "値")
+mg.sheet.cell.set("B2", 123)
+
+# 範囲に書き込み（2次元配列）
+mg.sheet.range.set("A1:C3", [
+    ["A1", "B1", "C1"],
+    ["A2", "B2", "C2"],
+    ["A3", "B3", "C3"],
+])
+```
+
+#### シートのクリア
+
+```python
+# 現在のシートをクリア
+mg.sheet.clear()
+```
+
+### BigQuery
+
+#### 初期化
+
+```python
+# BigQueryサービスを起動（GCPプロジェクトIDを指定）
+bq = mg.launch_bigquery("my-gcp-project")
+```
+
+#### SQLクエリの実行
+
+```python
+# DataFrameとして結果を取得
+df = bq.run("SELECT * FROM `project.dataset.table` LIMIT 100", to_dataframe=True)
+
+# イテレータとして取得（大量データ向け）
+results = bq.run("SELECT * FROM `project.dataset.table`", to_dataframe=False)
+for row in results:
+    print(row)
+```
+
+#### データセット・テーブルの操作
+
+```python
+# データセット一覧
+bq.datasets  # ['dataset1', 'dataset2', ...]
+
+# データセットを選択
+bq.dataset.select("my_dataset")
+
+# テーブル一覧
+bq.dataset.tables  # ['table1', 'table2', ...]
+
+# テーブルを選択
+bq.table.select("my_table")
+```
+
+#### GA4エクスポートテーブルの操作
+
+```python
+# GA4イベントデータの取得（日付範囲指定）
+df = bq.ga4.events(
+    start_date="20260101",
+    end_date="20260131",
+    event_names=["page_view", "purchase"]
+)
 ```
 
 ---
