@@ -10,7 +10,7 @@ GA4 / Search Console / BigQuery のデータを API で取得し、加工・集�
 |----------|------|--------|------|
 | **1. Jupyter Notebook** | 探索的分析、可視化、メモ | 人間 | 対話的、試行錯誤向き |
 | **2. CLIスクリプト** | データ抽出、バッチ処理 | AI Agent / 人間 | 高速、自動化向き |
-| **3. Gradio UI** | 対話型分析 | 人間 + AI Agent | パラメータ確認・修正 |
+| **3. Streamlit UI** | 対話型分析 | 人間 + AI Agent | パラメータ確認・修正 |
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -24,31 +24,36 @@ GA4 / Search Console / BigQuery のデータを API で取得し、加工・集�
         │                  │                  │
         ▼                  ▼                  ▼
 ┌───────────────┐  ┌───────────────┐  ┌───────────────┐
-│ 1. Notebook   │  │ 2. CLI        │  │ 3. Gradio UI  │
+│ 1. Notebook   │  │ 2. CLI        │  │ 3. Streamlit  │
 │ (対話的分析)   │  │ (バッチ/Agent)│  │ (対話型分析)  │
 │               │  │               │  │               │
-│ notebooks/    │  │ scripts/      │  │ app/main.py   │
-│ *.ipynb       │  │ query_*.py    │  │ localhost:7860│
+│ notebooks/    │  │ scripts/      │  │ app/          │
+│ *.ipynb       │  │ query_*.py    │  │ localhost:8501│
 └───────────────┘  └───────────────┘  └───────────────┘
 ```
 
-### Gradio UIを作った理由
+### Streamlit UIを作った理由
 
 AI Agent と人間が協力してデータ分析を行う際の課題を解決：
 - **Agent単独**: パラメータの妥当性を人間が確認できない
 - **人間単独**: SQLやAPIパラメータを書くのが面倒
 
-**解決策**: Gradio UIで役割分担
+**解決策**: Streamlit UIで役割分担
 1. 人間が自然言語で要求 → AI Agent がJSONパラメータ生成
 2. 人間がUIでパラメータ確認・修正 → 実行
 3. 結果を人間が目視確認 → OKならAgentが分析続行
+
+**Streamlitを選んだ理由:**
+- データ分析ダッシュボード向けに設計
+- サイドバーでパラメータ、メインで結果という自然な構成
+- キャッシュ機能で再実行が高速
 
 ## 技術スタック
 
 - **データ取得**: [megaton](https://github.com/mak00s/megaton)
 - **Notebook**: Jupyter + Jupytext
 - **CLI**: Python スクリプト（headlessモード）
-- **UI**: Gradio + Plotly
+- **UI**: Streamlit
 - **言語**: Python 3.11+
 - **認証**: サービスアカウント JSON
 
@@ -66,7 +71,7 @@ shibuya-analysis/
 ├── scripts/                # CLIスクリプト
 │   ├── query_ga4.py
 │   └── query_gsc.py
-├── app/                    # Gradio UI
+├── app/                    # Streamlit UI
 ├── lib/                    # 共通ユーティリティ
 └── output/                 # 実行結果出力先
 ```
@@ -83,11 +88,11 @@ python scripts/query_gsc.py --days 14 --limit 20
 python scripts/query_ga4.py --days 7 --filter "defaultChannelGroup==Organic Search"
 ```
 
-### Gradio UI を使う場合
+### Streamlit UI を使う場合
 
 ```bash
-python app/main.py
-# → http://localhost:7860
+streamlit run app/streamlit_app.py
+# → http://localhost:8501
 ```
 
 ## TODO
@@ -96,7 +101,7 @@ python app/main.py
 - [x] GA4 データ取得
 - [x] Search Console データ取得
 - [x] CLIスクリプト
-- [x] Gradio UI
+- [x] Streamlit UI
 - [ ] BigQuery データ取得
 
 ### Phase 3: 応用・拡張
