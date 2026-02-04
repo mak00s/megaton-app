@@ -9,9 +9,32 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.schemas import QueryParams, SAMPLE_GA4_JSON, SAMPLE_GSC_JSON
-from app.engine.ga4 import execute_ga4_query, list_ga4_properties
-from app.engine.gsc import execute_gsc_query, list_gsc_sites
-from app.engine.visualize import create_chart, format_dataframe
+
+# 遅延インポート用（重いモジュールの初期化を実行時まで遅延）
+_ga4_module = None
+_gsc_module = None
+_viz_module = None
+
+def _get_ga4_module():
+    global _ga4_module
+    if _ga4_module is None:
+        from app.engine import ga4
+        _ga4_module = ga4
+    return _ga4_module
+
+def _get_gsc_module():
+    global _gsc_module
+    if _gsc_module is None:
+        from app.engine import gsc
+        _gsc_module = gsc
+    return _gsc_module
+
+def _get_viz_module():
+    global _viz_module
+    if _viz_module is None:
+        from app.engine import visualize
+        _viz_module = visualize
+    return _viz_module
 
 
 def execute_query(json_params: str):
@@ -19,24 +42,28 @@ def execute_query(json_params: str):
     try:
         params = QueryParams.from_json(json_params)
         
-        # データ取得
+        # データ取得（遅延インポート）
         if params.source == "ga4":
-            df = execute_ga4_query(params)
+            ga4 = _get_ga4_module()
+            df = ga4.execute_ga4_query(params)
         elif params.source == "gsc":
-            df = execute_gsc_query(params)
+            gsc = _get_gsc_module()
+            df = gsc.execute_gsc_query(params)
         else:
             return None, None, f"不明なソース: {params.source}"
         
         if df is None or df.empty:
             return None, None, "データが取得できませんでした"
         
+        viz = _get_viz_module()
+        
         # チャート生成
         chart = None
         if params.visualization:
-            chart = create_chart(df, params.visualization)
+            chart = viz.create_chart(df, params.visualization)
         
         # テーブル用にフォーマット
-        df_display = format_dataframe(df)
+        df_display = viz.format_dataframe(df)
         
         return df_display, chart, f"✓ {len(df)} 行のデータを取得しました"
         
@@ -59,7 +86,8 @@ def load_gsc_sample():
 def get_properties_list():
     """GA4 プロパティ一覧を取得"""
     try:
-        props = list_ga4_properties()
+        ga4 = _get_ga4_module()
+        props = ga4.list_ga4_properties()
         return "\n".join([f"- {p['property_name']} (ID: {p['property_id']})" for p in props])
     except Exception as e:
         return f"エラー: {e}"
@@ -68,14 +96,15 @@ def get_properties_list():
 def get_sites_list():
     """GSC サイト一覧を取得"""
     try:
-        sites = list_gsc_sites()
+        gsc = _get_gsc_module()
+        sites = gsc.list_gsc_sites()
         return "\n".join([f"- {s}" for s in sites])
     except Exception as e:
         return f"エラー: {e}"
 
 
 # Gradio UI
-with gr.Blocks(title="GA4/GSC 分析ツール", theme=gr.themes.Soft()) as app:
+with gr.Blocks(title="GA4/GSC 分析ツール") as app:
     gr.Markdown("# GA4 / Search Console 分析ツール")
     gr.Markdown("AI Agent が生成したJSONパラメータを貼り付けて実行します。")
     
@@ -133,4 +162,4 @@ with gr.Blocks(title="GA4/GSC 分析ツール", theme=gr.themes.Soft()) as app:
 
 
 if __name__ == "__main__":
-    app.launch(server_name="0.0.0.0", server_port=7860)
+    app.launch(server_name="0.0.0.0", server_port=7860, theme=gr.themes.Soft())
