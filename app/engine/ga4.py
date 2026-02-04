@@ -6,12 +6,15 @@ from ..schemas import QueryParams
 # 認証情報パス
 CREDS_PATH = "credentials/sa-shibuya-kyousei.json"
 
-# グローバルなmegatonインスタンス（再利用）
+# デフォルトGA4設定（渋谷矯正グループ）
+DEFAULT_GA4_ACCOUNT = "141366107"
+DEFAULT_GA4_PROPERTY = "254470346"
+
+# シングルトン
 _mg = None
 
-
 def get_megaton():
-    """megatonインスタンスを取得（シングルトン）"""
+    """megatonインスタンスを取得"""
     global _mg
     if _mg is None:
         _mg = start.Megaton(CREDS_PATH, headless=True)
@@ -22,19 +25,23 @@ def execute_ga4_query(params: QueryParams) -> pd.DataFrame:
     """GA4 クエリを実行してDataFrameを返す"""
     mg = get_megaton()
     
-    # プロパティ選択
-    if params.property_id:
-        # アカウントIDは自動で解決
-        accounts = mg.ga["4"].account.list()
-        for acc in accounts:
-            acc_id = acc["name"].split("/")[-1]
-            props = mg.ga["4"].property.list(acc_id)
-            for prop in props:
-                prop_id = prop["name"].split("/")[-1]
-                if prop_id == params.property_id:
-                    mg.ga["4"].account.select(acc_id)
-                    mg.ga["4"].property.select(prop_id)
-                    break
+    # プロパティIDからアカウントIDを自動解決
+    property_id = params.property_id or DEFAULT_GA4_PROPERTY
+    account_id = None
+    
+    for acc in mg.ga["4"].accounts:
+        for prop in acc.get("properties", []):
+            if prop["id"] == property_id:
+                account_id = acc["id"]
+                break
+        if account_id:
+            break
+    
+    if not account_id:
+        account_id = DEFAULT_GA4_ACCOUNT
+    
+    mg.ga["4"].account.select(account_id)
+    mg.ga["4"].property.select(property_id)
     
     # 期間設定
     mg.report.set.dates(params.date_range.start, params.date_range.end)
@@ -61,20 +68,16 @@ def list_ga4_properties() -> list[dict]:
     mg = get_megaton()
     result = []
     
-    accounts = mg.ga["4"].account.list()
-    for acc in accounts:
-        acc_id = acc["name"].split("/")[-1]
-        acc_name = acc["displayName"]
-        props = mg.ga["4"].property.list(acc_id)
-        for prop in props:
-            prop_id = prop["name"].split("/")[-1]
-            prop_name = prop["displayName"]
+    for acc in mg.ga["4"].accounts:
+        acc_id = acc["id"]
+        acc_name = acc["name"]
+        for prop in acc.get("properties", []):
             result.append({
                 "account_id": acc_id,
                 "account_name": acc_name,
-                "property_id": prop_id,
-                "property_name": prop_name,
-                "display": f"{prop_name} ({prop_id})"
+                "property_id": prop["id"],
+                "property_name": prop["name"],
+                "display": f"{prop['name']} ({prop['id']})"
             })
     
     return result

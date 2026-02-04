@@ -6,12 +6,11 @@ from ..schemas import QueryParams
 # 認証情報パス
 CREDS_PATH = "credentials/sa-shibuya-kyousei.json"
 
-# グローバルなmegatonインスタンス（再利用）
+# シングルトン
 _mg = None
 
-
 def get_megaton():
-    """megatonインスタンスを取得（シングルトン）"""
+    """megatonインスタンスを取得"""
     global _mg
     if _mg is None:
         _mg = start.Megaton(CREDS_PATH, headless=True)
