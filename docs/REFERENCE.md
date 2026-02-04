@@ -218,25 +218,44 @@ mg.report.run(d=d, m=m, show=False)
 
 #### フィルタの書式
 
-```python
-# フィルタはタプルのリスト: (フィールド名, 演算子, 値)
-filters = [
-    ("sessionDefaultChannelGroup", "==", "Organic Search"),
-    ("country", "==", "Japan"),
-]
+フィルタは**文字列**で指定する。書式: `<フィールド名><演算子><値>`
 
-# 複数フィルタはAND条件
-mg.report.run(d=["date"], m=["sessions"], filters=filters, show=False)
+```python
+# 単一フィルタ
+mg.report.run(
+    d=["date"], 
+    m=["sessions"], 
+    filter_d="sessionDefaultChannelGroup==Organic Search",
+    show=False
+)
+
+# 複数フィルタはセミコロン(;)で区切る（AND条件）
+mg.report.run(
+    d=["date"], 
+    m=["sessions"], 
+    filter_d="sessionDefaultChannelGroup==Organic Search;country==Japan",
+    show=False
+)
+
+# メトリクスのフィルタは filter_m を使用
+mg.report.run(
+    d=["date"], 
+    m=["sessions"], 
+    filter_m="sessions>100",
+    show=False
+)
 ```
 
 **演算子一覧:**
 | 演算子 | 説明 | 例 |
 |-------|------|-----|
-| `==` | 完全一致 | `("country", "==", "Japan")` |
-| `!=` | 不一致 | `("country", "!=", "Japan")` |
-| `contains` | 部分一致 | `("pagePath", "contains", "/blog/")` |
-| `not_contains` | 部分不一致 | `("pagePath", "not_contains", "/admin/")` |
-| `>`, `<`, `>=`, `<=` | 数値比較 | `("sessions", ">", "100")` |
+| `==` | 完全一致 | `country==Japan` |
+| `!=` | 不一致 | `country!=Japan` |
+| `=@` | 部分一致（contains） | `pagePath=@/blog/` |
+| `!@` | 部分不一致 | `pagePath!@/admin/` |
+| `=~` | 正規表現一致 | `pagePath=~^/products/` |
+| `!~` | 正規表現不一致 | `pagePath!~/test/` |
+| `>`, `>=`, `<`, `<=` | 数値比較 | `sessions>100` |
 
 #### よく使うディメンション・メトリクス
 

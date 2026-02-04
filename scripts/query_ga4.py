@@ -40,17 +40,18 @@ def main():
     mg.ga["4"].property.select(args.property)
     mg.report.set.dates(start_date, end_date)
     
-    # フィルタ設定
-    filters = None
-    if args.filter:
-        field, value = args.filter.split("==")
-        filters = [(field, "==", value)]
-    
     # クエリ実行
     dimensions = args.dimensions.split(",")
     metrics = args.metrics.split(",")
     
-    mg.report.run(d=dimensions, m=metrics, filters=filters, limit=args.limit, show=False)
+    # フィルタは文字列で渡す（例: "sessionDefaultChannelGroup==Organic Search"）
+    mg.report.run(
+        d=dimensions, 
+        m=metrics, 
+        filter_d=args.filter,  # None or 文字列
+        limit=args.limit, 
+        show=False
+    )
     
     df = mg.report.data
     if df is None or df.empty:
