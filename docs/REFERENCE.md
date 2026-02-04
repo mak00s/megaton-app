@@ -196,6 +196,73 @@ mg.report.run(d=["date"], m=["sessions"], filters=[...], show=False)
 df = mg.report.data
 ```
 
+#### dimensions / metrics の指定方法
+
+```python
+# 基本: 文字列のリスト
+d = ["date", "sessionDefaultChannelGroup"]
+m = ["sessions", "activeUsers"]
+
+# 列名を変更: タプルで (API名, 表示名) を指定
+d = [
+    "date",
+    ("sessionDefaultChannelGroup", "channel"),  # → 列名が "channel" になる
+]
+m = [
+    ("sessions", "セッション"),      # → 列名が "セッション" になる
+    ("activeUsers", "uu"),           # → 列名が "uu" になる
+]
+
+mg.report.run(d=d, m=m, show=False)
+```
+
+#### フィルタの書式
+
+```python
+# フィルタはタプルのリスト: (フィールド名, 演算子, 値)
+filters = [
+    ("sessionDefaultChannelGroup", "==", "Organic Search"),
+    ("country", "==", "Japan"),
+]
+
+# 複数フィルタはAND条件
+mg.report.run(d=["date"], m=["sessions"], filters=filters, show=False)
+```
+
+**演算子一覧:**
+| 演算子 | 説明 | 例 |
+|-------|------|-----|
+| `==` | 完全一致 | `("country", "==", "Japan")` |
+| `!=` | 不一致 | `("country", "!=", "Japan")` |
+| `contains` | 部分一致 | `("pagePath", "contains", "/blog/")` |
+| `not_contains` | 部分不一致 | `("pagePath", "not_contains", "/admin/")` |
+| `>`, `<`, `>=`, `<=` | 数値比較 | `("sessions", ">", "100")` |
+
+#### よく使うディメンション・メトリクス
+
+**ディメンション:**
+| API名 | 説明 |
+|-------|------|
+| `date` | 日付 |
+| `sessionDefaultChannelGroup` | チャネル（Organic Search等） |
+| `sessionSource` | 参照元 |
+| `sessionMedium` | メディア |
+| `pagePath` | ページパス |
+| `landingPage` | ランディングページ |
+| `deviceCategory` | デバイス（desktop/mobile/tablet） |
+| `country` | 国 |
+
+**メトリクス:**
+| API名 | 説明 |
+|-------|------|
+| `sessions` | セッション数 |
+| `activeUsers` | アクティブユーザー数 |
+| `newUsers` | 新規ユーザー数 |
+| `screenPageViews` | ページビュー数 |
+| `bounceRate` | 直帰率 |
+| `averageSessionDuration` | 平均セッション時間 |
+| `conversions` | コンバージョン数 |
+
 ### Search Console
 
 ```python
@@ -210,6 +277,25 @@ mg.search.set.dates("2026-01-01", "2026-01-31")
 mg.search.run(dimensions=["query"], metrics=["clicks", "impressions", "ctr", "position"])
 df = mg.search.data
 ```
+
+#### ディメンション・メトリクス
+
+**ディメンション:**
+| 名前 | 説明 |
+|------|------|
+| `query` | 検索クエリ |
+| `page` | ページURL |
+| `country` | 国 |
+| `device` | デバイス（DESKTOP/MOBILE/TABLET） |
+| `date` | 日付 |
+
+**メトリクス:**
+| 名前 | 説明 |
+|------|------|
+| `clicks` | クリック数 |
+| `impressions` | 表示回数 |
+| `ctr` | クリック率（0〜1） |
+| `position` | 平均掲載順位 |
 
 ### Google Sheets
 
