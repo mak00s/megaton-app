@@ -32,6 +32,10 @@ shibuya-analysis/
 │   ├── *.ipynb             # Notebook本体
 │   └── *.py                # ↑ と Jupytext で同期
 ├── scripts/                # 実行スクリプト（直接実行する .py）
+├── app/                    # Gradio UI アプリ
+│   ├── main.py             # エントリーポイント
+│   ├── schemas/            # JSONパラメータスキーマ
+│   └── engine/             # 実行エンジン（GA4/GSC/可視化）
 ├── lib/                    # 共通ユーティリティ（importして使う）
 ├── data/                   # 出力データ（CSV等）
 ├── .gitignore              # Git 除外設定
@@ -142,6 +146,37 @@ df = mg.report.data
 mg.open.sheet("https://docs.google.com/spreadsheets/d/xxxxx")
 config_df = mg.sheet.to_dataframe()
 sites = config_df.to_dict('records')
+```
+
+### Gradio UI（対話型分析）
+
+AI Agent と人間が対話しながらデータ分析を行うためのWeb UI。
+
+**起動方法:**
+```bash
+python app/main.py
+# → http://localhost:7860 でアクセス
+```
+
+**フロー:**
+1. 人間が自然言語で要求（例: 「渋谷サイトの直近7日間のOrganic Search推移」）
+2. AI Agent が解釈してJSONパラメータを生成
+3. Agent がJSONをGradio UIに貼り付け
+4. 人間がUIで確認・修正、実行ボタン押下
+5. 結果がテーブル/チャートで表示
+6. 人間がOKならAgentが分析を進める
+
+**JSONパラメータ例（GA4）:**
+```json
+{
+  "source": "ga4",
+  "property_id": "254470346",
+  "date_range": {"start": "2026-01-28", "end": "2026-02-03"},
+  "dimensions": ["date"],
+  "metrics": ["sessions"],
+  "filters": [{"field": "defaultChannelGroup", "op": "==", "value": "Organic Search"}],
+  "visualization": {"type": "line", "x": "date", "y": "sessions"}
+}
 ```
 
 ## 課題・メモ

@@ -12,4 +12,8 @@ jupytext
 pandas
 matplotlib
 japanize-matplotlib
+plotly
+
+# Gradio UI
+gradio
 
