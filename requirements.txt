@@ -18,3 +18,4 @@ plotly
 gradio
 
 streamlit
+streamlit-autorefresh
