@@ -1,6 +1,6 @@
 # 技術リファレンス
 
-## Gradio UI アーキテクチャ
+## Streamlit UI アーキテクチャ
 
 人間とAI Agentが協力してデータ分析を行うフロー：
 
@@ -12,34 +12,34 @@
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  [1] 人間: 自然言語で要求                                        │
-│      「渋谷サイトの直近7日間のOrganic Search推移を見たい」         │
+│      「直近7日間のOrganic Search推移を見たい」                    │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  [2] AI Agent: JSONパラメータ生成                                │
+│  [2] AI Agent: input/params.json にパラメータを書き込む          │
 │      {                                                          │
 │        "source": "ga4",                                         │
 │        "property_id": "254470346",                              │
 │        "date_range": {"start": "...", "end": "..."},            │
 │        "dimensions": ["date"],                                  │
 │        "metrics": ["sessions"],                                 │
-│        "filters": [{"field": "defaultChannelGroup", ...}]       │
+│        "filter_d": "sessionDefaultChannelGroup==Organic Search" │
 │      }                                                          │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  [3] 人間: Gradio UIでパラメータ確認・修正                        │
-│      - JSONを貼り付け → 「↑ UIに読み込み」                        │
-│      - ドロップダウンで日付・プロパティ変更                        │
-│      - 「↓ JSONに反映」→「実行」                                 │
+│  [3] Streamlit UI: 自動反映（2秒ごとにファイル監視）             │
+│      - UIに自動でパラメータが反映される                          │
+│      - 人間がドロップダウンで日付・プロパティを微調整             │
+│      - 「自動実行」ONなら自動でクエリ実行                        │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  [4] Gradio UI: 結果表示                                        │
-│      - テーブル / チャート（Plotly）                              │
+│  [4] Streamlit UI: 結果表示                                     │
+│      - テーブル / チャート（折れ線/棒グラフ）                     │
 │      - CSV保存 → output/result_*.csv                            │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -58,7 +58,7 @@
 | 要求定義 | 自然言語で指示 | - |
 | パラメータ生成 | - | JSONを生成 |
 | パラメータ確認 | UIで確認・修正 | - |
-| 実行 | ボタン押下 | - |
+| 実行 | ボタン押下 or 自動 | - |
 | 結果確認 | 目視 | - |
 | 分析 | 判断 | データ処理・考察 |
 
@@ -78,15 +78,7 @@
   },
   "dimensions": ["date"],
   "metrics": ["sessions", "activeUsers"],
-  "filters": [
-    {"field": "defaultChannelGroup", "op": "==", "value": "Organic Search"}
-  ],
-  "visualization": {
-    "type": "line",
-    "x": "date",
-    "y": "sessions",
-    "title": "セッション推移"
-  },
+  "filter_d": "sessionDefaultChannelGroup==Organic Search",
   "limit": 1000
 }
 ```
@@ -96,21 +88,24 @@
 ```json
 {
   "source": "gsc",
-  "site_url": "https://www.shibuyakyousei.jp/",
+  "site_url": "https://www.example.com/",
   "date_range": {
     "start": "2026-01-21",
     "end": "2026-02-03"
   },
   "dimensions": ["query"],
-  "metrics": ["clicks", "impressions", "ctr", "position"],
-  "filters": [],
-  "visualization": {
-    "type": "bar",
-    "x": "query",
-    "y": "clicks",
-    "title": "クエリ別クリック数"
-  },
-  "limit": 20
+  "filter": "query:contains:渋谷",
+  "limit": 1000
+}
+```
+
+### BigQueryクエリ
+
+```json
+{
+  "source": "bigquery",
+  "project_id": "my-gcp-project",
+  "sql": "SELECT event_date, COUNT(*) as cnt FROM `project.dataset.events_*` GROUP BY 1"
 }
 ```
 
@@ -118,35 +113,18 @@
 
 | フィールド | 型 | 必須 | 説明 |
 |-----------|-----|------|------|
-| `source` | string | ✓ | `"ga4"` または `"gsc"` |
+| `source` | string | ✓ | `"ga4"`, `"gsc"`, `"bigquery"` |
 | `property_id` | string | GA4時 | GA4プロパティID |
 | `site_url` | string | GSC時 | Search ConsoleサイトURL |
-| `date_range.start` | string | ✓ | 開始日（YYYY-MM-DD） |
-| `date_range.end` | string | ✓ | 終了日（YYYY-MM-DD） |
+| `project_id` | string | BQ時 | GCPプロジェクトID |
+| `sql` | string | BQ時 | 実行するSQL |
+| `date_range.start` | string | GA4/GSC | 開始日（YYYY-MM-DD） |
+| `date_range.end` | string | GA4/GSC | 終了日（YYYY-MM-DD） |
 | `dimensions` | array | - | ディメンション一覧 |
-| `metrics` | array | - | メトリクス一覧 |
-| `filters` | array | - | フィルタ条件 |
-| `visualization` | object | - | 可視化設定 |
-| `limit` | number | - | 結果件数上限 |
-
-### フィルタ演算子
-
-| 演算子 | 説明 |
-|-------|------|
-| `==` | 等しい |
-| `!=` | 等しくない |
-| `>`, `<`, `>=`, `<=` | 比較 |
-| `contains` | 部分一致 |
-| `not_contains` | 部分不一致 |
-
-### 可視化タイプ
-
-| type | 説明 |
-|------|------|
-| `table` | テーブルのみ |
-| `line` | 折れ線グラフ |
-| `bar` | 棒グラフ |
-| `pie` | 円グラフ |
+| `metrics` | array | GA4時 | メトリクス一覧 |
+| `filter_d` | string | GA4時 | GA4フィルタ（`field==value`形式） |
+| `filter` | string | GSC時 | GSCフィルタ（`dim:op:expr`形式） |
+| `limit` | number | - | 結果件数上限（最大10万） |
 
 ---
 
@@ -192,7 +170,7 @@ mg.ga["4"].property.select("PROPERTY_ID")
 
 # レポート
 mg.report.set.dates("2026-01-01", "2026-01-31")
-mg.report.run(d=["date"], m=["sessions"], filters=[...], show=False)
+mg.report.run(d=["date"], m=["sessions"], filter_d="...", show=False)
 df = mg.report.data
 ```
 
@@ -310,6 +288,15 @@ mg.search.use("https://example.com/")
 mg.search.set.dates("2026-01-01", "2026-01-31")
 mg.search.run(dimensions=["query"], metrics=["clicks", "impressions", "ctr", "position"])
 df = mg.search.data
+
+# フィルタ付きレポート
+mg.search.run(
+    dimensions=["query", "page"],
+    dimension_filter=[
+        {"dimension": "query", "operator": "contains", "expression": "渋谷"},
+        {"dimension": "page", "operator": "includingRegex", "expression": "/blog/"}
+    ]
+)
 ```
 
 #### ディメンション・メトリクス
@@ -330,6 +317,26 @@ df = mg.search.data
 | `impressions` | 表示回数 |
 | `ctr` | クリック率（0〜1） |
 | `position` | 平均掲載順位 |
+
+#### フィルタの書式
+
+フィルタは辞書のリストで指定。
+
+```python
+dimension_filter = [
+    {"dimension": "query", "operator": "contains", "expression": "渋谷"},
+]
+```
+
+**演算子一覧:**
+| 演算子 | 説明 |
+|-------|------|
+| `contains` | 部分一致 |
+| `notContains` | 部分不一致 |
+| `equals` | 完全一致 |
+| `notEquals` | 不一致 |
+| `includingRegex` | 正規表現一致 |
+| `excludingRegex` | 正規表現不一致 |
 
 ### Google Sheets
 
@@ -485,6 +492,4 @@ df = bq.ga4.events(
 ## 外部リンク
 
 - [megaton GitHub](https://github.com/mak00s/megaton)
-- [megaton チートシート](https://github.com/mak00s/megaton/blob/main/CHEATSHEET.md)
-- [Gradio Documentation](https://www.gradio.app/docs)
-- [Plotly Python](https://plotly.com/python/)
+- [Streamlit Documentation](https://docs.streamlit.io/)
