@@ -95,6 +95,32 @@ streamlit run app/streamlit_app.py
 # → http://localhost:8501
 ```
 
+### AI Agent → Streamlit 連携
+
+AI Agent がパラメータをStreamlit UIに自動反映させる方法：
+
+1. `input/params.json` にパラメータを書き込む
+2. Streamlit UIが2秒ごとにファイルを監視、変更を検知して自動反映
+3. 「自動実行」ONの場合、クエリも自動実行
+
+```bash
+# AI Agent がパラメータを書き込み
+cat > input/params.json << 'EOF'
+{
+  "source": "gsc",
+  "site_url": "sc-domain:example.com",
+  "date_range": {"start": "2025-01-01", "end": "2025-01-31"},
+  "dimensions": ["query", "page"],
+  "limit": 500
+}
+EOF
+# → Streamlit UIに自動反映される
+```
+
+**UIの設定:**
+- 「ファイル自動監視」: ON/OFFでファイル監視を切り替え
+- 「自動実行」: ONにするとパラメータ反映後に自動でクエリ実行
+
 ## TODO
 
 ### Phase 2: 基本機能実装（完了）

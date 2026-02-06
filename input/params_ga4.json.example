@@ -1,0 +1,12 @@
+{
+  "source": "ga4",
+  "property_id": "123456789",
+  "date_range": {
+    "start": "2025-01-01",
+    "end": "2025-01-31"
+  },
+  "dimensions": ["date", "sessionDefaultChannelGroup"],
+  "metrics": ["sessions", "activeUsers", "newUsers"],
+  "filter_d": "sessionDefaultChannelGroup==Organic Search",
+  "limit": 1000
+}

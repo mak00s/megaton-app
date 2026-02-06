@@ -1,0 +1,10 @@
+{
+  "source": "gsc",
+  "site_url": "sc-domain:example.com",
+  "date_range": {
+    "start": "2025-01-01",
+    "end": "2025-01-31"
+  },
+  "dimensions": ["query", "page"],
+  "limit": 500
+}
