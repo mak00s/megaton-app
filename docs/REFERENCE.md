@@ -72,6 +72,41 @@
 - `source` ごとに許可されるキー以外はエラー（`additionalProperties: false`）
 - Streamlit と CLI（`scripts/query.py --params ...`）で同じスキーマを共通利用
 
+## CLI Job管理
+
+### コマンド
+
+```bash
+# 非同期投入
+python scripts/query.py --submit --params input/params.json
+
+# 状態確認
+python scripts/query.py --status <job_id>
+
+# 結果確認
+python scripts/query.py --result <job_id>
+
+# ジョブ一覧
+python scripts/query.py --list-jobs
+```
+
+### ジョブ状態
+
+| status | 説明 |
+|--------|------|
+| `queued` | キュー投入済み |
+| `running` | 実行中 |
+| `succeeded` | 成功（`artifact_path` に結果CSVあり） |
+| `failed` | 失敗（`error` に詳細あり） |
+
+### 保存構造
+
+| パス | 内容 |
+|------|------|
+| `output/jobs/records/<job_id>.json` | ジョブメタデータ |
+| `output/jobs/logs/<job_id>.log` | 実行ログ |
+| `output/jobs/artifacts/<job_id>.csv` | 結果CSV |
+
 ### GA4クエリ
 
 ```json

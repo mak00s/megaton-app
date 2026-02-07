@@ -87,10 +87,20 @@ shibuya-analysis/
 # 共通 params.json（厳格スキーマ）で実行
 python scripts/query.py --params input/params.json
 
+# 非同期ジョブとして投入
+python scripts/query.py --submit --params input/params.json
+
+# ジョブ状態確認
+python scripts/query.py --status job_20260207_120000_abcd1234
+
+# ジョブ結果確認
+python scripts/query.py --result job_20260207_120000_abcd1234
+
 # 一覧取得
 python scripts/query.py --list-ga4-properties
 python scripts/query.py --list-gsc-sites
 python scripts/query.py --list-bq-datasets --project my-project
+python scripts/query.py --list-jobs
 ```
 
 ### Streamlit UI を使う場合

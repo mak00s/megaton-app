@@ -47,6 +47,18 @@ AI Agent がデータを取得する際は、CLIスクリプトを使用。高�
 # source を見て自動分岐（ga4/gsc/bigquery）
 python scripts/query.py --params input/params.json
 
+# 非同期ジョブとして投入
+python scripts/query.py --submit --params input/params.json
+
+# ジョブ状態確認
+python scripts/query.py --status <job_id>
+
+# ジョブ結果確認
+python scripts/query.py --result <job_id>
+
+# ジョブ一覧
+python scripts/query.py --list-jobs
+
 # JSON出力
 python scripts/query.py --params input/params.json --json
 
@@ -64,6 +76,11 @@ python scripts/query.py --list-bq-datasets --project my-project
 | オプション | 説明 | デフォルト |
 |-----------|------|-----------|
 | `--params` | スキーマ検証済みJSON入力 | `input/params.json` |
+| `--submit` | ジョブを非同期投入 | OFF |
+| `--status <job_id>` | ジョブ状態の表示 | - |
+| `--result <job_id>` | ジョブ結果情報の表示 | - |
+| `--list-jobs` | ジョブ一覧の表示 | OFF |
+| `--job-limit` | ジョブ一覧の件数上限 | 20 |
 | `--list-ga4-properties` | GA4プロパティ一覧 | OFF |
 | `--list-gsc-sites` | GSCサイト一覧 | OFF |
 | `--list-bq-datasets` | BigQueryデータセット一覧 | OFF |
@@ -72,6 +89,12 @@ python scripts/query.py --list-bq-datasets --project my-project
 | `--output` | CSV出力ファイル | - |
 
 `--params` 実行時は `schema_version: "1.0"` を必須検証し、`source` とキー整合性が崩れている場合は実行前にエラー終了します。
+
+### ジョブ管理の保存先
+
+- ジョブレコード: `output/jobs/records/*.json`
+- 実行ログ: `output/jobs/logs/*.log`
+- 結果CSV: `output/jobs/artifacts/*.csv`
 
 ### フィルタ書式
 
