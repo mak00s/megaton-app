@@ -21,14 +21,27 @@ PARAMS_FILE = Path("input/params.json")
 def load_params_from_file():
     """外部JSONファイルからパラメータを読み込む"""
     if not PARAMS_FILE.exists():
-        return None, None
+        return None, None, []
     try:
         mtime = PARAMS_FILE.stat().st_mtime
         with open(PARAMS_FILE, "r", encoding="utf-8") as f:
-            params = json.load(f)
-        return params, mtime
-    except (json.JSONDecodeError, IOError):
-        return None, None
+            raw_params = json.load(f)
+        params, errors = validate_params(raw_params)
+        return params, mtime, errors
+    except json.JSONDecodeError as e:
+        return None, None, [{
+            "error_code": "INVALID_JSON",
+            "message": f"Invalid JSON: {e}",
+            "path": "$",
+            "hint": "Fix JSON syntax in input/params.json."
+        }]
+    except IOError as e:
+        return None, None, [{
+            "error_code": "FILE_IO_ERROR",
+            "message": f"Failed to read params.json: {e}",
+            "path": "$",
+            "hint": "Check file permissions and file path."
+        }]
 
 def apply_params_to_session(params):
     """読み込んだパラメータをセッションに反映（ウィジェットのkeyも更新）"""
@@ -111,6 +124,7 @@ from lib.megaton_client import (
     query_bq,
     save_to_sheet,
 )
+from lib.params_validator import validate_params
 
 # Streamlit用キャッシュラッパー
 @st.cache_data(ttl=300)
@@ -251,6 +265,8 @@ if "auto_watch" not in st.session_state:
     st.session_state["auto_watch"] = True
 if "auto_execute" not in st.session_state:
     st.session_state["auto_execute"] = False
+if "params_validation_errors" not in st.session_state:
+    st.session_state["params_validation_errors"] = []
 
 # 自動リフレッシュ（ファイル監視用：2秒ごと）
 if st.session_state.get("auto_watch", True):
@@ -261,13 +277,17 @@ file_just_updated = False
 
 # ファイル変更チェック（メインスクリプト内で実行）
 if st.session_state.get("auto_watch", True) and check_file_updated():
-    params, _ = load_params_from_file()
+    params, _, errors = load_params_from_file()
     if params:
         apply_params_to_session(params)
+        st.session_state["params_validation_errors"] = []
         st.toast("🔄 パラメータファイルが更新されました", icon="📄")
         file_just_updated = True
         if st.session_state.get("auto_execute", False):
             st.session_state["auto_execute_pending"] = True
+    elif errors:
+        st.session_state["params_validation_errors"] = errors
+        st.toast("❌ params.json の検証に失敗しました", icon="⚠️")
 
 with st.sidebar:
     with st.expander("🤖 AI Agent 連携", expanded=True):
@@ -291,18 +311,28 @@ with st.sidebar:
 
         # 手動読み込みボタン
         if st.button("📥 JSONを開く", use_container_width=True):
-            params, mtime = load_params_from_file()
+            params, mtime, errors = load_params_from_file()
             if params:
                 apply_params_to_session(params)
                 st.session_state["last_params_mtime"] = mtime
+                st.session_state["params_validation_errors"] = []
                 st.success("✓ パラメータを読み込みました")
                 st.rerun()
+            elif errors:
+                st.session_state["params_validation_errors"] = errors
+                st.error("params.json の検証に失敗しました")
             else:
                 st.warning("params.json が見つかりません")
 
 # サイドバー
 with st.sidebar:
     st.header("設定")
+
+    validation_errors = st.session_state.get("params_validation_errors", [])
+    if validation_errors:
+        st.error("params.json がスキーマ不一致です")
+        for err in validation_errors:
+            st.caption(f"`{err['error_code']}` {err['path']} - {err['message']}")
 
     # 読み込み済みパラメータを取得
     lp = st.session_state.get("loaded_params", {})
