@@ -1,6 +1,6 @@
 import unittest
 
-from lib.params_validator import validate_params
+from megaton_lib.params_validator import validate_params
 
 
 class TestParamsValidator(unittest.TestCase):

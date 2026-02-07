@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lib.job_manager import JobStore
+from megaton_lib.job_manager import JobStore
 
 
 ROOT = Path(__file__).resolve().parent.parent

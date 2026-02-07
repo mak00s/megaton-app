@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from lib.result_inspector import (
+from megaton_lib.result_inspector import (
     apply_transform,
     apply_where,
     apply_sort,

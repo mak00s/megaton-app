@@ -11,7 +11,7 @@ from google.analytics.data_v1beta.types import (
     OrderBy,
 )
 from google.oauth2 import service_account
-from lib.credentials import resolve_service_account_path
+from megaton_lib.credentials import resolve_service_account_path
 
 # 認証情報
 CREDS_PATH = resolve_service_account_path()

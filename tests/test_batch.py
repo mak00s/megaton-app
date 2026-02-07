@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.batch_runner import collect_configs, run_batch
+from megaton_lib.batch_runner import collect_configs, run_batch
 
 
 class TestCollectConfigs:

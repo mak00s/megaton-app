@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from lib.credentials import resolve_service_account_path, list_service_account_paths
+from megaton_lib.credentials import resolve_service_account_path, list_service_account_paths
 
 
 class TestCredentials(unittest.TestCase):

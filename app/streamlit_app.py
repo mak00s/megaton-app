@@ -209,7 +209,7 @@ def check_file_updated():
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from lib.megaton_client import (
+from megaton_lib.megaton_client import (
     get_megaton,
     get_ga4_properties as _get_ga4_properties,
     query_ga4,
@@ -220,9 +220,9 @@ from lib.megaton_client import (
     save_to_sheet,
     save_to_bq,
 )
-from lib.params_diff import canonicalize_json
-from lib.params_validator import validate_params
-from lib.result_inspector import apply_pipeline, SUPPORTED_AGG_FUNCS, parse_transforms
+from megaton_lib.params_diff import canonicalize_json
+from megaton_lib.params_validator import validate_params
+from megaton_lib.result_inspector import apply_pipeline, SUPPORTED_AGG_FUNCS, parse_transforms
 from app.ui.params_utils import (
     GA4_OPERATORS,
     GSC_OPERATORS,
