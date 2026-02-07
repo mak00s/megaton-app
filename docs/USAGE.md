@@ -8,11 +8,9 @@
 ### セル構成
 
 ```
-セル0: パラメータ（# %% tags=["parameters"]）
-  - 外から上書きしたい変数を集約（日付、プロパティID、出力先など）
-
-セル1: セットアップ
-  - from lib.notebook import init; init()
+セル1: セットアップ（# %% tags=["parameters"]）
+  - パラメータ（日付、プロパティID、出力先など）
+  - from setup import init; init()
   - import pandas, matplotlib, ...
   - from lib.megaton_client import get_ga4, get_gsc
 
@@ -20,9 +18,12 @@
   - データ取得・加工・集計・可視化
 ```
 
+パラメータとセットアップは 1 セルに統合する。`tags=["parameters"]` を付けておけば
+`run_notebook.py -p KEY=VALUE` でパラメータだけ上書きできる（import 文はマッチしない）。
+
 ### ノートブックの初期化
 
-`lib/notebook.py` の `init()` がパス・環境変数・モジュールを一括初期化する。
+`notebooks/setup.py` の `init()` がパス解決・環境変数・モジュールリロードを一括で行う。
 
 ```python
 # %% tags=["parameters"]
@@ -30,21 +31,15 @@ PROPERTY_ID = "254800682"
 START_DATE = "2025-06-01"
 END_DATE = "2026-01-31"
 
-# %%
-import sys
-from pathlib import Path
-
-_d = Path.cwd()
-while _d != _d.parent and not (_d / "lib").is_dir():
-    _d = _d.parent
-sys.path.insert(0, str(_d))
-
-from lib.notebook import init
-init()
+import sys; sys.path.insert(0, "..")  # noqa: E702  ← reports/ 等サブディレクトリの場合のみ
+from setup import init; init()  # noqa: E702
 
 from lib.megaton_client import get_ga4, get_gsc
 from lib.analysis import show
 ```
+
+`notebooks/` 直下のノートブックは `sys.path.insert` 不要（`setup.py` が同じ階層）。
+サブディレクトリ（`reports/` 等）のノートブックは `sys.path.insert(0, "..")` で `notebooks/` を追加する。
 
 ### megaton ネイティブ API（推奨）
 

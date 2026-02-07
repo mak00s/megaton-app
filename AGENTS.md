@@ -71,6 +71,7 @@ shibuya-analysis/
 │   └── REFERENCE.md        # 技術リファレンス
 ├── credentials/            # 認証情報（Git管理外）
 ├── notebooks/              # Jupyter Notebook（Jupytext .py ↔ .ipynb）
+│   ├── setup.py            # ノートブック共通セットアップ（init()）
 │   └── reports/            # 分析レポート用ノートブック
 ├── lib/                    # 共通モジュール
 │   ├── megaton_client.py   # megaton ラッパー（CLI/UI共通）
