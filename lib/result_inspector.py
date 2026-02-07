@@ -1,12 +1,88 @@
-"""ジョブ結果CSVの部分読み込み/要約"""
+"""ジョブ結果CSVの部分読み込み/要約/変換"""
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 import pandas as pd
 
 SUPPORTED_AGG_FUNCS = {"sum", "mean", "count", "min", "max", "median"}
+SUPPORTED_TRANSFORMS = {"date_format", "url_decode", "path_only", "strip_qs"}
+
+
+def parse_transforms(expr: str) -> list[tuple[str, str, str | None]]:
+    """'col:func,col2:func2:args' 形式のトランスフォーム定義をパース
+
+    コロンを含まないセグメントは直前のtransformの引数に追記する。
+    例: "page:strip_qs:id,ref" → [("page", "strip_qs", "id,ref")]
+    """
+    raw_parts = [p.strip() for p in expr.split(",") if p.strip()]
+    if not raw_parts:
+        raise ValueError("Invalid transform expression: expression is empty")
+
+    result: list[tuple[str, str, str | None]] = []
+    for part in raw_parts:
+        if ":" not in part:
+            # コロンなし → 直前の transform の引数に追記
+            if not result or result[-1][2] is None:
+                raise ValueError(f"Invalid transform expression: {part}")
+            prev = result[-1]
+            result[-1] = (prev[0], prev[1], prev[2] + "," + part)
+            continue
+        tokens = part.split(":", 2)
+        col, func = tokens[0], tokens[1]
+        args = tokens[2] if len(tokens) == 3 else None
+        if not col or not func:
+            raise ValueError(f"Invalid transform expression: {part}")
+        if func not in SUPPORTED_TRANSFORMS:
+            raise ValueError(f"Invalid transform function: {func}")
+        result.append((col, func, args))
+    return result
+
+
+def apply_transform(df: pd.DataFrame, expr: str) -> pd.DataFrame:
+    """列にトランスフォームを順次適用"""
+    transforms = parse_transforms(expr)
+    result = df.copy()
+
+    for col, func, args in transforms:
+        if col not in result.columns:
+            raise ValueError(f"Invalid transform column: {col}")
+
+        if func == "date_format":
+            # YYYYMMDD → YYYY-MM-DD
+            result[col] = (
+                result[col]
+                .astype(str)
+                .str.replace(r"^(\d{4})(\d{2})(\d{2})$", r"\1-\2-\3", regex=True)
+            )
+        elif func == "url_decode":
+            result[col] = result[col].astype(str).apply(unquote)
+        elif func == "path_only":
+            result[col] = result[col].astype(str).apply(
+                lambda u: urlparse(u).path or u
+            )
+        elif func == "strip_qs":
+            if args:
+                # 指定パラメータのみ保持
+                keep = [p.strip() for p in args.split(",")]
+
+                def _keep_qs(url: str, keep: list[str] = keep) -> str:
+                    p = urlparse(url)
+                    qs = parse_qs(p.query, keep_blank_values=True)
+                    filtered = {k: v for k, v in qs.items() if k in keep}
+                    new_qs = urlencode(filtered, doseq=True) if filtered else ""
+                    return p._replace(query=new_qs).geturl()
+
+                result[col] = result[col].astype(str).apply(_keep_qs)
+            else:
+                # 全クエリパラメータ除去
+                result[col] = result[col].astype(str).apply(
+                    lambda u: urlparse(u)._replace(query="", fragment="").geturl()
+                )
+
+    return result
 
 
 def read_head(csv_path: str | Path, rows: int) -> pd.DataFrame:
@@ -102,6 +178,7 @@ def apply_group_aggregate(df: pd.DataFrame, group_by: str, aggregate: str) -> pd
 def apply_pipeline(
     df: pd.DataFrame,
     *,
+    transform: str | None = None,
     where: str | None = None,
     group_by: str | None = None,
     aggregate: str | None = None,
@@ -109,8 +186,11 @@ def apply_pipeline(
     columns: str | None = None,
     head: int | None = None,
 ) -> pd.DataFrame:
-    """where→group/aggregate→sort→columns→head の順に適用"""
+    """transform→where→group/aggregate→sort→columns→head の順に適用"""
     result = df.copy()
+
+    if transform:
+        result = apply_transform(result, transform)
 
     if where:
         result = apply_where(result, where)

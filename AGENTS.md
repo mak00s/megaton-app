@@ -105,6 +105,11 @@ python scripts/query.py --result job_20260207_120000_abcd1234 --head 20
 # 要約統計だけ取得
 python scripts/query.py --result job_20260207_120000_abcd1234 --summary
 
+# 結果の変換
+python scripts/query.py --result job_20260207_120000_abcd1234 --json --transform "date:date_format"
+python scripts/query.py --result job_20260207_120000_abcd1234 --json --transform "page:url_decode,page:strip_qs,page:path_only"
+python scripts/query.py --result job_20260207_120000_abcd1234 --json --transform "page:strip_qs:id,ref" --group-by "page" --aggregate "sum:clicks"
+
 # 結果のフィルタ・集計
 python scripts/query.py --params input/params.json --json --where "clicks > 10" --sort "clicks DESC" --head 20
 python scripts/query.py --result job_20260207_120000_abcd1234 --json --where "clicks > 10" --sort "clicks DESC" --head 20
@@ -132,7 +137,7 @@ streamlit run app/streamlit_app.py
 AI Agent がパラメータをStreamlit UIに自動反映させる方法：
 
 1. `input/params.json` にパラメータを書き込む
-2. Streamlit UIが2秒ごとにファイルを監視、変更を検知して自動反映
+2. Streamlit UIが2秒ごとにファイルを監視し、更新時刻 + 実質差分（空白/インデント/キー順は無視）で変更を検知して自動反映
 3. 「自動実行」ONの場合、クエリも自動実行
 
 ```bash

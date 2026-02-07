@@ -85,6 +85,13 @@ class TestQueryJsonErrors(unittest.TestCase):
             self.assertEqual(payload["error_code"], "PARAMS_VALIDATION_FAILED")
             self.assertIn("details", payload)
 
+    def test_transform_invalid_with_submit_action(self):
+        proc = self.run_cli(["--json", "--submit", "--transform", "date:date_format"])
+        self.assertNotEqual(proc.returncode, 0)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["error_code"], "INVALID_ARGUMENT")
+
     def test_list_bq_requires_project(self):
         proc = self.run_cli(["--json", "--list-bq-datasets"])
         self.assertNotEqual(proc.returncode, 0)
