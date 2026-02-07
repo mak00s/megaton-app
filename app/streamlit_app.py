@@ -232,6 +232,13 @@ from app.ui.params_utils import (
     serialize_gsc_filter_from_df,
     has_effective_params_update,
 )
+from app.ui.query_builders import (
+    parse_gsc_filter,
+    detect_url_columns,
+    build_transform_expression,
+    build_pipeline_kwargs,
+    build_agent_params,
+)
 
 # Streamlit用キャッシュラッパー
 @st.cache_data(ttl=300)
@@ -253,22 +260,6 @@ def execute_ga4_query(property_id, start_date, end_date, dimensions, metrics, fi
 @st.cache_data(ttl=60)
 def execute_gsc_query(site_url, start_date, end_date, dimensions, limit, dimension_filter=None):
     return query_gsc(site_url, start_date, end_date, dimensions, limit, dimension_filter)
-
-def parse_gsc_filter(filter_str: str):
-    """GSCフィルタ文字列をパース（API用）"""
-    if not filter_str or not filter_str.strip():
-        return None
-    filters = []
-    for part in filter_str.split(";"):
-        parts = part.split(":", 2)
-        if len(parts) == 3:
-            filters.append({
-                "dimension": parts[0],
-                "operator": parts[1],
-                "expression": parts[2]
-            })
-    return filters if filters else None
-
 
 def execute_bq_query(project_id, sql):
     return query_bq(project_id, sql)
@@ -375,18 +366,51 @@ with st.sidebar:
         property_id = property_options[selected_property]
 
         # ディメンション（初期化）
-        all_dimensions = ["date", "sessionDefaultChannelGroup", "sessionSource", "sessionMedium",
-                         "pagePath", "landingPage", "deviceCategory", "country"]
+        all_dimensions = [
+            # 時間
+            "date", "dateHour", "hour",
+            # トラフィックソース
+            "sessionDefaultChannelGroup", "sessionSource", "sessionMedium",
+            "sessionSourceMedium", "sessionSourcePlatform", "sessionCampaignName",
+            "firstUserSource", "firstUserMedium", "firstUserCampaignName",
+            "firstUserDefaultChannelGroup",
+            # ページ / コンテンツ
+            "pagePath", "pageTitle", "landingPage", "landingPagePlusQueryString",
+            "pagePathPlusQueryString", "hostName",
+            # ユーザー / セッション
+            "newVsReturning", "userAgeBracket", "userGender",
+            # デバイス / プラットフォーム
+            "deviceCategory", "operatingSystem", "browser",
+            # 地域
+            "country", "region", "city", "language",
+            # イベント / コンバージョン
+            "eventName", "isConversionEvent",
+        ]
         if "w_ga4_dimensions" not in st.session_state:
             st.session_state["w_ga4_dimensions"] = lp.get("dimensions", ["date"]) if lp.get("source", "").lower() == "ga4" else ["date"]
-        dimensions = st.multiselect("ディメンション", all_dimensions, key="w_ga4_dimensions")
+        dimensions = st.multiselect("ディメンション", all_dimensions, key="w_ga4_dimensions",
+                                    accept_new_options=True, max_selections=9)
 
         # メトリクス（初期化）
-        all_metrics = ["sessions", "activeUsers", "newUsers", "screenPageViews",
-                      "bounceRate", "averageSessionDuration", "conversions"]
+        all_metrics = [
+            # セッション / ユーザー
+            "sessions", "activeUsers", "newUsers", "totalUsers",
+            "sessionsPerUser", "engagedSessions", "engagementRate",
+            # ページビュー
+            "screenPageViews", "screenPageViewsPerSession",
+            # エンゲージメント
+            "averageSessionDuration", "userEngagementDuration",
+            "bounceRate", "eventCount", "eventsPerSession",
+            # コンバージョン
+            "conversions", "keyEvents",
+            # eコマース
+            "ecommercePurchases", "purchaseRevenue",
+            "addToCarts", "checkouts",
+        ]
         if "w_ga4_metrics" not in st.session_state:
             st.session_state["w_ga4_metrics"] = lp.get("metrics", ["sessions", "activeUsers"]) if lp.get("source", "").lower() == "ga4" else ["sessions", "activeUsers"]
-        metrics = st.multiselect("メトリクス", all_metrics, key="w_ga4_metrics")
+        metrics = st.multiselect("メトリクス", all_metrics, key="w_ga4_metrics",
+                                 accept_new_options=True, max_selections=10)
 
         # フィルタ（初期化）
         if "w_ga4_filter" not in st.session_state:
@@ -396,16 +420,12 @@ with st.sidebar:
         filter_df = parse_ga4_filter_to_df(st.session_state.get("w_ga4_filter", ""))
         
         with st.expander("フィルタ条件", expanded=bool(len(filter_df))):
-            # よく使うディメンション
-            ga4_filter_dims = ["sessionDefaultChannelGroup", "sessionSource", "sessionMedium", 
-                               "pagePath", "landingPage", "deviceCategory", "country", "city"]
-            
             edited_filter_df = st.data_editor(
                 filter_df,
                 column_config={
                     "対象": st.column_config.SelectboxColumn(
                         "対象",
-                        options=ga4_filter_dims + dimensions,
+                        options=list(dict.fromkeys(all_dimensions + dimensions)),
                         required=True,
                     ),
                     "演算子": st.column_config.SelectboxColumn(
@@ -645,39 +665,26 @@ if "df" in st.session_state:
 
     # === パイプラインUI ===
     with st.expander("🔧 結果の絞り込み・集計", expanded=False):
-        pipeline_kwargs = {}
-
         # --- 変換 ---
         st.markdown("**変換**")
-        transform_parts = []
-
         has_date_col = "date" in raw_df.columns
-        # URL列があるか判定（値が http で始まる文字列列を探す）
-        url_cols = []
-        for c in raw_df.select_dtypes(include="object").columns:
-            sample = raw_df[c].dropna().head(5).astype(str)
-            if sample.str.startswith("http").any():
-                url_cols.append(c)
+        url_cols = detect_url_columns(raw_df)
         has_url_col = len(url_cols) > 0
 
         pcol1, pcol2 = st.columns(2)
+        keep_params = ""
         with pcol1:
             tf_date = st.checkbox(
                 "日付を YYYY-MM-DD に変換",
                 disabled=not has_date_col,
                 key="w_tf_date",
             )
-            if tf_date and has_date_col:
-                transform_parts.append("date:date_format")
 
             tf_url_decode = st.checkbox(
                 "URLデコード",
                 disabled=not has_url_col,
                 key="w_tf_url_decode",
             )
-            if tf_url_decode and url_cols:
-                for uc in url_cols:
-                    transform_parts.append(f"{uc}:url_decode")
 
         with pcol2:
             tf_strip_qs = st.checkbox(
@@ -691,23 +698,21 @@ if "df" in st.session_state:
                     key="w_tf_keep_params",
                     placeholder="id,ref",
                 )
-                for uc in url_cols:
-                    if keep_params.strip():
-                        transform_parts.append(f"{uc}:strip_qs:{keep_params.strip()}")
-                    else:
-                        transform_parts.append(f"{uc}:strip_qs")
 
             tf_path_only = st.checkbox(
                 "パスのみ（ドメイン除去）",
                 disabled=not has_url_col,
                 key="w_tf_path_only",
             )
-            if tf_path_only and url_cols:
-                for uc in url_cols:
-                    transform_parts.append(f"{uc}:path_only")
-
-        if transform_parts:
-            pipeline_kwargs["transform"] = ",".join(transform_parts)
+        transform_expr = build_transform_expression(
+            has_date_col=has_date_col,
+            url_cols=url_cols,
+            tf_date=tf_date,
+            tf_url_decode=tf_url_decode,
+            tf_strip_qs=tf_strip_qs,
+            keep_params=keep_params,
+            tf_path_only=tf_path_only,
+        )
 
         st.divider()
 
@@ -743,7 +748,7 @@ if "df" in st.session_state:
             key="w_pipeline_group_by",
         )
         numeric_cols = list(raw_df.select_dtypes(include="number").columns)
-        agg_exprs = []
+        agg_map = {}
         if group_cols and numeric_cols:
             st.caption("集計関数を設定")
             for nc in numeric_cols:
@@ -752,17 +757,7 @@ if "df" in st.session_state:
                     ["（なし）", "sum", "mean", "count", "min", "max", "median"],
                     key=f"w_agg_{nc}",
                 )
-                if agg_func != "（なし）":
-                    agg_exprs.append(f"{agg_func}:{nc}")
-
-        if group_cols and agg_exprs:
-            pipeline_kwargs["group_by"] = ",".join(group_cols)
-            pipeline_kwargs["aggregate"] = ",".join(agg_exprs)
-
-            # グループ集計後はソート列名が変わるため更新
-            # sum_clicks のような列名でソートしたい場合があるので案内
-            derived_cols = [f"{a.split(':')[0]}_{a.split(':')[1]}" for a in agg_exprs]
-            st.caption(f"集計後の列: {', '.join(group_cols + derived_cols)}")
+                agg_map[nc] = agg_func
 
         st.divider()
 
@@ -776,8 +771,19 @@ if "df" in st.session_state:
             step=10,
             key="w_pipeline_head",
         )
-        if head_val > 0:
-            pipeline_kwargs["head"] = head_val
+
+        pipeline_kwargs, derived_cols = build_pipeline_kwargs(
+            transform_expr=transform_expr,
+            where_expr=where_expr,
+            selected_cols=selected_cols,
+            group_cols=group_cols,
+            agg_map=agg_map,
+            head_val=head_val,
+        )
+
+        if "group_by" in pipeline_kwargs and "aggregate" in pipeline_kwargs:
+            # グループ集計後はソート列名が変わるため更新案内
+            st.caption(f"集計後の列: {', '.join(group_cols + derived_cols)}")
 
     # === パイプライン適用 ===
     pipeline_error = None
@@ -916,35 +922,18 @@ if "df" in st.session_state:
 # JSONパラメータ表示（AI Agent連携用）
 with st.sidebar:
     with st.expander("🤖 JSON (AI Agent用)"):
-        if source == "GA4":
-            params = {
-                "source": "ga4",
-                "property_id": property_id if 'property_id' in dir() else "",
-                "date_range": {
-                    "start": start_date.strftime("%Y-%m-%d"),
-                    "end": end_date.strftime("%Y-%m-%d")
-                },
-                "dimensions": dimensions if 'dimensions' in dir() else [],
-                "metrics": metrics if 'metrics' in dir() else [],
-                "filter_d": filter_d if 'filter_d' in dir() else "",
-                "limit": limit
-            }
-        elif source == "GSC":
-            params = {
-                "source": "gsc",
-                "site_url": site_url if 'site_url' in dir() else "",
-                "date_range": {
-                    "start": start_date.strftime("%Y-%m-%d"),
-                    "end": end_date.strftime("%Y-%m-%d")
-                },
-                "dimensions": dimensions if 'dimensions' in dir() else [],
-                "filter": gsc_filter if 'gsc_filter' in dir() else "",
-                "limit": limit
-            }
-        else:
-            params = {
-                "source": "bigquery",
-                "project_id": bq_project if 'bq_project' in dir() else "",
-                "sql": sql if 'sql' in dir() else ""
-            }
+        params = build_agent_params(
+            source=source,
+            start_date=start_date if 'start_date' in dir() else None,
+            end_date=end_date if 'end_date' in dir() else None,
+            limit=limit if 'limit' in dir() else None,
+            property_id=property_id if 'property_id' in dir() else "",
+            site_url=site_url if 'site_url' in dir() else "",
+            dimensions=dimensions if 'dimensions' in dir() else [],
+            metrics=metrics if 'metrics' in dir() else [],
+            filter_d=filter_d if 'filter_d' in dir() else "",
+            gsc_filter=gsc_filter if 'gsc_filter' in dir() else "",
+            bq_project=bq_project if 'bq_project' in dir() else "",
+            sql=sql if 'sql' in dir() else "",
+        )
         st.code(json.dumps(params, indent=2, ensure_ascii=False), language="json")

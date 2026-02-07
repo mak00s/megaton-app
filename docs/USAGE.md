@@ -234,3 +234,22 @@ mg.open.sheet("https://docs.google.com/spreadsheets/d/xxxxx")
 config_df = mg.sheet.df()
 sites = config_df.to_dict('records')
 ```
+
+---
+
+## テスト
+
+### 実行方法
+
+```bash
+# 全テスト
+python -m pytest -q
+
+# query.py のカバレッジ（CIと同じ閾値）
+python -m pytest -q --cov=scripts.query --cov-report=term-missing --cov-fail-under=90
+```
+
+### 現在の目安（2026-02-07時点）
+
+- `python -m pytest -q`: `160 passed`
+- `scripts/query.py` coverage: `98%`
