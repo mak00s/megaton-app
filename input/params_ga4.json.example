@@ -1,4 +1,5 @@
 {
+  "schema_version": "1.0",
   "source": "ga4",
   "property_id": "123456789",
   "date_range": {
