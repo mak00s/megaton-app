@@ -1,5 +1,11 @@
 # 進捗履歴
 
+## 2026-02-07
+
+- CLIを統合し `scripts/query.py` を追加（`--params` で source 自動分岐）
+- `query_ga4.py` / `query_gsc.py` / `query_bq.py` を廃止
+- Streamlit/CLIで共通スキーマ（`schema_version: "1.0"`）運用に統一
+
 ## 2026-02-06
 
 - Gradio → Streamlit に移行

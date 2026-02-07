@@ -28,6 +28,7 @@ class Visualization:
 @dataclass
 class QueryParams:
     """クエリパラメータのスキーマ"""
+    schema_version: str
     source: Literal["ga4", "gsc"]
     date_range: DateRange
     dimensions: list[str] = field(default_factory=list)
@@ -48,6 +49,8 @@ class QueryParams:
     def from_json(cls, json_str: str) -> "QueryParams":
         """JSON文字列からQueryParamsを生成"""
         data = json.loads(json_str)
+        if data.get("schema_version") != "1.0":
+            raise ValueError("schema_version must be '1.0'")
         
         # DateRange
         date_range = DateRange(**data["date_range"])
@@ -61,6 +64,7 @@ class QueryParams:
             viz = Visualization(**data["visualization"])
         
         return cls(
+            schema_version=data["schema_version"],
             source=data["source"],
             date_range=date_range,
             dimensions=data.get("dimensions", []),
@@ -75,6 +79,7 @@ class QueryParams:
     def to_json(self) -> str:
         """JSON文字列に変換"""
         data = {
+            "schema_version": self.schema_version,
             "source": self.source,
             "date_range": {"start": self.date_range.start, "end": self.date_range.end},
             "dimensions": self.dimensions,
@@ -98,6 +103,7 @@ class QueryParams:
 
 # サンプルJSON
 SAMPLE_GA4_JSON = """{
+  "schema_version": "1.0",
   "source": "ga4",
   "property_id": "254470346",
   "date_range": {
@@ -119,6 +125,7 @@ SAMPLE_GA4_JSON = """{
 }"""
 
 SAMPLE_GSC_JSON = """{
+  "schema_version": "1.0",
   "source": "gsc",
   "site_url": "https://www.shibuyakyousei.jp/",
   "date_range": {

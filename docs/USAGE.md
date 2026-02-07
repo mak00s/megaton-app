@@ -41,53 +41,50 @@ jupytext --sync notebooks/*.ipynb
 
 AI Agent がデータを取得する際は、CLIスクリプトを使用。高速で確実。
 
-### GSC検索クエリ取得
+### 統合CLI実行（推奨）
 
 ```bash
-python scripts/query_gsc.py --days 14 --limit 1000
-python scripts/query_gsc.py --site "https://example.com/" --start 2026-01-01 --end 2026-01-31
-python scripts/query_gsc.py --filter "query:contains:渋谷"  # フィルタ付き
-python scripts/query_gsc.py --json  # JSON出力（プログラム処理用）
-```
+# source を見て自動分岐（ga4/gsc/bigquery）
+python scripts/query.py --params input/params.json
 
-### GA4データ取得
+# JSON出力
+python scripts/query.py --params input/params.json --json
 
-```bash
-python scripts/query_ga4.py --days 7 --dimensions date --metrics sessions
-python scripts/query_ga4.py --filter "sessionDefaultChannelGroup==Organic Search"
-python scripts/query_ga4.py --property 254470346 --json
-```
+# CSV保存
+python scripts/query.py --params input/params.json --output output/result.csv
 
-### BigQueryクエリ実行
-
-```bash
-python scripts/query_bq.py --project my-project --sql "SELECT * FROM dataset.table LIMIT 100"
-python scripts/query_bq.py --project my-project --file query.sql
-python scripts/query_bq.py --project my-project --list-datasets
+# 一覧取得
+python scripts/query.py --list-ga4-properties
+python scripts/query.py --list-gsc-sites
+python scripts/query.py --list-bq-datasets --project my-project
 ```
 
 ### オプション一覧
 
 | オプション | 説明 | デフォルト |
 |-----------|------|-----------|
-| `--days` | 直近N日間 | 14 |
-| `--start`, `--end` | 日付範囲指定 | - |
-| `--limit` | 結果件数 | 1000 (GSC), 10000 (GA4) |
-| `--dimensions` | ディメンション | query (GSC), date (GA4) |
-| `--filter` | フィルタ | - |
+| `--params` | スキーマ検証済みJSON入力 | `input/params.json` |
+| `--list-ga4-properties` | GA4プロパティ一覧 | OFF |
+| `--list-gsc-sites` | GSCサイト一覧 | OFF |
+| `--list-bq-datasets` | BigQueryデータセット一覧 | OFF |
+| `--project` | データセット一覧取得対象プロジェクト | - |
 | `--json` | JSON出力 | テーブル出力 |
 | `--output` | CSV出力ファイル | - |
 
+`--params` 実行時は `schema_version: "1.0"` を必須検証し、`source` とキー整合性が崩れている場合は実行前にエラー終了します。
+
 ### フィルタ書式
 
-**GA4:** `field==value` 形式（複数はセミコロン区切り）
-```bash
---filter "sessionDefaultChannelGroup==Organic Search;country==Japan"
+`input/params.json` 内で指定する。
+
+**GA4:** `filter_d` に `field==value` 形式（複数はセミコロン区切り）
+```json
+"filter_d": "sessionDefaultChannelGroup==Organic Search;country==Japan"
 ```
 
-**GSC:** `dimension:operator:expression` 形式（複数はセミコロン区切り）
-```bash
---filter "query:contains:渋谷;page:includingRegex:/blog/"
+**GSC:** `filter` に `dimension:operator:expression` 形式（複数はセミコロン区切り）
+```json
+"filter": "query:contains:渋谷;page:includingRegex:/blog/"
 ```
 
 GSC演算子: `contains`, `notContains`, `equals`, `notEquals`, `includingRegex`, `excludingRegex`
@@ -144,8 +141,13 @@ streamlit run app/streamlit_app.py
 **自動反映機能:**
 1. AI Agent が `input/params.json` にパラメータを書き込む
 2. Streamlit UIが2秒ごとにファイルを監視
-3. 変更を検知して自動でUIに反映
-4. 「自動実行」ONなら、そのままクエリ実行
+3. JSONスキーマを検証（不正なら反映しない）
+4. 変更を検知して自動でUIに反映
+5. 「自動実行」ONなら、そのままクエリ実行
+
+**必須項目（完全移行）:**
+- `schema_version: "1.0"`
+- `source` に応じた必須項目（詳細は `docs/REFERENCE.md` と `schemas/query-params.schema.json`）
 
 **UIの設定（サイドバー）:**
 - 「JSON自動反映」: ON/OFFでファイル監視を切り替え

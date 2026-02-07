@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/query-params.schema.json",
+  "title": "AI Analysis Query Params",
+  "type": "object",
+  "required": ["schema_version", "source"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "source": {
+      "type": "string",
+      "enum": ["ga4", "gsc", "bigquery"]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "source": { "const": "ga4" }
+        }
+      },
+      "then": {
+        "type": "object",
+        "required": ["schema_version", "source", "property_id", "date_range", "dimensions", "metrics"],
+        "properties": {
+          "schema_version": { "type": "string", "const": "1.0" },
+          "source": { "type": "string", "const": "ga4" },
+          "property_id": { "type": "string", "minLength": 1 },
+          "date_range": {
+            "type": "object",
+            "required": ["start", "end"],
+            "additionalProperties": false,
+            "properties": {
+              "start": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+              "end": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }
+            }
+          },
+          "dimensions": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "metrics": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "filter_d": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100000 }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "source": { "const": "gsc" }
+        }
+      },
+      "then": {
+        "type": "object",
+        "required": ["schema_version", "source", "site_url", "date_range", "dimensions"],
+        "properties": {
+          "schema_version": { "type": "string", "const": "1.0" },
+          "source": { "type": "string", "const": "gsc" },
+          "site_url": { "type": "string", "minLength": 1 },
+          "date_range": {
+            "type": "object",
+            "required": ["start", "end"],
+            "additionalProperties": false,
+            "properties": {
+              "start": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+              "end": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }
+            }
+          },
+          "dimensions": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "filter": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100000 }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "source": { "const": "bigquery" }
+        }
+      },
+      "then": {
+        "type": "object",
+        "required": ["schema_version", "source", "project_id", "sql"],
+        "properties": {
+          "schema_version": { "type": "string", "const": "1.0" },
+          "source": { "type": "string", "const": "bigquery" },
+          "project_id": { "type": "string", "minLength": 1 },
+          "sql": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  ]
+}

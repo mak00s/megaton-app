@@ -19,6 +19,7 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │  [2] AI Agent: input/params.json にパラメータを書き込む          │
 │      {                                                          │
+│        "schema_version": "1.0",                                 │
 │        "source": "ga4",                                         │
 │        "property_id": "254470346",                              │
 │        "date_range": {"start": "...", "end": "..."},            │
@@ -66,10 +67,16 @@
 
 ## JSONパラメータスキーマ
 
+- スキーマファイル: `schemas/query-params.schema.json`
+- `schema_version` は必須（現在は `"1.0"`）
+- `source` ごとに許可されるキー以外はエラー（`additionalProperties: false`）
+- Streamlit と CLI（`scripts/query.py --params ...`）で同じスキーマを共通利用
+
 ### GA4クエリ
 
 ```json
 {
+  "schema_version": "1.0",
   "source": "ga4",
   "property_id": "254470346",
   "date_range": {
@@ -87,6 +94,7 @@
 
 ```json
 {
+  "schema_version": "1.0",
   "source": "gsc",
   "site_url": "https://www.example.com/",
   "date_range": {
@@ -103,6 +111,7 @@
 
 ```json
 {
+  "schema_version": "1.0",
   "source": "bigquery",
   "project_id": "my-gcp-project",
   "sql": "SELECT event_date, COUNT(*) as cnt FROM `project.dataset.events_*` GROUP BY 1"
@@ -113,6 +122,7 @@
 
 | フィールド | 型 | 必須 | 説明 |
 |-----------|-----|------|------|
+| `schema_version` | string | ✓ | 現在は `"1.0"` 固定 |
 | `source` | string | ✓ | `"ga4"`, `"gsc"`, `"bigquery"` |
 | `property_id` | string | GA4時 | GA4プロパティID |
 | `site_url` | string | GSC時 | Search ConsoleサイトURL |

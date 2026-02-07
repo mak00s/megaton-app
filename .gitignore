@@ -22,6 +22,9 @@ __pycache__/
 
 # データ出力（必要に応じてコメントアウト）
 # data/
+input/*
+!input/*.example
+output/
 
 # IDE
 .idea/

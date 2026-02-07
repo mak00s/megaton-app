@@ -28,7 +28,7 @@ GA4 / Search Console / BigQuery のデータを API で取得し、加工・集�
 │ (対話的分析)   │  │ (バッチ/Agent)│  │ (対話型分析)  │
 │               │  │               │  │               │
 │ notebooks/    │  │ scripts/      │  │ app/          │
-│ *.ipynb       │  │ query_*.py    │  │ localhost:8501│
+│ *.ipynb       │  │ query.py      │  │ localhost:8501│
 └───────────────┘  └───────────────┘  └───────────────┘
 ```
 
@@ -71,9 +71,7 @@ shibuya-analysis/
 ├── lib/                    # 共通モジュール
 │   └── megaton_client.py   # megaton ラッパー（CLI/UI共通）
 ├── scripts/                # CLIスクリプト（AI Agent 用）
-│   ├── query_ga4.py        # GA4 データ取得
-│   ├── query_gsc.py        # GSC データ取得
-│   └── query_bq.py         # BigQuery 実行
+│   └── query.py            # 統合クエリ実行（GA4/GSC/BigQuery）
 ├── app/                    # Streamlit UI
 │   └── streamlit_app.py
 ├── input/                  # パラメータ入力（AI Agent → UI）
@@ -86,14 +84,13 @@ shibuya-analysis/
 ### AI Agent がデータ取得する場合
 
 ```bash
-# GSC検索クエリ
-python scripts/query_gsc.py --days 14 --limit 1000
+# 共通 params.json（厳格スキーマ）で実行
+python scripts/query.py --params input/params.json
 
-# GA4セッション
-python scripts/query_ga4.py --days 7 --filter "sessionDefaultChannelGroup==Organic Search"
-
-# BigQuery
-python scripts/query_bq.py --project my-project --sql "SELECT * FROM dataset.table LIMIT 100"
+# 一覧取得
+python scripts/query.py --list-ga4-properties
+python scripts/query.py --list-gsc-sites
+python scripts/query.py --list-bq-datasets --project my-project
 ```
 
 ### Streamlit UI を使う場合
@@ -115,6 +112,7 @@ AI Agent がパラメータをStreamlit UIに自動反映させる方法：
 # AI Agent がパラメータを書き込み
 cat > input/params.json << 'EOF'
 {
+  "schema_version": "1.0",
   "source": "gsc",
   "site_url": "sc-domain:example.com",
   "date_range": {"start": "2025-01-01", "end": "2025-01-31"},
@@ -124,6 +122,10 @@ cat > input/params.json << 'EOF'
 EOF
 # → Streamlit UIに自動反映される
 ```
+
+**必須ルール（完全移行）:**
+- `schema_version` は必須（現在は `"1.0"` 固定）
+- `source` ごとに定義されたフィールドのみ許可（未知フィールドはエラー）
 
 **UIの設定:**
 - 「JSON自動反映」: ON/OFFでファイル監視を切り替え
