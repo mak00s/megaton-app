@@ -118,6 +118,9 @@ python scripts/query.py --list-jobs
 }
 ```
 
+補足:
+- 同期実行（`--params`）で `--where` / `--sort` / `--columns` / `--group-by` / `--aggregate` / `--head` を使った場合、`data.pipeline` に `input_rows` / `output_rows` を含む実行メタが入る。
+
 失敗時:
 
 ```json

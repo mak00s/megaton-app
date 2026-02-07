@@ -210,30 +210,36 @@ def execute_query_from_params(params: dict) -> tuple[object, list[str]]:
     raise ValueError(f"不明なsourceです: {source}")
 
 
-def output_result(df, args):
+def output_result(df, args, pipeline: dict | None = None):
     """結果出力"""
     if args.output:
         Path(args.output).parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(args.output, index=False, encoding="utf-8-sig")
         if args.json:
+            payload = {
+                "saved_to": args.output,
+                "row_count": int(len(df)),
+            }
+            if pipeline is not None:
+                payload["pipeline"] = pipeline
             emit_success(
                 args,
-                {
-                    "saved_to": args.output,
-                    "row_count": int(len(df)),
-                },
+                payload,
                 mode="query",
             )
         else:
             print(f"保存しました: {args.output} ({len(df)}行)")
     elif args.json:
         rows = json.loads(df.to_json(orient="records", force_ascii=False))
+        payload = {
+            "rows": rows,
+            "row_count": int(len(rows)),
+        }
+        if pipeline is not None:
+            payload["pipeline"] = pipeline
         emit_success(
             args,
-            {
-                "rows": rows,
-                "row_count": int(len(rows)),
-            },
+            payload,
             mode="query",
         )
     else:
@@ -790,9 +796,11 @@ def main():
                 "Check date range, filters, and property/site settings.",
             )
 
+        pipeline_info = None
         # 同期実行にも結果パイプラインを適用
         if pipeline_opts_used or args.head is not None:
             try:
+                input_rows = int(len(df))
                 df = apply_pipeline(
                     df,
                     where=args.where,
@@ -802,6 +810,16 @@ def main():
                     columns=args.columns,
                     head=args.head,
                 )
+                pipeline_info = {
+                    "where": args.where,
+                    "sort": args.sort,
+                    "columns": args.columns,
+                    "group_by": args.group_by,
+                    "aggregate": args.aggregate,
+                    "head": args.head,
+                    "input_rows": input_rows,
+                    "output_rows": int(len(df)),
+                }
             except ValueError as e:
                 code, hint = map_pipeline_error(str(e))
                 return emit_error(args, code, str(e), hint)
@@ -811,7 +829,7 @@ def main():
                 print(line)
             print()
 
-        output_result(df, args)
+        output_result(df, args, pipeline=pipeline_info)
         return 0
     except ValueError as e:
         return emit_error(
