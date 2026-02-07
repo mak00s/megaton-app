@@ -71,9 +71,9 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
         "bigquery": {"project_id", "sql"},
     }
     source_optional = {
-        "ga4": {"filter_d", "limit"},
-        "gsc": {"filter", "limit"},
-        "bigquery": set(),
+        "ga4": {"filter_d", "limit", "pipeline"},
+        "gsc": {"filter", "limit", "pipeline"},
+        "bigquery": {"pipeline"},
     }
 
     required_keys = common_required | source_required[source]
@@ -199,6 +199,68 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
                     f"Use 1-{MAX_LIMIT}.",
                 )
             )
+
+    if "pipeline" in normalized:
+        pl = normalized["pipeline"]
+        if not isinstance(pl, dict):
+            errors.append(
+                _err(
+                    "INVALID_TYPE",
+                    "pipeline must be an object",
+                    "$.pipeline",
+                    'Use {"transform": "...", "where": "...", ...}.',
+                )
+            )
+        else:
+            allowed_pl_keys = {"transform", "where", "sort", "columns", "group_by", "aggregate", "head"}
+            for key in sorted(set(pl.keys()) - allowed_pl_keys):
+                errors.append(
+                    _err(
+                        "UNKNOWN_FIELD",
+                        f"Unknown pipeline field: {key}",
+                        f"$.pipeline.{key}",
+                        f"Allowed: {', '.join(sorted(allowed_pl_keys))}.",
+                    )
+                )
+            if ("group_by" in pl) != ("aggregate" in pl):
+                errors.append(
+                    _err(
+                        "INVALID_PIPELINE",
+                        "group_by and aggregate must be specified together",
+                        "$.pipeline",
+                        "Specify both group_by and aggregate, or neither.",
+                    )
+                )
+            for str_key in ("transform", "where", "sort", "columns", "group_by", "aggregate"):
+                if str_key in pl and not isinstance(pl[str_key], str):
+                    errors.append(
+                        _err(
+                            "INVALID_TYPE",
+                            f"pipeline.{str_key} must be a string",
+                            f"$.pipeline.{str_key}",
+                            f"Set pipeline.{str_key} to a string value.",
+                        )
+                    )
+            if "head" in pl:
+                head = pl["head"]
+                if isinstance(head, bool) or not isinstance(head, int):
+                    errors.append(
+                        _err(
+                            "INVALID_TYPE",
+                            "pipeline.head must be an integer",
+                            "$.pipeline.head",
+                            "Set pipeline.head to a positive integer.",
+                        )
+                    )
+                elif head < 1:
+                    errors.append(
+                        _err(
+                            "OUT_OF_RANGE",
+                            "pipeline.head must be 1 or greater",
+                            "$.pipeline.head",
+                            "Set pipeline.head to a positive integer.",
+                        )
+                    )
 
     if errors:
         return None, errors
