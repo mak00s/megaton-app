@@ -147,9 +147,10 @@ GSC演算子: `contains`, `notContains`, `equals`, `notEquals`, `includingRegex`
 
 ```python
 from megaton import start
+from lib.credentials import resolve_service_account_path
 
 # headless モードで初期化（UIなし）
-mg = start.Megaton("credentials/sa-xxx.json", headless=True)
+mg = start.Megaton(resolve_service_account_path(), headless=True)
 
 # GA4 アカウント・プロパティを直接指定
 mg.ga['4'].account.select("ACCOUNT_ID")
@@ -165,6 +166,7 @@ df = mg.report.data
 - `headless=True`: UI（ipywidgets）を使わない
 - `show=False`: レポート実行後の自動表示をスキップ
 - アカウント・プロパティは ID を直接指定
+- 認証JSONは `MEGATON_CREDS_PATH` で指定（未指定時は `credentials/*.json` を自動探索）
 
 ---
 

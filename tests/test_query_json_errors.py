@@ -148,6 +148,81 @@ class TestQueryJsonErrors(unittest.TestCase):
             updated = store.load_job(job["job_id"])
             self.assertEqual(updated["status"], "canceled")
 
+    def test_save_csv_missing_path_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad_params = Path(tmp) / "bad_save.json"
+            bad_params.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "source": "ga4",
+                        "property_id": "x",
+                        "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+                        "dimensions": ["date"],
+                        "metrics": ["sessions"],
+                        "save": {"to": "csv"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            proc = self.run_cli(["--json", "--params", str(bad_params)])
+            self.assertNotEqual(proc.returncode, 0)
+            payload = json.loads(proc.stdout)
+            self.assertEqual(payload["status"], "error")
+            self.assertEqual(payload["error_code"], "PARAMS_VALIDATION_FAILED")
+
+    def test_save_bq_upsert_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad_params = Path(tmp) / "bad_save_bq.json"
+            bad_params.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "source": "ga4",
+                        "property_id": "x",
+                        "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+                        "dimensions": ["date"],
+                        "metrics": ["sessions"],
+                        "save": {
+                            "to": "bigquery",
+                            "project_id": "p",
+                            "dataset": "d",
+                            "table": "t",
+                            "mode": "upsert",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            proc = self.run_cli(["--json", "--params", str(bad_params)])
+            self.assertNotEqual(proc.returncode, 0)
+            payload = json.loads(proc.stdout)
+            self.assertEqual(payload["status"], "error")
+            self.assertEqual(payload["error_code"], "PARAMS_VALIDATION_FAILED")
+
+    def test_save_invalid_target_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad_params = Path(tmp) / "bad_save_target.json"
+            bad_params.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "source": "ga4",
+                        "property_id": "x",
+                        "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+                        "dimensions": ["date"],
+                        "metrics": ["sessions"],
+                        "save": {"to": "s3"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            proc = self.run_cli(["--json", "--params", str(bad_params)])
+            self.assertNotEqual(proc.returncode, 0)
+            payload = json.loads(proc.stdout)
+            self.assertEqual(payload["status"], "error")
+            self.assertEqual(payload["error_code"], "PARAMS_VALIDATION_FAILED")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -134,6 +134,43 @@ python scripts/query.py --result job_20260207_120000_abcd1234 --json --columns "
 # }
 python scripts/query.py --params input/params.json --json
 
+# 保存先指定付きクエリ（params.json に save を含める）
+# 例1: CSVに保存
+# {
+#   "schema_version": "1.0",
+#   "source": "gsc",
+#   "site_url": "https://www.example.com/",
+#   "date_range": {"start": "2026-01-21", "end": "2026-02-03"},
+#   "dimensions": ["query"],
+#   "save": {"to": "csv", "path": "output/report.csv"}
+# }
+
+# 例2: Google Sheetsにアップサート
+# {
+#   ...
+#   "save": {
+#     "to": "sheets",
+#     "sheet_url": "https://docs.google.com/spreadsheets/d/xxxxx",
+#     "sheet_name": "weekly_data",
+#     "mode": "upsert",
+#     "keys": ["date", "page"]
+#   }
+# }
+
+# 例3: BigQueryに上書き保存
+# {
+#   ...
+#   "pipeline": {"transform": "page:url_decode,page:path_only", "sort": "clicks DESC"},
+#   "save": {
+#     "to": "bigquery",
+#     "project_id": "my-project",
+#     "dataset": "analytics",
+#     "table": "gsc_pages",
+#     "mode": "overwrite"
+#   }
+# }
+python scripts/query.py --params input/params.json --json
+
 # 一覧取得
 python scripts/query.py --list-ga4-properties
 python scripts/query.py --list-gsc-sites
