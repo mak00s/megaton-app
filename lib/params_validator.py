@@ -8,6 +8,8 @@ SCHEMA_VERSION = "1.0"
 MAX_LIMIT = 100000
 DEFAULT_LIMIT = 1000
 ALLOWED_SOURCES = {"ga4", "gsc", "bigquery"}
+ALLOWED_SAVE_TARGETS = {"csv", "sheets", "bigquery"}
+ALLOWED_SAVE_MODES = {"overwrite", "append", "upsert"}
 
 
 def _err(code: str, message: str, path: str, hint: str) -> dict[str, str]:
@@ -71,9 +73,9 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
         "bigquery": {"project_id", "sql"},
     }
     source_optional = {
-        "ga4": {"filter_d", "limit", "pipeline"},
-        "gsc": {"filter", "limit", "pipeline"},
-        "bigquery": {"pipeline"},
+        "ga4": {"filter_d", "limit", "pipeline", "save"},
+        "gsc": {"filter", "limit", "pipeline", "save"},
+        "bigquery": {"pipeline", "save"},
     }
 
     required_keys = common_required | source_required[source]
@@ -259,6 +261,128 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
                             "pipeline.head must be 1 or greater",
                             "$.pipeline.head",
                             "Set pipeline.head to a positive integer.",
+                        )
+                    )
+
+    if "save" in normalized:
+        sv = normalized["save"]
+        if not isinstance(sv, dict):
+            errors.append(
+                _err(
+                    "INVALID_TYPE",
+                    "save must be an object",
+                    "$.save",
+                    'Use {"to": "csv", "path": "output/report.csv"}.',
+                )
+            )
+        else:
+            allowed_sv_keys = {"to", "mode", "path", "sheet_url", "sheet_name", "project_id", "dataset", "table", "keys"}
+            for key in sorted(set(sv.keys()) - allowed_sv_keys):
+                errors.append(
+                    _err(
+                        "UNKNOWN_FIELD",
+                        f"Unknown save field: {key}",
+                        f"$.save.{key}",
+                        f"Allowed: {', '.join(sorted(allowed_sv_keys))}.",
+                    )
+                )
+            save_to = sv.get("to")
+            if save_to not in ALLOWED_SAVE_TARGETS:
+                errors.append(
+                    _err(
+                        "INVALID_SAVE_TARGET",
+                        f"save.to must be one of: {', '.join(sorted(ALLOWED_SAVE_TARGETS))}",
+                        "$.save.to",
+                        "Use csv, sheets, or bigquery.",
+                    )
+                )
+            mode = sv.get("mode", "overwrite")
+            if mode not in ALLOWED_SAVE_MODES:
+                errors.append(
+                    _err(
+                        "INVALID_SAVE_MODE",
+                        f"save.mode must be one of: {', '.join(sorted(ALLOWED_SAVE_MODES))}",
+                        "$.save.mode",
+                        "Use overwrite, append, or upsert.",
+                    )
+                )
+            if save_to == "csv":
+                if "path" not in sv:
+                    errors.append(
+                        _err(
+                            "MISSING_REQUIRED",
+                            "save.path is required for CSV",
+                            "$.save.path",
+                            "Example: output/report.csv",
+                        )
+                    )
+                if mode == "upsert":
+                    errors.append(
+                        _err(
+                            "INVALID_SAVE_MODE",
+                            "CSV does not support upsert",
+                            "$.save.mode",
+                            "Use overwrite or append.",
+                        )
+                    )
+            elif save_to == "sheets":
+                if "sheet_url" not in sv:
+                    errors.append(
+                        _err(
+                            "MISSING_REQUIRED",
+                            "save.sheet_url is required for Sheets",
+                            "$.save.sheet_url",
+                            "Set the Google Sheets URL.",
+                        )
+                    )
+                if mode == "upsert" and not sv.get("keys"):
+                    errors.append(
+                        _err(
+                            "MISSING_REQUIRED",
+                            "save.keys is required for upsert",
+                            "$.save.keys",
+                            'Example: ["date", "page"]',
+                        )
+                    )
+            elif save_to == "bigquery":
+                for req_key in ("project_id", "dataset", "table"):
+                    if req_key not in sv:
+                        errors.append(
+                            _err(
+                                "MISSING_REQUIRED",
+                                f"save.{req_key} is required for BigQuery",
+                                f"$.save.{req_key}",
+                                f"Set save.{req_key}.",
+                            )
+                        )
+                if mode == "upsert":
+                    errors.append(
+                        _err(
+                            "INVALID_SAVE_MODE",
+                            "BigQuery upsert is not yet supported",
+                            "$.save.mode",
+                            "Use overwrite or append.",
+                        )
+                    )
+            for str_key in ("to", "mode", "path", "sheet_url", "sheet_name", "project_id", "dataset", "table"):
+                if str_key in sv and not isinstance(sv[str_key], str):
+                    errors.append(
+                        _err(
+                            "INVALID_TYPE",
+                            f"save.{str_key} must be a string",
+                            f"$.save.{str_key}",
+                            f"Set save.{str_key} to a string value.",
+                        )
+                    )
+            if "keys" in sv:
+                keys = sv["keys"]
+                if not isinstance(keys, list) or not all(isinstance(k, str) and k for k in keys):
+                    errors.append(
+                        _err(
+                            "INVALID_TYPE",
+                            "save.keys must be a non-empty string array",
+                            "$.save.keys",
+                            'Example: ["date", "page"]',
                         )
                     )
 

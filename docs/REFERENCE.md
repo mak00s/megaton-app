@@ -314,6 +314,54 @@ python scripts/query.py --list-jobs
 }
 ```
 
+### save フィールド
+
+`save` はクエリ結果（pipeline適用後）の保存先を定義するオブジェクト。全 source で使用可能。
+
+| フィールド | 型 | 必須 | 説明 |
+|-----------|-----|------|------|
+| `save.to` | string | ○ | 保存先: `csv`, `sheets`, `bigquery` |
+| `save.mode` | string | | 保存モード: `overwrite`(デフォルト), `append`, `upsert` |
+| `save.path` | string | CSV時○ | ファイルパス（例: `output/report.csv`） |
+| `save.sheet_url` | string | Sheets時○ | スプレッドシートURL |
+| `save.sheet_name` | string | | シート名（デフォルト: `data`） |
+| `save.project_id` | string | BQ時○ | GCPプロジェクトID |
+| `save.dataset` | string | BQ時○ | データセットID |
+| `save.table` | string | BQ時○ | テーブルID |
+| `save.keys` | string[] | upsert時○ | アップサートのキー列 |
+
+**モード制約:**
+
+| モード | CSV | Sheets | BigQuery |
+|--------|-----|--------|----------|
+| overwrite | ○ | ○ | ○ |
+| append | ○ | ○ | ○ |
+| upsert | × | ○ | ×（将来対応） |
+
+```json
+{
+  "schema_version": "1.0",
+  "source": "gsc",
+  "site_url": "https://www.example.com/",
+  "date_range": {"start": "2026-01-21", "end": "2026-02-03"},
+  "dimensions": ["query", "page"],
+  "limit": 25000,
+  "pipeline": {
+    "transform": "page:url_decode,page:strip_qs,page:path_only",
+    "group_by": "page",
+    "aggregate": "sum:clicks,sum:impressions",
+    "sort": "sum_clicks DESC"
+  },
+  "save": {
+    "to": "bigquery",
+    "project_id": "my-project",
+    "dataset": "analytics",
+    "table": "gsc_pages",
+    "mode": "overwrite"
+  }
+}
+```
+
 ---
 
 ## 認証情報
@@ -322,6 +370,7 @@ python scripts/query.py --list-jobs
 
 - 格納場所: `credentials/` ディレクトリ
 - Git管理: **除外**（.gitignoreで設定済み）
+- 推奨指定: 環境変数 `MEGATON_CREDS_PATH`（JSONファイル or JSONを1つ含むディレクトリ）
 
 ### Notebook での指定
 
@@ -332,7 +381,8 @@ CREDS_PATH = "../credentials"  # ディレクトリを指定 → JSON選択UIが
 ### スクリプトでの指定
 
 ```python
-CREDS_PATH = "credentials/sa-shibuya-kyousei.json"  # ファイルを直接指定
+import os
+CREDS_PATH = os.environ["MEGATON_CREDS_PATH"]  # ファイル or ディレクトリを指定
 ```
 
 ---
@@ -343,7 +393,8 @@ CREDS_PATH = "credentials/sa-shibuya-kyousei.json"  # ファイルを直接指�
 
 ```python
 from megaton import start
-mg = start.Megaton("credentials/sa-xxx.json", headless=True)
+from lib.credentials import resolve_service_account_path
+mg = start.Megaton(resolve_service_account_path(), headless=True)
 ```
 
 ### GA4

@@ -1,9 +1,10 @@
 """Search Console からクエリ別データを取得（megaton使用）"""
 from datetime import datetime, timedelta
 from megaton import start
+from lib.credentials import resolve_service_account_path
 
 # 設定
-CREDS_PATH = "credentials/sa-shibuya-kyousei.json"
+CREDS_PATH = resolve_service_account_path()
 GSC_SITE_URL = "https://www.shibuyakyousei.jp/"  # 渋谷矯正歯科
 
 # 初期化（headlessモード）

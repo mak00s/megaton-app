@@ -211,6 +211,196 @@ class TestParamsValidator(unittest.TestCase):
         self.assertIsNone(normalized)
         self.assertTrue(any(err["error_code"] == "INVALID_TYPE" for err in errors))
 
+    # --- save ---
+    def test_valid_save_csv(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "gsc",
+            "site_url": "https://example.com/",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimensions": ["query"],
+            "save": {"to": "csv", "path": "output/report.csv"},
+        }
+        normalized, errors = validate_params(data)
+        self.assertEqual(errors, [])
+        self.assertEqual(normalized["save"]["to"], "csv")
+
+    def test_valid_save_csv_append(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "gsc",
+            "site_url": "https://example.com/",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimensions": ["query"],
+            "save": {"to": "csv", "path": "output/report.csv", "mode": "append"},
+        }
+        normalized, errors = validate_params(data)
+        self.assertEqual(errors, [])
+
+    def test_valid_save_sheets(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "ga4",
+            "property_id": "123",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimensions": ["date"],
+            "metrics": ["sessions"],
+            "save": {
+                "to": "sheets",
+                "sheet_url": "https://docs.google.com/spreadsheets/d/xxx",
+                "sheet_name": "data",
+                "mode": "upsert",
+                "keys": ["date"],
+            },
+        }
+        normalized, errors = validate_params(data)
+        self.assertEqual(errors, [])
+
+    def test_valid_save_bq(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "gsc",
+            "site_url": "https://example.com/",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimensions": ["query"],
+            "save": {
+                "to": "bigquery",
+                "project_id": "my-proj",
+                "dataset": "analytics",
+                "table": "gsc_data",
+            },
+        }
+        normalized, errors = validate_params(data)
+        self.assertEqual(errors, [])
+
+    def test_save_csv_missing_path(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "gsc",
+            "site_url": "https://example.com/",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimensions": ["query"],
+            "save": {"to": "csv"},
+        }
+        normalized, errors = validate_params(data)
+        self.assertIsNone(normalized)
+        self.assertTrue(any(e["error_code"] == "MISSING_REQUIRED" for e in errors))
+
+    def test_save_csv_upsert_rejected(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "gsc",
+            "site_url": "https://example.com/",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimensions": ["query"],
+            "save": {"to": "csv", "path": "x.csv", "mode": "upsert"},
+        }
+        normalized, errors = validate_params(data)
+        self.assertIsNone(normalized)
+        self.assertTrue(any(e["error_code"] == "INVALID_SAVE_MODE" for e in errors))
+
+    def test_save_bq_upsert_rejected(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "gsc",
+            "site_url": "https://example.com/",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimensions": ["query"],
+            "save": {
+                "to": "bigquery",
+                "project_id": "p",
+                "dataset": "d",
+                "table": "t",
+                "mode": "upsert",
+            },
+        }
+        normalized, errors = validate_params(data)
+        self.assertIsNone(normalized)
+        self.assertTrue(any(e["error_code"] == "INVALID_SAVE_MODE" for e in errors))
+
+    def test_save_sheets_upsert_requires_keys(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "gsc",
+            "site_url": "https://example.com/",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimensions": ["query"],
+            "save": {"to": "sheets", "sheet_url": "https://example.com/sheet", "mode": "upsert"},
+        }
+        normalized, errors = validate_params(data)
+        self.assertIsNone(normalized)
+        self.assertTrue(any(e["error_code"] == "MISSING_REQUIRED" for e in errors))
+
+    def test_save_bq_missing_fields(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "gsc",
+            "site_url": "https://example.com/",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimensions": ["query"],
+            "save": {"to": "bigquery", "project_id": "x"},
+        }
+        normalized, errors = validate_params(data)
+        self.assertIsNone(normalized)
+        # dataset and table missing
+        missing_errors = [e for e in errors if e["error_code"] == "MISSING_REQUIRED"]
+        self.assertGreaterEqual(len(missing_errors), 2)
+
+    def test_save_unknown_field(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "gsc",
+            "site_url": "https://example.com/",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimensions": ["query"],
+            "save": {"to": "csv", "path": "x.csv", "unknown": "x"},
+        }
+        normalized, errors = validate_params(data)
+        self.assertIsNone(normalized)
+        self.assertTrue(any(e["error_code"] == "UNKNOWN_FIELD" for e in errors))
+
+    def test_save_invalid_target(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "gsc",
+            "site_url": "https://example.com/",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimensions": ["query"],
+            "save": {"to": "s3"},
+        }
+        normalized, errors = validate_params(data)
+        self.assertIsNone(normalized)
+        self.assertTrue(any(e["error_code"] == "INVALID_SAVE_TARGET" for e in errors))
+
+    def test_save_sheets_missing_url(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "gsc",
+            "site_url": "https://example.com/",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimensions": ["query"],
+            "save": {"to": "sheets"},
+        }
+        normalized, errors = validate_params(data)
+        self.assertIsNone(normalized)
+        self.assertTrue(any(e["error_code"] == "MISSING_REQUIRED" for e in errors))
+
+    def test_save_with_pipeline(self):
+        """save と pipeline の両方を同時に指定できる"""
+        data = {
+            "schema_version": "1.0",
+            "source": "gsc",
+            "site_url": "https://example.com/",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimensions": ["query"],
+            "pipeline": {"where": "clicks > 10", "sort": "clicks DESC"},
+            "save": {"to": "csv", "path": "output/report.csv"},
+        }
+        normalized, errors = validate_params(data)
+        self.assertEqual(errors, [])
+        self.assertIn("pipeline", normalized)
+        self.assertIn("save", normalized)
+
 
 if __name__ == "__main__":
     unittest.main()

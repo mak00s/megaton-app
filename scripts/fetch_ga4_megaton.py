@@ -1,9 +1,10 @@
 """GA4 から Organic Search のセッション数を日別で取得（megaton使用）"""
 from datetime import datetime, timedelta
 from megaton import start
+from lib.credentials import resolve_service_account_path
 
 # 設定
-CREDS_PATH = "credentials/sa-shibuya-kyousei.json"  # JSONファイルを直接指定
+CREDS_PATH = resolve_service_account_path()
 GA4_ACCOUNT = "141366107"  # 渋谷矯正グループ
 GA4_PROPERTY = "254470346"  # 渋谷 - GA4
 

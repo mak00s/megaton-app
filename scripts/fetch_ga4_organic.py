@@ -11,9 +11,10 @@ from google.analytics.data_v1beta.types import (
     OrderBy,
 )
 from google.oauth2 import service_account
+from lib.credentials import resolve_service_account_path
 
 # 認証情報
-CREDS_PATH = "credentials/sa-shibuya-kyousei.json"
+CREDS_PATH = resolve_service_account_path()
 
 # GA4 プロパティ ID（Notebookで確認した値を指定）
 # 未設定の場合はアカウント一覧を表示して終了

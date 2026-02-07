@@ -45,6 +45,8 @@ from lib.megaton_client import (
     query_ga4,
     query_gsc,
     query_bq,
+    save_to_sheet,
+    save_to_bq,
 )
 from lib.job_manager import JobStore, now_iso
 from lib.params_validator import validate_params
@@ -212,7 +214,7 @@ def execute_query_from_params(params: dict) -> tuple[object, list[str]]:
     raise ValueError(f"不明なsourceです: {source}")
 
 
-def output_result(df, args, pipeline: dict | None = None):
+def output_result(df, args, pipeline: dict | None = None, save: dict | None = None):
     """結果出力"""
     if args.output:
         Path(args.output).parent.mkdir(parents=True, exist_ok=True)
@@ -224,6 +226,8 @@ def output_result(df, args, pipeline: dict | None = None):
             }
             if pipeline is not None:
                 payload["pipeline"] = pipeline
+            if save is not None:
+                payload["save"] = save
             emit_success(
                 args,
                 payload,
@@ -239,6 +243,8 @@ def output_result(df, args, pipeline: dict | None = None):
         }
         if pipeline is not None:
             payload["pipeline"] = pipeline
+        if save is not None:
+            payload["save"] = save
         emit_success(
             args,
             payload,
@@ -247,6 +253,49 @@ def output_result(df, args, pipeline: dict | None = None):
     else:
         print(df.to_string(index=False))
         print(f"\n合計: {len(df)}行")
+
+
+def execute_save(df: pd.DataFrame, save_conf: dict) -> dict:
+    """params.json の save 設定に従いデータを保存。成功時にメタ情報を返す。"""
+    target = save_conf["to"]
+    mode = save_conf.get("mode", "overwrite")
+
+    if target == "csv":
+        path = save_conf["path"]
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        if mode == "append" and Path(path).exists():
+            df.to_csv(path, index=False, encoding="utf-8-sig", mode="a", header=False)
+        else:
+            df.to_csv(path, index=False, encoding="utf-8-sig")
+        return {"saved_to": path, "mode": mode, "row_count": int(len(df))}
+
+    elif target == "sheets":
+        sheet_url = save_conf["sheet_url"]
+        sheet_name = save_conf.get("sheet_name", "data")
+        keys = save_conf.get("keys")
+        save_to_sheet(sheet_url, sheet_name, df, mode=mode, keys=keys)
+        return {
+            "saved_to": "sheets",
+            "sheet_url": sheet_url,
+            "sheet_name": sheet_name,
+            "mode": mode,
+            "row_count": int(len(df)),
+        }
+
+    elif target == "bigquery":
+        project_id = save_conf["project_id"]
+        dataset_id = save_conf["dataset"]
+        table_id = save_conf["table"]
+        result = save_to_bq(project_id, dataset_id, table_id, df, mode=mode)
+        return {
+            "saved_to": "bigquery",
+            "table": result["table"],
+            "mode": mode,
+            "row_count": int(len(df)),
+        }
+
+    else:
+        raise ValueError(f"Unknown save target: {target}")
 
 
 def submit_job(args, store: JobStore) -> int:
@@ -841,12 +890,26 @@ def main():
                 code, hint = map_pipeline_error(str(e))
                 return emit_error(args, code, str(e), hint)
 
+        # save 実行
+        save_conf = params.get("save")
+        save_result = None
+        if save_conf:
+            try:
+                save_result = execute_save(df, save_conf)
+            except Exception as e:
+                return emit_error(
+                    args,
+                    "SAVE_FAILED",
+                    str(e),
+                    "Check save configuration in params.json.",
+                )
+
         if not args.json and not args.output:
             for line in header_lines:
                 print(line)
             print()
 
-        output_result(df, args, pipeline=pipeline_info)
+        output_result(df, args, pipeline=pipeline_info, save=save_result)
         return 0
     except ValueError as e:
         return emit_error(

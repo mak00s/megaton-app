@@ -2,9 +2,7 @@
 import pandas as pd
 from megaton import start
 from ..schemas import QueryParams
-
-# 認証情報パス
-CREDS_PATH = "credentials/sa-shibuya-kyousei.json"
+from lib.credentials import resolve_service_account_path
 
 # デフォルトGA4設定（渋谷矯正グループ）
 DEFAULT_GA4_ACCOUNT = "141366107"
@@ -17,7 +15,7 @@ def get_megaton():
     """megatonインスタンスを取得"""
     global _mg
     if _mg is None:
-        _mg = start.Megaton(CREDS_PATH, headless=True)
+        _mg = start.Megaton(resolve_service_account_path(), headless=True)
     return _mg
 
 
