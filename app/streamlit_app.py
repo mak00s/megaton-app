@@ -148,6 +148,40 @@ def apply_params_to_session(params):
         if pipeline.get("head") is not None:
             st.session_state["w_pipeline_head"] = pipeline["head"]
 
+    # save
+    save = params.get("save") or {}
+    # 初期化
+    st.session_state["w_sheet_url"] = ""
+    st.session_state["w_sheet_name"] = "data"
+    st.session_state["w_save_mode"] = "上書き"
+    st.session_state["w_save_bq_project"] = ""
+    st.session_state["w_save_bq_dataset"] = ""
+    st.session_state["w_save_bq_table"] = ""
+    st.session_state["w_save_bq_mode"] = "上書き"
+    st.session_state["w_save_filename"] = ""
+
+    if save:
+        mode_rmap = {"overwrite": "上書き", "append": "追記", "upsert": "アップサート"}
+        target = save.get("to")
+
+        if target == "csv":
+            path = save.get("path", "")
+            if path:
+                st.session_state["w_save_filename"] = Path(path).name
+
+        elif target == "sheets":
+            st.session_state["w_sheet_url"] = save.get("sheet_url", "")
+            st.session_state["w_sheet_name"] = save.get("sheet_name", "data")
+            st.session_state["w_save_mode"] = mode_rmap.get(save.get("mode", "overwrite"), "上書き")
+            if save.get("keys"):
+                st.session_state["w_upsert_keys"] = save["keys"]
+
+        elif target == "bigquery":
+            st.session_state["w_save_bq_project"] = save.get("project_id", "")
+            st.session_state["w_save_bq_dataset"] = save.get("dataset", "")
+            st.session_state["w_save_bq_table"] = save.get("table", "")
+            st.session_state["w_save_bq_mode"] = mode_rmap.get(save.get("mode", "overwrite"), "上書き")
+
     return True
 
 def check_file_updated():
@@ -164,12 +198,8 @@ def check_file_updated():
     params, mtime, errors, canonical = load_params_from_file()
     st.session_state["last_params_mtime"] = current_mtime
 
-    # JSONが壊れている場合はcanonical比較できないため、mtime更新として扱う
-    if canonical is None:
-        return True, params, mtime, errors
-
     last_canonical = st.session_state.get("last_params_canonical")
-    if canonical == last_canonical:
+    if not has_effective_params_update(current_mtime, last_mtime, canonical, last_canonical):
         return False, None, None, []
 
     st.session_state["last_params_canonical"] = canonical
@@ -188,10 +218,20 @@ from lib.megaton_client import (
     get_bq_datasets as _get_bq_datasets,
     query_bq,
     save_to_sheet,
+    save_to_bq,
 )
 from lib.params_diff import canonicalize_json
 from lib.params_validator import validate_params
 from lib.result_inspector import apply_pipeline, SUPPORTED_AGG_FUNCS, parse_transforms
+from app.ui.params_utils import (
+    GA4_OPERATORS,
+    GSC_OPERATORS,
+    parse_ga4_filter_to_df,
+    serialize_ga4_filter_from_df,
+    parse_gsc_filter_to_df,
+    serialize_gsc_filter_from_df,
+    has_effective_params_update,
+)
 
 # Streamlit用キャッシュラッパー
 @st.cache_data(ttl=300)
@@ -228,93 +268,6 @@ def parse_gsc_filter(filter_str: str):
                 "expression": parts[2]
             })
     return filters if filters else None
-
-
-# === フィルタ用ヘルパー関数 ===
-
-# GA4演算子
-GA4_OPERATORS = ["==", "!=", "=@", "!@", "=~", "!~", ">", ">=", "<", "<="]
-GA4_OPERATOR_LABELS = {
-    "==": "等しい",
-    "!=": "等しくない", 
-    "=@": "含む",
-    "!@": "含まない",
-    "=~": "正規表現一致",
-    "!~": "正規表現不一致",
-    ">": "より大きい",
-    ">=": "以上",
-    "<": "より小さい",
-    "<=": "以下",
-}
-
-# GSC演算子
-GSC_OPERATORS = ["contains", "notContains", "equals", "notEquals", "includingRegex", "excludingRegex"]
-GSC_OPERATOR_LABELS = {
-    "contains": "含む",
-    "notContains": "含まない",
-    "equals": "等しい",
-    "notEquals": "等しくない",
-    "includingRegex": "正規表現一致",
-    "excludingRegex": "正規表現不一致",
-}
-
-
-def parse_ga4_filter_to_df(filter_str: str) -> pd.DataFrame:
-    """GA4フィルタ文字列をDataFrameにパース"""
-    if not filter_str or not filter_str.strip():
-        return pd.DataFrame(columns=["対象", "演算子", "値"])
-    
-    rows = []
-    for part in filter_str.split(";"):
-        part = part.strip()
-        if not part:
-            continue
-        # 演算子でマッチ（長い順に試す）
-        for op in sorted(GA4_OPERATORS, key=len, reverse=True):
-            if op in part:
-                idx = part.index(op)
-                field = part[:idx]
-                value = part[idx + len(op):]
-                rows.append({"対象": field, "演算子": op, "値": value})
-                break
-    
-    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["対象", "演算子", "値"])
-
-
-def serialize_ga4_filter_from_df(df: pd.DataFrame) -> str:
-    """DataFrameからGA4フィルタ文字列を生成"""
-    if df is None or df.empty:
-        return ""
-    parts = []
-    for _, row in df.iterrows():
-        if row["対象"] and row["演算子"] and row["値"]:
-            parts.append(f"{row['対象']}{row['演算子']}{row['値']}")
-    return ";".join(parts)
-
-
-def parse_gsc_filter_to_df(filter_str: str) -> pd.DataFrame:
-    """GSCフィルタ文字列をDataFrameにパース"""
-    if not filter_str or not filter_str.strip():
-        return pd.DataFrame(columns=["対象", "演算子", "値"])
-    
-    rows = []
-    for part in filter_str.split(";"):
-        parts = part.split(":", 2)
-        if len(parts) == 3:
-            rows.append({"対象": parts[0], "演算子": parts[1], "値": parts[2]})
-    
-    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["対象", "演算子", "値"])
-
-
-def serialize_gsc_filter_from_df(df: pd.DataFrame) -> str:
-    """DataFrameからGSCフィルタ文字列を生成"""
-    if df is None or df.empty:
-        return ""
-    parts = []
-    for _, row in df.iterrows():
-        if row["対象"] and row["演算子"] and row["値"]:
-            parts.append(f"{row['対象']}:{row['演算子']}:{row['値']}")
-    return ";".join(parts)
 
 
 def execute_bq_query(project_id, sql):
@@ -380,7 +333,7 @@ with st.sidebar:
             st.caption("📄 params.json: なし")
 
         # 手動読み込みボタン
-        if st.button("📥 JSONを開く", use_container_width=True):
+        if st.button("📥 JSONを開く", width="stretch"):
             params, mtime, errors, canonical = load_params_from_file()
             if params:
                 apply_params_to_session(params)
@@ -443,7 +396,11 @@ with st.sidebar:
 
     if source == "GA4":
         # GA4設定
-        properties = get_ga4_properties()
+        try:
+            properties = get_ga4_properties()
+        except (RuntimeError, FileNotFoundError, ValueError) as e:
+            st.error(f"⚠️ 認証エラー: {e}")
+            st.stop()
         property_options = {p["display"]: p["id"] for p in properties}
 
         # プロパティIDからdisplay名を逆引き（セッションステートまたはloaded_paramsから）
@@ -499,7 +456,7 @@ with st.sidebar:
                     "値": st.column_config.TextColumn("値", required=True),
                 },
                 num_rows="dynamic",
-                use_container_width=True,
+                width="stretch",
                 key="ga4_filter_editor"
             )
             
@@ -512,7 +469,11 @@ with st.sidebar:
 
     elif source == "GSC":
         # GSC設定
-        sites = get_gsc_sites()
+        try:
+            sites = get_gsc_sites()
+        except (RuntimeError, FileNotFoundError, ValueError) as e:
+            st.error(f"⚠️ 認証エラー: {e}")
+            st.stop()
 
         # サイトURLの初期選択（keyを使って制御）
         if "w_gsc_site" not in st.session_state:
@@ -556,7 +517,7 @@ with st.sidebar:
                     "値": st.column_config.TextColumn("値", required=True),
                 },
                 num_rows="dynamic",
-                use_container_width=True,
+                width="stretch",
                 key="gsc_filter_editor"
             )
             
@@ -596,7 +557,7 @@ with st.sidebar:
 
     st.divider()
 
-    execute_btn = st.button("🚀 実行", type="primary", use_container_width=True)
+    execute_btn = st.button("🚀 実行", type="primary", width="stretch")
 
 # 自動実行チェック
 auto_execute_pending = st.session_state.get("auto_execute_pending", False)
@@ -841,7 +802,7 @@ if "df" in st.session_state:
     tab1, tab2, tab3 = st.tabs(["📋 テーブル", "📈 チャート", "💾 保存"])
 
     with tab1:
-        st.dataframe(display_df, use_container_width=True, height=400)
+        st.dataframe(display_df, width="stretch", height=400)
 
         # 統計情報
         with st.expander("統計情報"):
@@ -864,6 +825,11 @@ if "df" in st.session_state:
 
     with tab3:
         st.subheader("ローカル保存")
+        save_filename = st.text_input(
+            "ファイル名",
+            value=f"result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            key="w_save_filename",
+        )
         col1, col2 = st.columns(2)
         with col1:
             # CSV ダウンロード
@@ -871,16 +837,15 @@ if "df" in st.session_state:
             st.download_button(
                 "📥 CSV ダウンロード",
                 csv,
-                f"data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                save_filename,
                 "text/csv",
-                use_container_width=True
+                width="stretch"
             )
         with col2:
             # ファイル保存
-            if st.button("💾 output/ に保存", use_container_width=True):
-                import os
+            if st.button("💾 output/ に保存", width="stretch"):
                 os.makedirs("output", exist_ok=True)
-                filepath = f"output/result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                filepath = f"output/{save_filename}"
                 display_df.to_csv(filepath, index=False, encoding='utf-8-sig')
                 st.success(f"保存しました: {filepath}")
 
@@ -904,7 +869,7 @@ if "df" in st.session_state:
         if save_mode == "アップサート":
             key_cols = st.multiselect("キー列", display_df.columns.tolist(), key="w_upsert_keys")
 
-        if st.button("📤 Google Sheets に保存", use_container_width=True, type="primary"):
+        if st.button("📤 Google Sheets に保存", width="stretch", type="primary"):
             if not sheet_url:
                 st.error("スプレッドシートURLを入力してください")
             else:
@@ -917,6 +882,33 @@ if "df" in st.session_state:
                     else:
                         save_to_sheet(sheet_url, sheet_name, display_df, mode=mode, keys=key_cols if mode == "upsert" else None)
                         st.success(f"✓ シート「{sheet_name}」に保存しました")
+                except Exception as e:
+                    st.error(f"エラー: {e}")
+
+        st.divider()
+        st.subheader("BigQuery に保存")
+
+        bq_project = st.text_input(
+            "GCPプロジェクトID",
+            key="w_save_bq_project",
+            placeholder="my-project-id",
+        )
+        col1, col2 = st.columns(2)
+        with col1:
+            bq_dataset = st.text_input("データセット", key="w_save_bq_dataset")
+        with col2:
+            bq_table = st.text_input("テーブル", key="w_save_bq_table")
+
+        bq_mode = st.selectbox("保存モード", ["上書き", "追記"], key="w_save_bq_mode")
+
+        if st.button("📤 BigQuery に保存", width="stretch", type="primary"):
+            if not all([bq_project, bq_dataset, bq_table]):
+                st.error("プロジェクトID、データセット、テーブルを入力してください")
+            else:
+                try:
+                    bq_mode_map = {"上書き": "overwrite", "追記": "append"}
+                    save_to_bq(bq_project, bq_dataset, bq_table, display_df, mode=bq_mode_map[bq_mode])
+                    st.success(f"✓ {bq_project}.{bq_dataset}.{bq_table} に保存しました")
                 except Exception as e:
                     st.error(f"エラー: {e}")
 
