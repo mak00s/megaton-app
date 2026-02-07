@@ -18,7 +18,7 @@ CREDS_PATH = resolve_service_account_path()
 
 # GA4 プロパティ ID（Notebookで確認した値を指定）
 # 未設定の場合はアカウント一覧を表示して終了
-PROPERTY_ID = "254470346"  # 渋谷 - GA4
+PROPERTY_ID = ""  # 例: "123456789"
 
 # サービスアカウントで認証
 credentials = service_account.Credentials.from_service_account_file(

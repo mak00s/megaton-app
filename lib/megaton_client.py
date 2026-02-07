@@ -161,7 +161,7 @@ def query_gsc(
 
     Args:
         dimension_filter: フィルタ条件のリスト
-            例: [{"dimension": "query", "operator": "contains", "expression": "渋谷"}]
+            例: [{"dimension": "query", "operator": "contains", "expression": "seo"}]
             演算子: contains, notContains, equals, notEquals, includingRegex, excludingRegex
     """
     mg = get_megaton_for_site(site_url)

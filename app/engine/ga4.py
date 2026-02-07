@@ -4,9 +4,9 @@ from megaton import start
 from ..schemas import QueryParams
 from lib.credentials import resolve_service_account_path
 
-# デフォルトGA4設定（渋谷矯正グループ）
-DEFAULT_GA4_ACCOUNT = "141366107"
-DEFAULT_GA4_PROPERTY = "254470346"
+# デフォルトGA4設定（フォールバック用）
+DEFAULT_GA4_ACCOUNT = "000000000"
+DEFAULT_GA4_PROPERTY = "000000000"
 
 # シングルトン
 _mg = None

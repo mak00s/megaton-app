@@ -127,7 +127,7 @@ SAMPLE_GA4_JSON = """{
 SAMPLE_GSC_JSON = """{
   "schema_version": "1.0",
   "source": "gsc",
-  "site_url": "https://www.shibuyakyousei.jp/",
+  "site_url": "sc-domain:example.com",
   "date_range": {
     "start": "2026-01-28",
     "end": "2026-02-03"

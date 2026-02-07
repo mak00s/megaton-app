@@ -5,8 +5,8 @@ from lib.credentials import resolve_service_account_path
 
 # 設定
 CREDS_PATH = resolve_service_account_path()
-GA4_ACCOUNT = "141366107"  # 渋谷矯正グループ
-GA4_PROPERTY = "254470346"  # 渋谷 - GA4
+GA4_ACCOUNT = "YOUR_GA4_ACCOUNT_ID"
+GA4_PROPERTY = "YOUR_GA4_PROPERTY_ID"
 
 # 初期化（JSONファイルを直接指定、headlessモード）
 mg = start.Megaton(CREDS_PATH, headless=True)

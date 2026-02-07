@@ -5,7 +5,7 @@ from lib.credentials import resolve_service_account_path
 
 # 設定
 CREDS_PATH = resolve_service_account_path()
-GSC_SITE_URL = "https://www.shibuyakyousei.jp/"  # 渋谷矯正歯科
+GSC_SITE_URL = ""  # 例: "sc-domain:example.com"
 
 # 初期化（headlessモード）
 mg = start.Megaton(CREDS_PATH, headless=True)
