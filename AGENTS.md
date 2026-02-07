@@ -109,6 +109,8 @@ python scripts/query.py --list-bq-datasets --project my-project
 python scripts/query.py --list-jobs
 ```
 
+`--json` 指定時は、成功/失敗ともに構造化JSONを返す（失敗時は `status=error`, `error_code` を含む）。
+
 ### Streamlit UI を使う場合
 
 ```bash
