@@ -146,7 +146,7 @@ def get_property_choices():
             props = ga4.list_ga4_properties()
             _properties_cache = [(f"{p['property_name']} ({p['property_id']})", p['property_id']) for p in props]
         except Exception:
-            _properties_cache = [("サンプルサイト - GA4 (123456789)", "123456789")]
+            _properties_cache = [("GA4 Property (set your property ID)", "123456789")]
     return _properties_cache
 
 
@@ -159,7 +159,7 @@ def get_site_choices():
             sites = gsc.list_gsc_sites()
             _sites_cache = [(s, s) for s in sites]
         except Exception:
-            _sites_cache = [("https://www.example-sitekyousei.jp/", "https://www.example-sitekyousei.jp/")]
+            _sites_cache = [("sc-domain:example.com", "sc-domain:example.com")]
     return _sites_cache
 
 
@@ -205,7 +205,7 @@ def sync_ui_from_json(json_str):
         
         source = data.get("source", "ga4")
         property_id = data.get("property_id", "123456789")
-        site_url = data.get("site_url", "https://www.example-sitekyousei.jp/")
+        site_url = data.get("site_url", "sc-domain:example.com")
         start = data.get("date_range", {}).get("start", DEFAULT_START_DATE)
         end = data.get("date_range", {}).get("end", DEFAULT_END_DATE)
         
@@ -225,7 +225,7 @@ def sync_ui_from_json(json_str):
         return (
             "ga4",
             "123456789",
-            "https://www.example-sitekyousei.jp/",
+            "sc-domain:example.com",
             DEFAULT_START_DATE,
             DEFAULT_END_DATE,
             gr.update(visible=True),
@@ -255,7 +255,7 @@ with gr.Blocks(title="GA4/GSC 分析ツール") as app:
             
             # GA4プロパティ選択
             property_dropdown = gr.Dropdown(
-                choices=[("サンプルサイト - GA4 (123456789)", "123456789")],
+                choices=[("GA4 Property (set your property ID)", "123456789")],
                 value="123456789",
                 label="GA4 プロパティ",
                 visible=True,
@@ -263,8 +263,8 @@ with gr.Blocks(title="GA4/GSC 分析ツール") as app:
             
             # GSCサイト選択
             site_dropdown = gr.Dropdown(
-                choices=[("https://www.example-sitekyousei.jp/", "https://www.example-sitekyousei.jp/")],
-                value="https://www.example-sitekyousei.jp/",
+                choices=[("sc-domain:example.com", "sc-domain:example.com")],
+                value="sc-domain:example.com",
                 label="Search Console サイト",
                 visible=False,
             )
