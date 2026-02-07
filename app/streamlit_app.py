@@ -312,46 +312,6 @@ if st.session_state.get("auto_watch", True):
             st.session_state["params_validation_errors"] = errors
             st.toast("❌ params.json の検証に失敗しました", icon="⚠️")
 
-with st.sidebar:
-    with st.expander("🤖 AI Agent 連携", expanded=True):
-        st.session_state["auto_watch"] = st.toggle(
-            "JSON自動反映",
-            value=st.session_state.get("auto_watch", True),
-            help="input/params.json の変更を2秒ごとに検知"
-        )
-        st.session_state["auto_execute"] = st.toggle(
-            "自動実行",
-            value=st.session_state.get("auto_execute", False),
-            help="パラメータ読み込み後に自動でクエリ実行"
-        )
-
-        # ファイル状態表示
-        if PARAMS_FILE.exists():
-            mtime = datetime.fromtimestamp(PARAMS_FILE.stat().st_mtime)
-            st.caption(f"📄 params.json: {mtime.strftime('%H:%M:%S')} 更新")
-        else:
-            st.caption("📄 params.json: なし")
-
-        # 手動読み込みボタン
-        if st.button("📥 JSONを開く", width="stretch"):
-            params, mtime, errors, canonical = load_params_from_file()
-            if params:
-                apply_params_to_session(params)
-                st.session_state["last_params_mtime"] = mtime
-                st.session_state["last_params_canonical"] = canonical
-                st.session_state["params_validation_errors"] = []
-                st.success("✓ パラメータを読み込みました")
-                st.rerun()
-            elif errors:
-                if canonical is not None:
-                    st.session_state["last_params_canonical"] = canonical
-                if mtime is not None:
-                    st.session_state["last_params_mtime"] = mtime
-                st.session_state["params_validation_errors"] = errors
-                st.error("params.json の検証に失敗しました")
-            else:
-                st.warning("params.json が見つかりません")
-
 # サイドバー
 with st.sidebar:
     st.header("設定")
@@ -558,6 +518,47 @@ with st.sidebar:
     st.divider()
 
     execute_btn = st.button("🚀 実行", type="primary", width="stretch")
+
+    st.divider()
+
+    with st.expander("🤖 AI Agent 連携", expanded=False):
+        st.session_state["auto_watch"] = st.toggle(
+            "JSON自動反映",
+            value=st.session_state.get("auto_watch", True),
+            help="input/params.json の変更を2秒ごとに検知"
+        )
+        st.session_state["auto_execute"] = st.toggle(
+            "自動実行",
+            value=st.session_state.get("auto_execute", False),
+            help="パラメータ読み込み後に自動でクエリ実行"
+        )
+
+        # ファイル状態表示
+        if PARAMS_FILE.exists():
+            mtime = datetime.fromtimestamp(PARAMS_FILE.stat().st_mtime)
+            st.caption(f"📄 params.json: {mtime.strftime('%H:%M:%S')} 更新")
+        else:
+            st.caption("📄 params.json: なし")
+
+        # 手動読み込みボタン
+        if st.button("📥 JSONを開く", width="stretch"):
+            params, mtime, errors, canonical = load_params_from_file()
+            if params:
+                apply_params_to_session(params)
+                st.session_state["last_params_mtime"] = mtime
+                st.session_state["last_params_canonical"] = canonical
+                st.session_state["params_validation_errors"] = []
+                st.success("✓ パラメータを読み込みました")
+                st.rerun()
+            elif errors:
+                if canonical is not None:
+                    st.session_state["last_params_canonical"] = canonical
+                if mtime is not None:
+                    st.session_state["last_params_mtime"] = mtime
+                st.session_state["params_validation_errors"] = errors
+                st.error("params.json の検証に失敗しました")
+            else:
+                st.warning("params.json が見つかりません")
 
 # 自動実行チェック
 auto_execute_pending = st.session_state.get("auto_execute_pending", False)
