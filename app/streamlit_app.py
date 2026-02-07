@@ -239,6 +239,7 @@ from app.ui.query_builders import (
     build_pipeline_kwargs,
     build_agent_params,
 )
+from app.ui.ga4_fields import ALL_DIMENSIONS, ALL_METRICS
 
 # Streamlit用キャッシュラッパー
 @st.cache_data(ttl=300)
@@ -366,47 +367,14 @@ with st.sidebar:
         property_id = property_options[selected_property]
 
         # ディメンション（初期化）
-        all_dimensions = [
-            # 時間
-            "date", "dateHour", "hour",
-            # トラフィックソース
-            "sessionDefaultChannelGroup", "sessionSource", "sessionMedium",
-            "sessionSourceMedium", "sessionSourcePlatform", "sessionCampaignName",
-            "firstUserSource", "firstUserMedium", "firstUserCampaignName",
-            "firstUserDefaultChannelGroup",
-            # ページ / コンテンツ
-            "pagePath", "pageTitle", "landingPage", "landingPagePlusQueryString",
-            "pagePathPlusQueryString", "hostName",
-            # ユーザー / セッション
-            "newVsReturning", "userAgeBracket", "userGender",
-            # デバイス / プラットフォーム
-            "deviceCategory", "operatingSystem", "browser",
-            # 地域
-            "country", "region", "city", "language",
-            # イベント / コンバージョン
-            "eventName", "isConversionEvent",
-        ]
+        all_dimensions = ALL_DIMENSIONS
         if "w_ga4_dimensions" not in st.session_state:
             st.session_state["w_ga4_dimensions"] = lp.get("dimensions", ["date"]) if lp.get("source", "").lower() == "ga4" else ["date"]
         dimensions = st.multiselect("ディメンション", all_dimensions, key="w_ga4_dimensions",
                                     accept_new_options=True, max_selections=9)
 
         # メトリクス（初期化）
-        all_metrics = [
-            # セッション / ユーザー
-            "sessions", "activeUsers", "newUsers", "totalUsers",
-            "sessionsPerUser", "engagedSessions", "engagementRate",
-            # ページビュー
-            "screenPageViews", "screenPageViewsPerSession",
-            # エンゲージメント
-            "averageSessionDuration", "userEngagementDuration",
-            "bounceRate", "eventCount", "eventsPerSession",
-            # コンバージョン
-            "conversions", "keyEvents",
-            # eコマース
-            "ecommercePurchases", "purchaseRevenue",
-            "addToCarts", "checkouts",
-        ]
+        all_metrics = ALL_METRICS
         if "w_ga4_metrics" not in st.session_state:
             st.session_state["w_ga4_metrics"] = lp.get("metrics", ["sessions", "activeUsers"]) if lp.get("source", "").lower() == "ga4" else ["sessions", "activeUsers"]
         metrics = st.multiselect("メトリクス", all_metrics, key="w_ga4_metrics",
