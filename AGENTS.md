@@ -93,6 +93,9 @@ python scripts/query.py --submit --params input/params.json
 # ジョブ状態確認
 python scripts/query.py --status job_20260207_120000_abcd1234
 
+# ジョブをキャンセル
+python scripts/query.py --cancel job_20260207_120000_abcd1234
+
 # ジョブ結果確認
 python scripts/query.py --result job_20260207_120000_abcd1234
 
