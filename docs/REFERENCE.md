@@ -96,6 +96,30 @@ python scripts/query.py --result <job_id> --summary
 python scripts/query.py --list-jobs
 ```
 
+### `--json` レスポンス形式
+
+成功時:
+
+```json
+{
+  "status": "ok",
+  "mode": "query",
+  "data": {}
+}
+```
+
+失敗時:
+
+```json
+{
+  "status": "error",
+  "error_code": "PARAMS_VALIDATION_FAILED",
+  "message": "Params validation failed.",
+  "hint": "Fix params based on details[].",
+  "details": {}
+}
+```
+
 ### ジョブ状態
 
 | status | 説明 |

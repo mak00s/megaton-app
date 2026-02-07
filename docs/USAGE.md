@@ -98,6 +98,7 @@ python scripts/query.py --list-bq-datasets --project my-project
 
 `--params` 実行時は `schema_version: "1.0"` を必須検証し、`source` とキー整合性が崩れている場合は実行前にエラー終了します。
 `--head` と `--summary` は `--result` と併用する。
+`--json` 指定時は成功・失敗ともに構造化JSONを返す（成功: `status=ok`、失敗: `status=error`）。
 
 ### ジョブ管理の保存先
 

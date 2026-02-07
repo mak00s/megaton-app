@@ -43,6 +43,42 @@ from lib.params_validator import validate_params
 from lib.result_inspector import read_head, build_summary
 
 
+def emit_success(args, data, **meta) -> None:
+    """--json時は構造化JSON、通常時は何もしない"""
+    if not args.json:
+        return
+    payload = {"status": "ok", "data": data}
+    if meta:
+        payload.update(meta)
+    print(json.dumps(payload, ensure_ascii=False))
+
+
+def emit_error(args, error_code: str, message: str, hint: str | None = None, details=None) -> int:
+    """--json時は構造化JSONエラー、通常時はstderr出力"""
+    if args.json:
+        payload = {
+            "status": "error",
+            "error_code": error_code,
+            "message": message,
+        }
+        if hint:
+            payload["hint"] = hint
+        if details is not None:
+            payload["details"] = details
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        print(message, file=sys.stderr)
+        if hint:
+            print(f"hint: {hint}", file=sys.stderr)
+        if details and isinstance(details, dict) and "errors" in details:
+            for err in details["errors"]:
+                print(
+                    f"- [{err.get('error_code')}] {err.get('path')}: {err.get('message')} ({err.get('hint')})",
+                    file=sys.stderr,
+                )
+    return 1
+
+
 def parse_gsc_filter(filter_str: str) -> list | None:
     """GSCフィルタ文字列をパース"""
     if not filter_str:
@@ -65,29 +101,34 @@ def parse_gsc_filter(filter_str: str) -> list | None:
     return filters
 
 
-def load_params(params_path: str) -> dict | None:
+def load_params(params_path: str) -> tuple[dict | None, dict | None]:
     """params.jsonを読み込み・検証"""
     try:
         with open(params_path, "r", encoding="utf-8") as f:
             raw = json.load(f)
     except FileNotFoundError:
-        print(f"paramsファイルが見つかりません: {params_path}", file=sys.stderr)
-        return None
+        return None, {
+            "error_code": "PARAMS_FILE_NOT_FOUND",
+            "message": f"params file not found: {params_path}",
+            "hint": "Create the file or pass --params with a valid path.",
+        }
     except json.JSONDecodeError as e:
-        print(f"JSONパースエラー: {e}", file=sys.stderr)
-        return None
+        return None, {
+            "error_code": "INVALID_JSON",
+            "message": f"Invalid JSON in params file: {e}",
+            "hint": "Fix JSON syntax in params file.",
+        }
 
     params, errors = validate_params(raw)
     if errors:
-        print("params検証エラー:", file=sys.stderr)
-        for err in errors:
-            print(
-                f"- [{err['error_code']}] {err['path']}: {err['message']} ({err['hint']})",
-                file=sys.stderr,
-            )
-        return None
+        return None, {
+            "error_code": "PARAMS_VALIDATION_FAILED",
+            "message": "Params validation failed.",
+            "hint": "Fix params based on details[].",
+            "details": {"errors": errors},
+        }
 
-    return params
+    return params, None
 
 
 def execute_query_from_params(params: dict) -> tuple[object, list[str]]:
@@ -146,18 +187,36 @@ def output_result(df, args):
     if args.output:
         Path(args.output).parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(args.output, index=False, encoding="utf-8-sig")
-        print(f"保存しました: {args.output} ({len(df)}行)")
+        if args.json:
+            emit_success(
+                args,
+                {
+                    "saved_to": args.output,
+                    "row_count": int(len(df)),
+                },
+                mode="query",
+            )
+        else:
+            print(f"保存しました: {args.output} ({len(df)}行)")
     elif args.json:
-        print(df.to_json(orient="records", force_ascii=False))
+        rows = json.loads(df.to_json(orient="records", force_ascii=False))
+        emit_success(
+            args,
+            {
+                "rows": rows,
+                "row_count": int(len(rows)),
+            },
+            mode="query",
+        )
     else:
         print(df.to_string(index=False))
         print(f"\n合計: {len(df)}行")
 
 
 def submit_job(args, store: JobStore) -> int:
-    params = load_params(args.params)
-    if not params:
-        return 1
+    params, err = load_params(args.params)
+    if err:
+        return emit_error(args, **err)
 
     job = store.create_job(params=params, params_path=args.params)
     job_id = job["job_id"]
@@ -176,11 +235,11 @@ def submit_job(args, store: JobStore) -> int:
 
     payload = {
         "job_id": job_id,
-        "status": "queued",
+        "job_status": "queued",
         "log_path": str(log_path),
     }
     if args.json:
-        print(json.dumps(payload, ensure_ascii=False))
+        emit_success(args, payload, mode="submit")
     else:
         print(f"ジョブを投入しました: {job_id}")
         print(f"ログ: {log_path}")
@@ -230,11 +289,15 @@ def run_job(job_id: str, store: JobStore) -> int:
 def show_job_status(job_id: str, args, store: JobStore) -> int:
     job = store.load_job(job_id)
     if not job:
-        print(f"jobが見つかりません: {job_id}", file=sys.stderr)
-        return 1
+        return emit_error(
+            args,
+            "JOB_NOT_FOUND",
+            f"job not found: {job_id}",
+            "Check job_id or run --list-jobs.",
+        )
 
     if args.json:
-        print(json.dumps(job, ensure_ascii=False))
+        emit_success(args, job, mode="job_status")
     else:
         print(f"job_id: {job['job_id']}")
         print(f"status: {job['status']}")
@@ -252,17 +315,30 @@ def show_job_status(job_id: str, args, store: JobStore) -> int:
 def show_job_result(job_id: str, args, store: JobStore) -> int:
     job = store.load_job(job_id)
     if not job:
-        print(f"jobが見つかりません: {job_id}", file=sys.stderr)
-        return 1
+        return emit_error(
+            args,
+            "JOB_NOT_FOUND",
+            f"job not found: {job_id}",
+            "Check job_id or run --list-jobs.",
+        )
 
     if job["status"] != "succeeded":
-        print(f"jobは未完了です: status={job['status']}", file=sys.stderr)
-        return 1
+        return emit_error(
+            args,
+            "JOB_NOT_READY",
+            f"job is not completed yet: status={job['status']}",
+            "Wait and retry with --status.",
+            {"job_status": job["status"]},
+        )
 
     artifact_path = job.get("artifact_path")
     if not artifact_path:
-        print("artifact_path がありません", file=sys.stderr)
-        return 1
+        return emit_error(
+            args,
+            "ARTIFACT_NOT_FOUND",
+            "artifact_path is missing in job record",
+            "Re-run the job.",
+        )
 
     if args.output:
         Path(args.output).parent.mkdir(parents=True, exist_ok=True)
@@ -278,17 +354,25 @@ def show_job_result(job_id: str, args, store: JobStore) -> int:
     if args.output:
         payload["copied_to"] = args.output
 
-    if args.head is not None:
-        head_df = read_head(artifact_path, args.head)
-        head_records = json.loads(head_df.to_json(orient="records", force_ascii=False))
-        payload["head_rows"] = len(head_records)
-        payload["head"] = head_records
+    try:
+        if args.head is not None:
+            head_df = read_head(artifact_path, args.head)
+            head_records = json.loads(head_df.to_json(orient="records", force_ascii=False))
+            payload["head_rows"] = len(head_records)
+            payload["head"] = head_records
 
-    if args.summary:
-        payload["summary"] = build_summary(artifact_path)
+        if args.summary:
+            payload["summary"] = build_summary(artifact_path)
+    except Exception as e:
+        return emit_error(
+            args,
+            "RESULT_READ_FAILED",
+            f"failed to read result artifact: {e}",
+            "Check artifact file and options.",
+        )
 
     if args.json:
-        print(json.dumps(payload, ensure_ascii=False))
+        emit_success(args, payload, mode="job_result")
     else:
         print(f"job_id: {job['job_id']}")
         print(f"status: {job['status']}")
@@ -314,7 +398,7 @@ def show_job_result(job_id: str, args, store: JobStore) -> int:
 def show_jobs(args, store: JobStore) -> int:
     jobs = store.list_jobs(limit=args.job_limit)
     if args.json:
-        print(json.dumps(jobs, ensure_ascii=False))
+        emit_success(args, {"jobs": jobs, "count": len(jobs)}, mode="list_jobs")
         return 0
 
     if not jobs:
@@ -333,42 +417,74 @@ def show_jobs(args, store: JobStore) -> int:
     return 0
 
 
-def run_list_mode(args) -> tuple[bool, bool]:
+def run_list_mode(args) -> tuple[bool, int]:
     """一覧表示モード"""
     if args.list_ga4_properties:
-        props = get_ga4_properties()
+        try:
+            props = get_ga4_properties()
+        except Exception as e:
+            return True, emit_error(
+                args,
+                "LIST_OPERATION_FAILED",
+                f"failed to list GA4 properties: {e}",
+                "Check credentials and GA4 permissions.",
+            )
         if args.json:
-            print(json.dumps(props, ensure_ascii=False))
+            emit_success(args, {"properties": props, "count": len(props)}, mode="list_ga4_properties")
         else:
             print("GA4プロパティ一覧:")
             for p in props:
                 print(f"  - {p['display']}")
-        return True, True
+        return True, 0
 
     if args.list_gsc_sites:
-        sites = get_gsc_sites()
+        try:
+            sites = get_gsc_sites()
+        except Exception as e:
+            return True, emit_error(
+                args,
+                "LIST_OPERATION_FAILED",
+                f"failed to list GSC sites: {e}",
+                "Check credentials and Search Console permissions.",
+            )
         if args.json:
-            print(json.dumps(sites, ensure_ascii=False))
+            emit_success(args, {"sites": sites, "count": len(sites)}, mode="list_gsc_sites")
         else:
             print("GSCサイト一覧:")
             for s in sites:
                 print(f"  - {s}")
-        return True, True
+        return True, 0
 
     if args.list_bq_datasets:
         if not args.project:
-            print("--list-bq-datasets には --project が必要です", file=sys.stderr)
-            return True, False
-        datasets = get_bq_datasets(args.project)
+            return True, emit_error(
+                args,
+                "MISSING_REQUIRED_ARG",
+                "--project is required for --list-bq-datasets",
+                "Use --list-bq-datasets --project <gcp_project_id>.",
+            )
+        try:
+            datasets = get_bq_datasets(args.project)
+        except Exception as e:
+            return True, emit_error(
+                args,
+                "LIST_OPERATION_FAILED",
+                f"failed to list BigQuery datasets: {e}",
+                "Check project_id and BigQuery permissions.",
+            )
         if args.json:
-            print(json.dumps(datasets, ensure_ascii=False))
+            emit_success(
+                args,
+                {"project_id": args.project, "datasets": datasets, "count": len(datasets)},
+                mode="list_bq_datasets",
+            )
         else:
             print(f"データセット一覧 ({args.project}):")
             for ds in datasets:
                 print(f"  - {ds}")
-        return True, True
+        return True, 0
 
-    return False, True
+    return False, 0
 
 
 def main():
@@ -393,16 +509,24 @@ def main():
     args = parser.parse_args()
     store = JobStore()
 
-    handled, ok = run_list_mode(args)
+    handled, code = run_list_mode(args)
     if handled:
-        return 0 if ok else 1
+        return code
 
     if args.head is not None and args.head <= 0:
-        print("--head には1以上の整数を指定してください", file=sys.stderr)
-        return 1
+        return emit_error(
+            args,
+            "INVALID_ARGUMENT",
+            "--head must be a positive integer",
+            "Use --head 1 or greater.",
+        )
     if (args.head is not None or args.summary) and not args.result:
-        print("--head/--summary は --result と併用してください", file=sys.stderr)
-        return 1
+        return emit_error(
+            args,
+            "INVALID_ARGUMENT",
+            "--head/--summary must be used with --result",
+            "Use --result <job_id> with --head/--summary.",
+        )
 
     if args.run_job:
         return run_job(args.run_job, store)
@@ -419,15 +543,19 @@ def main():
     if args.list_jobs:
         return show_jobs(args, store)
 
-    params = load_params(args.params)
-    if not params:
-        return 1
+    params, err = load_params(args.params)
+    if err:
+        return emit_error(args, **err)
 
     try:
         df, header_lines = execute_query_from_params(params)
         if df is None or df.empty:
-            print("データが取得できませんでした", file=sys.stderr)
-            return 1
+            return emit_error(
+                args,
+                "NO_DATA",
+                "No data returned from query.",
+                "Check date range, filters, and property/site settings.",
+            )
 
         if not args.json and not args.output:
             for line in header_lines:
@@ -437,11 +565,19 @@ def main():
         output_result(df, args)
         return 0
     except ValueError as e:
-        print(f"エラー: {e}", file=sys.stderr)
-        return 1
+        return emit_error(
+            args,
+            "INVALID_QUERY",
+            str(e),
+            "Check params and query fields.",
+        )
     except Exception as e:
-        print(f"エラー: {e}", file=sys.stderr)
-        return 1
+        return emit_error(
+            args,
+            "QUERY_EXECUTION_FAILED",
+            str(e),
+            "Check source credentials and query parameters.",
+        )
 
 
 if __name__ == "__main__":
