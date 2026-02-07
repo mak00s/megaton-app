@@ -1,0 +1,11 @@
+[project]
+name = "megaton-app"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "megaton @ git+https://github.com/mak00s/megaton.git",
+    "pandas",
+]
+
+[tool.setuptools.packages.find]
+include = ["lib*"]
