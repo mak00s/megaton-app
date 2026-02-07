@@ -2,21 +2,89 @@
 
 ## 1. Jupyter Notebook
 
-対話的な探索分析、可視化、メモに最適。
+対話的な探索分析、可視化、レポートに最適。
+開発したノートブックは CLI / GitHub Actions でそのまま定期実行できる。
 
 ### セル構成
 
 ```
-セル1: 設定・初期化・GA4選択
-  - CREDS_PATH, GCP_PROJECT_ID, CONFIG_SHEET_URL を直書き
-  - megaton 初期化 → JSON選択UI → GA4選択UI が表示される
+セル0: パラメータ（# %% tags=["parameters"]）
+  - 外から上書きしたい変数を集約（日付、プロパティID、出力先など）
 
-セル2: レポート期間設定
-  - start_date, end_date を設定
+セル1: セットアップ
+  - from lib.notebook import init; init()
+  - import pandas, matplotlib, ...
+  - from lib.megaton_client import get_ga4, get_gsc
 
-セル3以降: 本処理
+セル2以降: 本処理
   - データ取得・加工・集計・可視化
 ```
+
+### ノートブックの初期化
+
+`lib/notebook.py` の `init()` がパス・環境変数・モジュールを一括初期化する。
+
+```python
+# %% tags=["parameters"]
+PROPERTY_ID = "254800682"
+START_DATE = "2025-06-01"
+END_DATE = "2026-01-31"
+
+# %%
+import sys
+from pathlib import Path
+
+_d = Path.cwd()
+while _d != _d.parent and not (_d / "lib").is_dir():
+    _d = _d.parent
+sys.path.insert(0, str(_d))
+
+from lib.notebook import init
+init()
+
+from lib.megaton_client import get_ga4, get_gsc
+from lib.analysis import show
+```
+
+### megaton ネイティブ API（推奨）
+
+`get_ga4()` / `get_gsc()` はクレデンシャル自動選択・アカウント選択済みの megaton インスタンスを返す。
+megaton の ReportResult / SearchResult のメソッドチェーンで後処理が可能。
+
+```python
+# GA4: ReportResult チェーン
+mg = get_ga4(PROPERTY_ID)
+mg.report.set.dates(START_DATE, END_DATE)
+result = mg.report.run(d=["date", "landingPage"], m=["sessions"], show=False)
+result.clean_url("landingPage").group("date").sort("date")
+df = result.df
+
+# GSC: SearchResult チェーン
+mg = get_gsc(SITE_URL)
+mg.search.set.dates(START_DATE, END_DATE)
+result = mg.search.run(dimensions=["query", "page"], limit=25000)
+result.decode().clean_url().normalize_queries().filter_impressions(min=10)
+df = result.df
+```
+
+**ReportResult の主なメソッド:** `clean_url`, `group`, `sort`, `fill`, `to_int`, `replace`, `normalize`, `classify`, `categorize`
+
+**SearchResult の主なメソッド:** `decode`, `clean_url`, `remove_params`, `normalize_queries`, `filter_clicks`, `filter_impressions`, `filter_ctr`, `filter_position`, `aggregate`, `classify`, `categorize`, `apply_if`
+
+### CLI から実行
+
+Jupyter で開発したノートブックを、そのまま CLI で実行できる。
+
+```bash
+# デフォルトパラメータで実行
+python scripts/run_notebook.py notebooks/reports/yokohama_cv.py
+
+# パラメータ上書き（日付テンプレート対応）
+python scripts/run_notebook.py notebooks/reports/yokohama_cv.py \
+  -p START_DATE=today-30d -p END_DATE=today
+```
+
+`MPLBACKEND=Agg` で実行するため、`plt.show()` は呼ばれてもGUI表示されない。CSV保存などの出力はそのまま動作する。
 
 ### Jupytext（.ipynb ↔ .py 同期）
 
@@ -26,13 +94,13 @@ AI Agent が Notebook を直接編集すると壊れることがあるため、J
 1. AI Agent は `.py` ファイルを編集
 2. 編集後に同期:
    ```bash
-   jupytext --sync notebooks/*.ipynb
+   jupytext --sync notebooks/**/*.ipynb
    ```
 3. Jupyter で `.ipynb` を開いて実行
 
 **手動で .ipynb を編集した場合:**
 ```bash
-jupytext --sync notebooks/*.ipynb
+jupytext --sync notebooks/**/*.ipynb
 ```
 
 ---
@@ -250,5 +318,5 @@ python -m pytest -q --cov=scripts.query --cov-report=term-missing --cov-fail-und
 
 ### 現在の目安（2026-02-07時点）
 
-- `python -m pytest -q`: `160 passed`
+- `python -m pytest -q`: `276 passed`
 - `scripts/query.py` coverage: `98%`

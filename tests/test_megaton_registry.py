@@ -219,6 +219,155 @@ class TestRoutingFunctions(unittest.TestCase):
         self.assertGreaterEqual(mock_build.call_count, 2)
 
 
+class TestGetGA4(unittest.TestCase):
+    """get_ga4(): クレデンシャル自動選択 + アカウント/プロパティ選択"""
+
+    def setUp(self):
+        _reset_registry()
+
+    def tearDown(self):
+        _reset_registry()
+
+    @patch("lib.megaton_client.list_service_account_paths")
+    @patch("lib.megaton_client.start.Megaton")
+    def test_selects_account_and_property(self, mock_megaton_cls, mock_list):
+        mock_list.return_value = ["/creds/a.json"]
+        mg_a = _make_mock_megaton(
+            accounts=[{"id": "acc1", "properties": [{"id": "P1", "name": "Prop1"}]}],
+            sites=[],
+        )
+        mock_megaton_cls.return_value = mg_a
+
+        result = mc.get_ga4("P1")
+        self.assertIs(result, mg_a)
+        mg_a.ga["4"].account.select.assert_called_once_with("acc1")
+        mg_a.ga["4"].property.select.assert_called_once_with("P1")
+
+    @patch("lib.megaton_client.list_service_account_paths")
+    @patch("lib.megaton_client.start.Megaton")
+    def test_multiple_accounts_finds_correct(self, mock_megaton_cls, mock_list):
+        """複数アカウントから正しいプロパティを持つアカウントを選択"""
+        mock_list.return_value = ["/creds/a.json"]
+        mg_a = _make_mock_megaton(
+            accounts=[
+                {"id": "acc1", "properties": [{"id": "P1", "name": "Prop1"}]},
+                {"id": "acc2", "properties": [{"id": "P2", "name": "Prop2"}]},
+            ],
+            sites=[],
+        )
+        mock_megaton_cls.return_value = mg_a
+
+        result = mc.get_ga4("P2")
+        mg_a.ga["4"].account.select.assert_called_once_with("acc2")
+        mg_a.ga["4"].property.select.assert_called_once_with("P2")
+
+    @patch("lib.megaton_client.list_service_account_paths")
+    @patch("lib.megaton_client.start.Megaton")
+    def test_integer_property_id(self, mock_megaton_cls, mock_list):
+        """整数の property_id も正規化して動作"""
+        mock_list.return_value = ["/creds/a.json"]
+        mg_a = _make_mock_megaton(
+            accounts=[{"id": "acc1", "properties": [{"id": "254800682", "name": "Prop"}]}],
+            sites=[],
+        )
+        mock_megaton_cls.return_value = mg_a
+
+        result = mc.get_ga4(254800682)
+        self.assertIs(result, mg_a)
+        mg_a.ga["4"].account.select.assert_called_once_with("acc1")
+
+    @patch("lib.megaton_client.list_service_account_paths", return_value=[])
+    def test_credential_not_found_raises(self, mock_list):
+        """レジストリにないプロパティはValueError"""
+        with self.assertRaises(ValueError):
+            mc.get_ga4("UNKNOWN")
+
+
+class TestGetGSC(unittest.TestCase):
+    """get_gsc(): クレデンシャル自動選択 + サイト選択"""
+
+    def setUp(self):
+        _reset_registry()
+
+    def tearDown(self):
+        _reset_registry()
+
+    @patch("lib.megaton_client.list_service_account_paths")
+    @patch("lib.megaton_client.start.Megaton")
+    def test_selects_site(self, mock_megaton_cls, mock_list):
+        mock_list.return_value = ["/creds/b.json"]
+        mg_b = _make_mock_megaton(
+            accounts=[],
+            sites=["https://example.com/"],
+        )
+        mock_megaton_cls.return_value = mg_b
+
+        result = mc.get_gsc("https://example.com/")
+        self.assertIs(result, mg_b)
+        mg_b.search.use.assert_called_once_with("https://example.com/")
+
+    @patch("lib.megaton_client.list_service_account_paths", return_value=[])
+    def test_credential_not_found_raises(self, mock_list):
+        """レジストリにないサイトはValueError"""
+        with self.assertRaises(ValueError):
+            mc.get_gsc("https://unknown.example.com/")
+
+
+class TestQueryRefactored(unittest.TestCase):
+    """query_ga4/query_gsc がリファクタ後も正しく動作"""
+
+    def setUp(self):
+        _reset_registry()
+
+    def tearDown(self):
+        _reset_registry()
+
+    @patch("lib.megaton_client.list_service_account_paths")
+    @patch("lib.megaton_client.start.Megaton")
+    def test_query_ga4_uses_get_ga4(self, mock_megaton_cls, mock_list):
+        import pandas as pd
+        mock_list.return_value = ["/creds/a.json"]
+        mg_a = _make_mock_megaton(
+            accounts=[{"id": "acc1", "properties": [{"id": "P1", "name": "Prop1"}]}],
+            sites=[],
+        )
+        mg_a.report.data = pd.DataFrame({"date": ["2025-01-01"], "sessions": [100]})
+        mock_megaton_cls.return_value = mg_a
+
+        df = mc.query_ga4("P1", "2025-01-01", "2025-01-31", ["date"], ["sessions"])
+        # account/property 選択が行われた
+        mg_a.ga["4"].account.select.assert_called_once_with("acc1")
+        mg_a.ga["4"].property.select.assert_called_once_with("P1")
+        # report.run が呼ばれた
+        mg_a.report.run.assert_called_once()
+        self.assertEqual(len(df), 1)
+
+    @patch("lib.megaton_client.list_service_account_paths")
+    @patch("lib.megaton_client.start.Megaton")
+    def test_query_gsc_uses_get_gsc(self, mock_megaton_cls, mock_list):
+        import pandas as pd
+        mock_list.return_value = ["/creds/b.json"]
+        mg_b = _make_mock_megaton(
+            accounts=[],
+            sites=["https://example.com/"],
+        )
+        mg_b.search.data = pd.DataFrame({
+            "query": ["test"],
+            "clicks": [10],
+            "impressions": [100],
+        })
+        mock_megaton_cls.return_value = mg_b
+
+        df = mc.query_gsc(
+            "https://example.com/", "2025-01-01", "2025-01-31", ["query"]
+        )
+        # site 選択が行われた
+        mg_b.search.use.assert_called_once_with("https://example.com/")
+        # search.run が呼ばれた
+        mg_b.search.run.assert_called_once()
+        self.assertEqual(len(df), 1)
+
+
 class TestMergedLists(unittest.TestCase):
     def setUp(self):
         _reset_registry()

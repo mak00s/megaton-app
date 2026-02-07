@@ -8,7 +8,7 @@ GA4 / Search Console / BigQuery のデータを API で取得し、加工・集�
 
 | パターン | 用途 | 実行者 | 特徴 |
 |----------|------|--------|------|
-| **1. Jupyter Notebook** | 探索的分析、可視化、メモ | 人間 | 対話的、試行錯誤向き |
+| **1. Jupyter Notebook** | 探索的分析、可視化、レポート | 人間 / CLI定期実行 | 対話的開発 → そのまま自動化 |
 | **2. CLIスクリプト** | データ抽出、バッチ処理 | AI Agent / 人間 | 高速、自動化向き |
 | **3. Streamlit UI** | 対話型分析 | 人間 + AI Agent | パラメータ確認・修正 |
 
@@ -25,11 +25,14 @@ GA4 / Search Console / BigQuery のデータを API で取得し、加工・集�
         ▼                  ▼                  ▼
 ┌───────────────┐  ┌───────────────┐  ┌───────────────┐
 │ 1. Notebook   │  │ 2. CLI        │  │ 3. Streamlit  │
-│ (対話的分析)   │  │ (バッチ/Agent)│  │ (対話型分析)  │
+│ (分析/レポート)│  │ (バッチ/Agent)│  │ (対話型分析)  │
 │               │  │               │  │               │
 │ notebooks/    │  │ scripts/      │  │ app/          │
-│ *.ipynb       │  │ query.py      │  │ localhost:8501│
-└───────────────┘  └───────────────┘  └───────────────┘
+│ *.py (jupytext)│ │ query.py      │  │ localhost:8501│
+│               │  │ run_notebook  │  │               │
+└──────┬────────┘  └───────────────┘  └───────────────┘
+       │
+       └─→ scripts/run_notebook.py でCLI/CI実行も可
 ```
 
 ### Streamlit UIを使う理由
@@ -67,11 +70,14 @@ shibuya-analysis/
 │   ├── PROGRESS.md         # 進捗履歴
 │   └── REFERENCE.md        # 技術リファレンス
 ├── credentials/            # 認証情報（Git管理外）
-├── notebooks/              # Jupyter Notebook
+├── notebooks/              # Jupyter Notebook（Jupytext .py ↔ .ipynb）
+│   └── reports/            # 分析レポート用ノートブック
 ├── lib/                    # 共通モジュール
-│   └── megaton_client.py   # megaton ラッパー（CLI/UI共通）
+│   ├── megaton_client.py   # megaton ラッパー（CLI/UI共通）
+│   └── notebook.py         # ノートブック初期化ヘルパー（init()）
 ├── scripts/                # CLIスクリプト（AI Agent 用）
-│   └── query.py            # 統合クエリ実行（GA4/GSC/BigQuery）
+│   ├── query.py            # 統合クエリ実行（GA4/GSC/BigQuery）
+│   └── run_notebook.py     # ノートブック実行（パラメータ上書き対応）
 ├── app/                    # Streamlit UI
 │   └── streamlit_app.py
 ├── input/                  # パラメータ入力（AI Agent → UI）
@@ -231,6 +237,28 @@ python scripts/query.py --batch configs/monthly/ --json
 
 各configは独立した1ステップ。失敗しても残りは続行し、最後にサマリを表示。
 
+### ノートブック実行
+
+Jupytext percent format の `.py` ノートブックを CLI から実行する。
+Jupyter で対話的に開発 → 同じファイルを CLI / GitHub Actions で定期実行。
+
+```bash
+# デフォルトパラメータで実行
+python scripts/run_notebook.py notebooks/reports/yokohama_cv.py
+
+# パラメータ上書き（日付テンプレート対応）
+python scripts/run_notebook.py notebooks/reports/yokohama_cv.py \
+  -p START_DATE=today-30d -p END_DATE=today
+
+# 複数パラメータ
+python scripts/run_notebook.py notebooks/reports/yokohama_cv.py \
+  -p START_DATE=2025-01-01 -p END_DATE=2025-01-31 \
+  -p OUTPUT_DIR=output/jan
+```
+
+ノートブックの `# %% tags=["parameters"]` セルの変数が上書き対象。
+`MPLBACKEND=Agg` を設定して実行するため、`plt.show()` は呼ばれてもGUI表示されない（ヘッドレス実行）。
+
 ### AI Agent が探索的分析をする場合（Python直接実行）
 
 CLIやStreamlitを介さず、Pythonコードを直接実行して分析する場合は
@@ -315,7 +343,7 @@ EOF
 
 ### Phase 3: 応用・拡張
 - [ ] 複数プロパティのバッチ処理
-- [ ] 定型レポートの自動化
+- [x] 定型レポートの自動化（`scripts/run_notebook.py` + GitHub Actions）
 
 ## 詳細ドキュメント
 

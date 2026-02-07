@@ -114,6 +114,56 @@ def get_megaton_for_site(site_url: str):
     return get_megaton(creds_path)
 
 
+# === 初期化済みインスタンス取得（Notebook向け） ===
+
+
+def get_ga4(property_id: str):
+    """GA4用の初期化済みMegatonインスタンスを返す。
+
+    クレデンシャル自動選択 + アカウント/プロパティ選択済み。
+    mg.report.run() の戻り値 ReportResult でメソッドチェーンが可能。
+
+    Usage::
+
+        mg = get_ga4("254800682")
+        mg.report.set.dates("2025-06-01", "2026-01-31")
+        result = mg.report.run(d=["date", "landingPage"], m=["sessions"], show=False)
+        result.clean_url("landingPage").group("date").sort("date")
+        df = result.df
+    """
+    property_id = _normalize_key(property_id)
+    mg = get_megaton_for_property(property_id)
+    for acc in mg.ga["4"].accounts:
+        for prop in acc.get("properties", []):
+            if _normalize_key(prop["id"]) == property_id:
+                mg.ga["4"].account.select(acc["id"])
+                mg.ga["4"].property.select(property_id)
+                return mg
+    raise ValueError(
+        f"Property {property_id} found in registry but not in accounts"
+    )
+
+
+def get_gsc(site_url: str):
+    """GSC用の初期化済みMegatonインスタンスを返す。
+
+    クレデンシャル自動選択 + サイト選択済み。
+    mg.search.run() の戻り値 SearchResult でメソッドチェーンが可能。
+
+    Usage::
+
+        mg = get_gsc("https://example.com")
+        mg.search.set.dates("2025-06-01", "2026-01-31")
+        result = mg.search.run(dimensions=["query", "page"], limit=25000)
+        result.decode().clean_url().filter_impressions(min=10)
+        df = result.df
+    """
+    site_url = _normalize_key(site_url)
+    mg = get_megaton_for_site(site_url)
+    mg.search.use(site_url)
+    return mg
+
+
 # === GA4 ===
 
 def get_ga4_properties() -> list:
@@ -158,17 +208,7 @@ def query_ga4(
         filter_d: フィルタ式（"field==value;field!=value" 形式）
         limit: 取得行数上限
     """
-    property_id = _normalize_key(property_id)
-    mg = get_megaton_for_property(property_id)
-
-    # プロパティに紐づくアカウントを探して選択
-    for acc in mg.ga["4"].accounts:
-        for prop in acc.get("properties", []):
-            if _normalize_key(prop["id"]) == property_id:
-                mg.ga["4"].account.select(acc["id"])
-                mg.ga["4"].property.select(property_id)
-                break
-
+    mg = get_ga4(property_id)
     mg.report.set.dates(start_date, end_date)
     mg.report.run(
         d=dimensions,
@@ -221,9 +261,7 @@ def query_gsc(
             フルURL "https://example.com/path?q=1" → "/path"
             フィルタはフルURLで評価された後に変換される
     """
-    site_url = _normalize_key(site_url)
-    mg = get_megaton_for_site(site_url)
-    mg.search.use(site_url)
+    mg = get_gsc(site_url)
     mg.search.set.dates(start_date, end_date)
     mg.search.run(
         dimensions=dimensions,
