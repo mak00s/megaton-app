@@ -407,6 +407,41 @@ JSON出力例:
 }
 ```
 
+#### ノートブック実行（CLI）
+
+`scripts/run_notebook.py` で Jupytext percent format の `.py` ノートブックを CLI から実行する。
+Jupyter で対話的に開発したノートブックを、そのまま CLI / GitHub Actions で定期実行できる。
+
+```bash
+python scripts/run_notebook.py <notebook.py> [-p KEY=VALUE ...]
+```
+
+| オプション | 説明 |
+|-----------|------|
+| `<notebook.py>` | 実行する `.py` ノートブック |
+| `-p KEY=VALUE` | パラメータ上書き（複数指定可、日付テンプレート対応） |
+
+**パラメータ上書きの仕組み:**
+
+ノートブック内の `# %% tags=["parameters"]` セルの変数が上書き対象。
+
+```python
+# %% tags=["parameters"]
+START_DATE = "2025-06-01"    # ← -p START_DATE=today-30d で上書き可
+END_DATE = "2026-01-31"      # ← -p END_DATE=today で上書き可
+OUTPUT_DIR = "../output/yokohama"
+```
+
+- 日付テンプレート（`today`, `today-30d` 等）は自動的に実日付に解決
+- 数値はそのまま、文字列は引用符付きで代入
+- `MPLBACKEND=Agg` で実行するため、`plt.show()` は呼ばれてもGUI表示されない
+
+**ノートブック作成規約:**
+
+1. `# %% tags=["parameters"]` セルに外から変更したい変数を集約
+2. セットアップセルで `from lib.notebook import init; init()` を呼ぶ
+3. 変数名は `UPPER_SNAKE_CASE`
+
 ---
 
 ## 認証情報
@@ -420,8 +455,12 @@ JSON出力例:
 ### Notebook での指定
 
 ```python
-CREDS_PATH = "../credentials"  # ディレクトリを指定 → JSON選択UIが表示
+# セットアップセルで init() を呼ぶだけ（パス・環境変数・モジュールを一括初期化）
+from lib.notebook import init
+init()
 ```
+
+`init()` が `MEGATON_CREDS_PATH` をプロジェクトルートの `credentials/` に自動設定する。
 
 ### スクリプトでの指定
 
@@ -434,7 +473,22 @@ CREDS_PATH = os.environ["MEGATON_CREDS_PATH"]  # ファイル or ディレクト
 
 ## megaton API
 
-### 初期化
+### 初期化（Notebook 推奨）
+
+```python
+from lib.megaton_client import get_ga4, get_gsc
+
+# クレデンシャル自動選択 + アカウント/プロパティ選択済み
+mg = get_ga4("PROPERTY_ID")
+
+# クレデンシャル自動選択 + サイト選択済み
+mg = get_gsc("https://example.com/")
+```
+
+`get_ga4()` / `get_gsc()` は megaton インスタンスを返す。
+`mg.report.run()` → `ReportResult`、`mg.search.run()` → `SearchResult` でメソッドチェーンが可能。
+
+### 初期化（低レベル）
 
 ```python
 from megaton import start
@@ -445,18 +499,36 @@ mg = start.Megaton(resolve_service_account_path(), headless=True)
 ### GA4
 
 ```python
-# アカウント・プロパティ一覧
-mg.ga["4"].accounts  # [{"id": "...", "name": "...", "properties": [...]}]
+# get_ga4() を使う場合（推奨）
+mg = get_ga4("PROPERTY_ID")
+mg.report.set.dates("2026-01-01", "2026-01-31")
+result = mg.report.run(d=["date"], m=["sessions"], filter_d="...", show=False)
+result.clean_url("landingPage").group("date").sort("date")
+df = result.df
 
-# 選択
+# 低レベル API
+mg.ga["4"].accounts  # [{"id": "...", "name": "...", "properties": [...]}]
 mg.ga["4"].account.select("ACCOUNT_ID")
 mg.ga["4"].property.select("PROPERTY_ID")
-
-# レポート
 mg.report.set.dates("2026-01-01", "2026-01-31")
 mg.report.run(d=["date"], m=["sessions"], filter_d="...", show=False)
 df = mg.report.data
 ```
+
+#### ReportResult メソッド
+
+| メソッド | 説明 |
+|---------|------|
+| `.clean_url(dim)` | URL正規化（デコード、クエリ除去、小文字化） |
+| `.group(by, method='sum')` | グループ集計 |
+| `.sort(by, ascending=True)` | ソート |
+| `.fill(to='(not set)')` | 欠損値埋め |
+| `.to_int(metrics)` | メトリクスを整数化 |
+| `.replace(dim, by)` | 値の置換 |
+| `.normalize(dim, by)` | 値の正規化（上書き） |
+| `.categorize(dim, by, into)` | カテゴリ列の追加 |
+| `.classify(dim, by)` | 正規化 + 集計 |
+| `.df` | 最終 DataFrame を取得 |
 
 #### dimensions / metrics の指定方法
 
@@ -562,13 +634,16 @@ mg.report.run(d=["date", "country"], m=["sessions"], sort="date,-sessions", show
 ### Search Console
 
 ```python
-# サイト一覧
+# get_gsc() を使う場合（推奨）
+mg = get_gsc("https://example.com/")
+mg.search.set.dates("2026-01-01", "2026-01-31")
+result = mg.search.run(dimensions=["query", "page"], limit=25000)
+result.decode().clean_url().normalize_queries().filter_impressions(min=10)
+df = result.df
+
+# 低レベル API
 sites = mg.search.get.sites()
-
-# 選択
 mg.search.use("https://example.com/")
-
-# レポート
 mg.search.set.dates("2026-01-01", "2026-01-31")
 mg.search.run(dimensions=["query"], metrics=["clicks", "impressions", "ctr", "position"])
 df = mg.search.data
@@ -582,6 +657,25 @@ mg.search.run(
     ]
 )
 ```
+
+#### SearchResult メソッド
+
+| メソッド | 説明 |
+|---------|------|
+| `.decode()` | URL デコード（%xx → 文字） |
+| `.clean_url(dim='page')` | URL正規化（デコード、クエリ除去、小文字化） |
+| `.remove_params(keep=None)` | URLクエリパラメータ除去 |
+| `.normalize_queries()` | クエリ空白の正規化・重複統合 |
+| `.filter_clicks(min, max)` | クリック数でフィルタ |
+| `.filter_impressions(min, max)` | 表示回数でフィルタ |
+| `.filter_ctr(min, max)` | CTRでフィルタ |
+| `.filter_position(min, max)` | 掲載順位でフィルタ |
+| `.aggregate(by)` | 手動集計 |
+| `.normalize(dim, by)` | 値の正規化（上書き） |
+| `.categorize(dim, by, into)` | カテゴリ列の追加 |
+| `.classify(dim, by)` | 正規化 + 集計 |
+| `.apply_if(cond, method)` | 条件付きメソッド適用 |
+| `.df` | 最終 DataFrame を取得 |
 
 #### ディメンション・メトリクス
 
