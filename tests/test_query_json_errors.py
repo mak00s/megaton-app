@@ -33,12 +33,29 @@ class TestQueryJsonErrors(unittest.TestCase):
         self.assertEqual(payload["status"], "error")
         self.assertEqual(payload["error_code"], "INVALID_ARGUMENT")
 
+    def test_cli_pipeline_args_rejected_with_params(self):
+        """--params + --where はエラー（pipeline は params.json で指定する）"""
+        proc = self.run_cli(["--json", "--params", "input/params.json", "--where", "clicks > 10"])
+        self.assertNotEqual(proc.returncode, 0)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["error_code"], "INVALID_ARGUMENT")
+        self.assertIn("pipeline", payload["message"].lower())
+
     def test_where_invalid_with_submit_action(self):
         proc = self.run_cli(["--json", "--submit", "--where", "clicks > 10"])
         self.assertNotEqual(proc.returncode, 0)
         payload = json.loads(proc.stdout)
         self.assertEqual(payload["status"], "error")
         self.assertEqual(payload["error_code"], "INVALID_ARGUMENT")
+
+    def test_head_invalid_with_submit_action_hint(self):
+        proc = self.run_cli(["--json", "--submit", "--head", "10"])
+        self.assertNotEqual(proc.returncode, 0)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["error_code"], "INVALID_ARGUMENT")
+        self.assertIn("pipeline.head", payload.get("hint", ""))
 
     def test_group_by_requires_aggregate(self):
         proc = self.run_cli(["--json", "--result", "job_dummy", "--group-by", "page"])

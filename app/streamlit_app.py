@@ -96,6 +96,58 @@ def apply_params_to_session(params):
         if "sql" in params:
             st.session_state["w_bq_sql"] = params["sql"]
 
+    # パイプライン（未指定項目を残さないよう毎回初期化してから反映）
+    pipeline = params.get("pipeline") or {}
+    st.session_state["w_tf_date"] = False
+    st.session_state["w_tf_url_decode"] = False
+    st.session_state["w_tf_strip_qs"] = False
+    st.session_state["w_tf_keep_params"] = ""
+    st.session_state["w_tf_path_only"] = False
+    st.session_state["w_pipeline_where"] = ""
+    st.session_state["w_pipeline_columns"] = []
+    st.session_state["w_pipeline_group_by"] = []
+    st.session_state["w_pipeline_head"] = 0
+    for key in list(st.session_state.keys()):
+        if key.startswith("w_agg_"):
+            del st.session_state[key]
+
+    if pipeline:
+        if pipeline.get("transform"):
+            expr = pipeline["transform"]
+            try:
+                transforms = parse_transforms(expr)
+            except ValueError:
+                transforms = []
+            for _, func, args in transforms:
+                if func == "date_format":
+                    st.session_state["w_tf_date"] = True
+                elif func == "url_decode":
+                    st.session_state["w_tf_url_decode"] = True
+                elif func == "strip_qs":
+                    st.session_state["w_tf_strip_qs"] = True
+                    if args:
+                        st.session_state["w_tf_keep_params"] = args
+                elif func == "path_only":
+                    st.session_state["w_tf_path_only"] = True
+        if pipeline.get("where"):
+            st.session_state["w_pipeline_where"] = pipeline["where"]
+        if pipeline.get("columns"):
+            st.session_state["w_pipeline_columns"] = [
+                c.strip() for c in pipeline["columns"].split(",") if c.strip()
+            ]
+        if pipeline.get("group_by"):
+            st.session_state["w_pipeline_group_by"] = [
+                c.strip() for c in pipeline["group_by"].split(",") if c.strip()
+            ]
+        if pipeline.get("aggregate"):
+            for part in pipeline["aggregate"].split(","):
+                tokens = [x.strip() for x in part.split(":", 1)]
+                if len(tokens) == 2 and tokens[0] and tokens[1]:
+                    func, col = tokens
+                    st.session_state[f"w_agg_{col}"] = func
+        if pipeline.get("head") is not None:
+            st.session_state["w_pipeline_head"] = pipeline["head"]
+
     return True
 
 def check_file_updated():
@@ -139,7 +191,7 @@ from lib.megaton_client import (
 )
 from lib.params_diff import canonicalize_json
 from lib.params_validator import validate_params
-from lib.result_inspector import apply_pipeline, SUPPORTED_AGG_FUNCS
+from lib.result_inspector import apply_pipeline, SUPPORTED_AGG_FUNCS, parse_transforms
 
 # Streamlit用キャッシュラッパー
 @st.cache_data(ttl=300)

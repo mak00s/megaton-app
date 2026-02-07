@@ -110,11 +110,29 @@ python scripts/query.py --result job_20260207_120000_abcd1234 --json --transform
 python scripts/query.py --result job_20260207_120000_abcd1234 --json --transform "page:url_decode,page:strip_qs,page:path_only"
 python scripts/query.py --result job_20260207_120000_abcd1234 --json --transform "page:strip_qs:id,ref" --group-by "page" --aggregate "sum:clicks"
 
-# 結果のフィルタ・集計
-python scripts/query.py --params input/params.json --json --where "clicks > 10" --sort "clicks DESC" --head 20
+# 結果のフィルタ・集計（--result はCLI引数で指定）
 python scripts/query.py --result job_20260207_120000_abcd1234 --json --where "clicks > 10" --sort "clicks DESC" --head 20
 python scripts/query.py --result job_20260207_120000_abcd1234 --json --group-by "page" --aggregate "sum:clicks,mean:ctr" --sort "sum_clicks DESC"
 python scripts/query.py --result job_20260207_120000_abcd1234 --json --columns "query,clicks" --where "impressions >= 100"
+
+# パイプライン付き同期クエリ（params.json に pipeline を含める）
+# 例: input/params.json に以下を記述
+# {
+#   "schema_version": "1.0",
+#   "source": "gsc",
+#   "site_url": "https://www.example.com/",
+#   "date_range": {"start": "2026-01-21", "end": "2026-02-03"},
+#   "dimensions": ["query", "page"],
+#   "limit": 25000,
+#   "pipeline": {
+#     "transform": "page:url_decode,page:strip_qs,page:path_only",
+#     "group_by": "page",
+#     "aggregate": "sum:clicks,sum:impressions",
+#     "sort": "sum_clicks DESC",
+#     "head": 50
+#   }
+# }
+python scripts/query.py --params input/params.json --json
 
 # 一覧取得
 python scripts/query.py --list-ga4-properties

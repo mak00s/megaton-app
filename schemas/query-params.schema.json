@@ -14,6 +14,21 @@
       "enum": ["ga4", "gsc", "bigquery"]
     }
   },
+  "$defs": {
+    "pipeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "transform": { "type": "string" },
+        "where": { "type": "string" },
+        "sort": { "type": "string" },
+        "columns": { "type": "string" },
+        "group_by": { "type": "string" },
+        "aggregate": { "type": "string" },
+        "head": { "type": "integer", "minimum": 1 }
+      }
+    }
+  },
   "allOf": [
     {
       "if": {
@@ -46,7 +61,8 @@
             "items": { "type": "string", "minLength": 1 }
           },
           "filter_d": { "type": "string" },
-          "limit": { "type": "integer", "minimum": 1, "maximum": 100000 }
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100000 },
+          "pipeline": { "$ref": "#/$defs/pipeline" }
         },
         "additionalProperties": false
       }
@@ -78,7 +94,8 @@
             "items": { "type": "string", "minLength": 1 }
           },
           "filter": { "type": "string" },
-          "limit": { "type": "integer", "minimum": 1, "maximum": 100000 }
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100000 },
+          "pipeline": { "$ref": "#/$defs/pipeline" }
         },
         "additionalProperties": false
       }
@@ -96,7 +113,8 @@
           "schema_version": { "type": "string", "const": "1.0" },
           "source": { "type": "string", "const": "bigquery" },
           "project_id": { "type": "string", "minLength": 1 },
-          "sql": { "type": "string", "minLength": 1 }
+          "sql": { "type": "string", "minLength": 1 },
+          "pipeline": { "$ref": "#/$defs/pipeline" }
         },
         "additionalProperties": false
       }

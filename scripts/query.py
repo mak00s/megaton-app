@@ -733,12 +733,21 @@ def main():
         )
 
     pipeline_opts_used = has_pipeline_opts(args)
+    # --params 同期実行時（action_modeなし）はCLIパイプライン引数を禁止（params.json の pipeline を使う）
+    is_sync_query = not action_mode_used and not args.submit
+    if is_sync_query and (pipeline_opts_used or args.head is not None):
+        return emit_error(
+            args,
+            "INVALID_ARGUMENT",
+            "Pipeline options (--where/--sort/--head/etc.) cannot be used with --params. Use pipeline field in params.json instead.",
+            'Move pipeline options to params.json: {"pipeline": {"where": "...", ...}}',
+        )
     if pipeline_opts_used and action_mode_used and not args.result:
         return emit_error(
             args,
             "INVALID_ARGUMENT",
             "--where/--sort/--columns/--group-by/--aggregate cannot be used with this action",
-            "Use pipeline options with --result <job_id> or direct query (--params).",
+            "Use pipeline options with --result <job_id>.",
         )
     if (args.group_by and not args.aggregate) or (args.aggregate and not args.group_by):
         return emit_error(
@@ -766,7 +775,7 @@ def main():
             args,
             "INVALID_ARGUMENT",
             "--head cannot be used with this action",
-            "Use --head with --result <job_id> or direct query (--params).",
+            "Use --head with --result <job_id>, or set pipeline.head in params.json for direct query.",
         )
 
     if args.run_job:
@@ -802,28 +811,29 @@ def main():
             )
 
         pipeline_info = None
-        # 同期実行にも結果パイプラインを適用
-        if pipeline_opts_used or args.head is not None:
+        # params.json の pipeline フィールドからパイプライン適用
+        pipeline_conf = params.get("pipeline") or {}
+        if pipeline_conf:
             try:
                 input_rows = int(len(df))
                 df = apply_pipeline(
                     df,
-                    transform=args.transform,
-                    where=args.where,
-                    group_by=args.group_by,
-                    aggregate=args.aggregate,
-                    sort=args.sort,
-                    columns=args.columns,
-                    head=args.head,
+                    transform=pipeline_conf.get("transform"),
+                    where=pipeline_conf.get("where"),
+                    group_by=pipeline_conf.get("group_by"),
+                    aggregate=pipeline_conf.get("aggregate"),
+                    sort=pipeline_conf.get("sort"),
+                    columns=pipeline_conf.get("columns"),
+                    head=pipeline_conf.get("head"),
                 )
                 pipeline_info = {
-                    "transform": args.transform,
-                    "where": args.where,
-                    "sort": args.sort,
-                    "columns": args.columns,
-                    "group_by": args.group_by,
-                    "aggregate": args.aggregate,
-                    "head": args.head,
+                    "transform": pipeline_conf.get("transform"),
+                    "where": pipeline_conf.get("where"),
+                    "sort": pipeline_conf.get("sort"),
+                    "columns": pipeline_conf.get("columns"),
+                    "group_by": pipeline_conf.get("group_by"),
+                    "aggregate": pipeline_conf.get("aggregate"),
+                    "head": pipeline_conf.get("head"),
                     "input_rows": input_rows,
                     "output_rows": int(len(df)),
                 }

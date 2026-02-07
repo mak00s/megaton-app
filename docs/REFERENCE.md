@@ -105,8 +105,8 @@ python scripts/query.py --result <job_id> --json --transform "page:strip_qs:id,r
 python scripts/query.py --result <job_id> --json --where "impressions >= 100 and ctr < 0.02" --sort "impressions DESC" --columns "query,clicks,impressions" --head 20
 python scripts/query.py --result <job_id> --json --group-by "page" --aggregate "sum:clicks,mean:ctr" --sort "sum_clicks DESC"
 
-# 同期実行のパイプライン処理（`--params`）
-python scripts/query.py --params input/params.json --json --where "clicks > 10" --sort "clicks DESC" --head 20
+# 同期実行のパイプライン処理（params.json の pipeline フィールドで指定）
+python scripts/query.py --params input/params.json --json
 
 # ジョブ一覧
 python scripts/query.py --list-jobs
@@ -125,7 +125,9 @@ python scripts/query.py --list-jobs
 ```
 
 補足:
-- 同期実行（`--params`）で `--transform` / `--where` / `--sort` / `--columns` / `--group-by` / `--aggregate` / `--head` を使った場合、`data.pipeline` に `input_rows` / `output_rows` を含む実行メタが入る。
+- 同期実行（`--params`）で params.json に `pipeline` フィールドが含まれる場合、`data.pipeline` に `input_rows` / `output_rows` を含む実行メタが入る。
+- `--params` 同期実行時は CLI パイプライン引数（`--where` 等）は使用不可。`pipeline` は params.json 内で指定する。
+- `--result` ジョブ結果時は従来通り CLI 引数（`--where` / `--sort` 等）で指定する。
 
 失敗時:
 
@@ -181,7 +183,8 @@ python scripts/query.py --list-jobs
 
 #### 制約
 
-- `--transform` / `--where` / `--sort` / `--columns` / `--group-by` / `--aggregate` は `--result` または同期実行（`--params`）で使用
+- `--result` 時: CLI引数 `--transform` / `--where` / `--sort` / `--columns` / `--group-by` / `--aggregate` / `--head` で指定
+- `--params` 同期実行時: params.json の `pipeline` フィールドで指定。CLI引数は使用不可
 - `--group-by` と `--aggregate` は同時指定必須
 - `--summary` とパイプラインオプションは排他
 
@@ -276,6 +279,40 @@ python scripts/query.py --list-jobs
 | `filter_d` | string | GA4時 | GA4フィルタ（`field==value`形式） |
 | `filter` | string | GSC時 | GSCフィルタ（`dim:op:expr`形式） |
 | `limit` | number | - | 結果件数上限（最大10万） |
+| `pipeline` | object | - | 取得後のパイプライン処理（下記参照） |
+
+#### pipeline フィールド
+
+`pipeline` は取得結果に対する後処理を定義するオブジェクト。全 source で使用可能。
+
+| フィールド | 型 | 説明 |
+|-----------|-----|------|
+| `pipeline.transform` | string | 列変換（`col:func` 形式） |
+| `pipeline.where` | string | 行フィルタ（pandas query式） |
+| `pipeline.sort` | string | ソート（`col DESC,col2 ASC`） |
+| `pipeline.columns` | string | 列選択（`col1,col2`） |
+| `pipeline.group_by` | string | グループ列（`col1,col2`） |
+| `pipeline.aggregate` | string | 集計（`sum:clicks,mean:ctr`） |
+| `pipeline.head` | integer | 先頭N行 |
+
+```json
+{
+  "schema_version": "1.0",
+  "source": "gsc",
+  "site_url": "https://www.example.com/",
+  "date_range": {"start": "2026-01-21", "end": "2026-02-03"},
+  "dimensions": ["query", "page"],
+  "limit": 25000,
+  "pipeline": {
+    "transform": "page:url_decode,page:strip_qs,page:path_only",
+    "where": "clicks > 10",
+    "group_by": "page",
+    "aggregate": "sum:clicks,sum:impressions",
+    "sort": "sum_clicks DESC",
+    "head": 50
+  }
+}
+```
 
 ---
 
