@@ -9,6 +9,7 @@
 - `--result` に部分読み込みを追加（`--head N`, `--summary`）
 - `--json` 時の出力を成功/失敗ともに構造化JSONへ統一（`status`, `error_code` など）
 - ジョブキャンセルを追加（`--cancel <job_id>`）
+- `--result` に結果パイプラインを追加（`--where`, `--sort`, `--columns`, `--group-by`, `--aggregate`）
 
 ## 2026-02-06
 
