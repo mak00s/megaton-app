@@ -86,6 +86,12 @@ python scripts/query.py --status <job_id>
 # 結果確認
 python scripts/query.py --result <job_id>
 
+# 結果の先頭N行
+python scripts/query.py --result <job_id> --head 20
+
+# 結果の要約統計
+python scripts/query.py --result <job_id> --summary
+
 # ジョブ一覧
 python scripts/query.py --list-jobs
 ```

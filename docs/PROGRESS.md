@@ -6,6 +6,7 @@
 - `query_ga4.py` / `query_gsc.py` / `query_bq.py` を廃止
 - Streamlit/CLIで共通スキーマ（`schema_version: "1.0"`）運用に統一
 - `scripts/query.py` にジョブ管理を追加（`--submit`, `--status`, `--result`, `--list-jobs`）
+- `--result` に部分読み込みを追加（`--head N`, `--summary`）
 
 ## 2026-02-06
 

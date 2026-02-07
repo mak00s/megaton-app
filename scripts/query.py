@@ -13,6 +13,12 @@
 
     # ジョブ結果確認
     python scripts/query.py --result <job_id>
+
+    # ジョブ結果の先頭N行だけ取得
+    python scripts/query.py --result <job_id> --head 20
+
+    # ジョブ結果の要約統計だけ取得
+    python scripts/query.py --result <job_id> --summary
 """
 import argparse
 import json
@@ -34,6 +40,7 @@ from lib.megaton_client import (
 )
 from lib.job_manager import JobStore, now_iso
 from lib.params_validator import validate_params
+from lib.result_inspector import read_head, build_summary
 
 
 def parse_gsc_filter(filter_str: str) -> list | None:
@@ -271,6 +278,15 @@ def show_job_result(job_id: str, args, store: JobStore) -> int:
     if args.output:
         payload["copied_to"] = args.output
 
+    if args.head is not None:
+        head_df = read_head(artifact_path, args.head)
+        head_records = json.loads(head_df.to_json(orient="records", force_ascii=False))
+        payload["head_rows"] = len(head_records)
+        payload["head"] = head_records
+
+    if args.summary:
+        payload["summary"] = build_summary(artifact_path)
+
     if args.json:
         print(json.dumps(payload, ensure_ascii=False))
     else:
@@ -281,6 +297,17 @@ def show_job_result(job_id: str, args, store: JobStore) -> int:
         print(f"log_path: {job.get('log_path')}")
         if args.output:
             print(f"copied_to: {args.output}")
+        if args.head is not None:
+            print(f"\nhead: first {args.head} rows")
+            if payload["head"]:
+                # to_string表示用にDataFrameとして再読込
+                preview_df = read_head(artifact_path, args.head)
+                print(preview_df.to_string(index=False))
+            else:
+                print("(no rows)")
+        if args.summary:
+            print("\nsummary:")
+            print(json.dumps(payload["summary"], ensure_ascii=False, indent=2))
     return 0
 
 
@@ -352,6 +379,8 @@ def main():
     parser.add_argument("--submit", action="store_true", help="Submit job asynchronously")
     parser.add_argument("--status", help="Show job status by job_id")
     parser.add_argument("--result", help="Show job result by job_id")
+    parser.add_argument("--head", type=int, help="Show first N rows with --result")
+    parser.add_argument("--summary", action="store_true", help="Show summary stats with --result")
     parser.add_argument("--list-jobs", action="store_true", help="List recent jobs")
     parser.add_argument("--job-limit", type=int, default=20, help="Max items for --list-jobs")
     parser.add_argument("--run-job", help=argparse.SUPPRESS)
@@ -367,6 +396,13 @@ def main():
     handled, ok = run_list_mode(args)
     if handled:
         return 0 if ok else 1
+
+    if args.head is not None and args.head <= 0:
+        print("--head には1以上の整数を指定してください", file=sys.stderr)
+        return 1
+    if (args.head is not None or args.summary) and not args.result:
+        print("--head/--summary は --result と併用してください", file=sys.stderr)
+        return 1
 
     if args.run_job:
         return run_job(args.run_job, store)

@@ -56,6 +56,12 @@ python scripts/query.py --status <job_id>
 # ジョブ結果確認
 python scripts/query.py --result <job_id>
 
+# ジョブ結果の先頭N行のみ取得
+python scripts/query.py --result <job_id> --head 20
+
+# ジョブ結果の要約統計のみ取得
+python scripts/query.py --result <job_id> --summary
+
 # ジョブ一覧
 python scripts/query.py --list-jobs
 
@@ -79,6 +85,8 @@ python scripts/query.py --list-bq-datasets --project my-project
 | `--submit` | ジョブを非同期投入 | OFF |
 | `--status <job_id>` | ジョブ状態の表示 | - |
 | `--result <job_id>` | ジョブ結果情報の表示 | - |
+| `--head <N>` | `--result` で先頭N行を返す | - |
+| `--summary` | `--result` で要約統計を返す | OFF |
 | `--list-jobs` | ジョブ一覧の表示 | OFF |
 | `--job-limit` | ジョブ一覧の件数上限 | 20 |
 | `--list-ga4-properties` | GA4プロパティ一覧 | OFF |
@@ -89,6 +97,7 @@ python scripts/query.py --list-bq-datasets --project my-project
 | `--output` | CSV出力ファイル | - |
 
 `--params` 実行時は `schema_version: "1.0"` を必須検証し、`source` とキー整合性が崩れている場合は実行前にエラー終了します。
+`--head` と `--summary` は `--result` と併用する。
 
 ### ジョブ管理の保存先
 
