@@ -6,8 +6,8 @@ import tempfile
 import pandas as pd
 import pytest
 
-import lib.analysis as analysis
-from lib.analysis import show
+import megaton_lib.analysis as analysis
+from megaton_lib.analysis import show
 
 
 @pytest.fixture

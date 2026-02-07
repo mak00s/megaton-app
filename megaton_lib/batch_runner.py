@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from lib.params_validator import validate_params
+from megaton_lib.params_validator import validate_params
 
 
 def collect_configs(batch_path: str) -> list[Path]:

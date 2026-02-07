@@ -1,7 +1,7 @@
 """GA4 から Organic Search のセッション数を日別で取得（megaton使用）"""
 from datetime import datetime, timedelta
 from megaton import start
-from lib.credentials import resolve_service_account_path
+from megaton_lib.credentials import resolve_service_account_path
 
 # 設定
 CREDS_PATH = resolve_service_account_path()

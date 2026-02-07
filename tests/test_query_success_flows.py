@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pandas as pd
 
 import scripts.query as query_cli
-from lib.job_manager import JobStore
+from megaton_lib.job_manager import JobStore
 
 
 class _DummyProc:

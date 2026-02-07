@@ -2,7 +2,7 @@
 import unittest
 from unittest.mock import patch, MagicMock
 
-import lib.megaton_client as mc
+import megaton_lib.megaton_client as mc
 
 
 def _reset_registry():

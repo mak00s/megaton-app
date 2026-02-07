@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
-import lib.megaton_client as mc
+import megaton_lib.megaton_client as mc
 
 
 def _reset_registry():

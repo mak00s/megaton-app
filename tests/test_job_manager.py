@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 
-from lib.job_manager import JobStore
+from megaton_lib.job_manager import JobStore
 
 
 class TestJobStore(unittest.TestCase):

@@ -1,7 +1,7 @@
 """Notebook 初期化ヘルパー
 
 notebooks/ 配下から lib を使うための共通セットアップ。
-セットアップセルで `from lib.notebook import init` → `init()` するだけで:
+セットアップセルで `from megaton_lib.notebook import init` → `init()` するだけで:
 - sys.path にプロジェクトルートを追加
 - MEGATON_CREDS_PATH を設定
 - lib モジュールを最新版にリロード
@@ -44,13 +44,13 @@ def _find_project_root() -> Path:
 
 def _reload_lib() -> None:
     """lib 配下のモジュールを依存順にリロードする。"""
-    import lib.credentials
-    import lib.megaton_client
-    import lib.analysis
+    import megaton_lib.credentials
+    import megaton_lib.megaton_client
+    import megaton_lib.analysis
 
     importlib.reload(lib.credentials)
     importlib.reload(lib.megaton_client)
     importlib.reload(lib.analysis)
 
-    from lib.megaton_client import reset_registry
+    from megaton_lib.megaton_client import reset_registry
     reset_registry()

@@ -5,8 +5,8 @@ context を浪費しないための表示ヘルパー。
 - properties() / sites(): 一覧表示
 
 使い方:
-    from lib.megaton_client import query_ga4
-    from lib.analysis import show
+    from megaton_lib.megaton_client import query_ga4
+    from megaton_lib.analysis import show
 
     df = query_ga4(...)          # contextに載らない
     df = df[df["col"] != "X"]   # contextに載らない
@@ -16,7 +16,7 @@ context を浪費しないための表示ヘルパー。
 import pandas as pd
 from pathlib import Path
 
-from lib.megaton_client import get_ga4_properties, get_gsc_sites
+from megaton_lib.megaton_client import get_ga4_properties, get_gsc_sites
 
 
 def show(

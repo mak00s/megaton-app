@@ -2,7 +2,7 @@
 import pandas as pd
 from megaton import start
 from ..schemas import QueryParams
-from lib.credentials import resolve_service_account_path
+from megaton_lib.credentials import resolve_service_account_path
 
 # デフォルトGA4設定（フォールバック用）
 DEFAULT_GA4_ACCOUNT = "000000000"

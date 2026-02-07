@@ -7,7 +7,7 @@ import logging
 from megaton import start
 import pandas as pd
 from typing import Optional
-from lib.credentials import list_service_account_paths
+from megaton_lib.credentials import list_service_account_paths
 
 logger = logging.getLogger(__name__)
 

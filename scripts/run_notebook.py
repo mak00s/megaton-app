@@ -88,7 +88,7 @@ _ASSIGN_RE = re.compile(r"^([A-Z_][A-Z0-9_]*)\s*=\s*(.+)$", re.MULTILINE)
 def _resolve_value(raw: str) -> str:
     """値が日付テンプレートなら解決し、そうでなければそのまま返す。"""
     try:
-        from lib.date_template import resolve_date
+        from megaton_lib.date_template import resolve_date
         return resolve_date(raw)
     except (ValueError, ImportError):
         return raw

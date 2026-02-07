@@ -8,4 +8,4 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["lib*"]
+include = ["megaton_lib*"]

@@ -6,8 +6,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-import lib.date_template as dt_mod
-from lib.date_template import resolve_date, resolve_dates_in_params
+import megaton_lib.date_template as dt_mod
+from megaton_lib.date_template import resolve_date, resolve_dates_in_params
 
 
 class TestResolveDate:
@@ -166,7 +166,7 @@ class TestValidatorIntegration:
     """validate_params() が日付テンプレートを受理するか。"""
 
     def test_template_dates_pass_validation(self):
-        from lib.params_validator import validate_params
+        from megaton_lib.params_validator import validate_params
 
         data = {
             "schema_version": "1.0",
@@ -182,7 +182,7 @@ class TestValidatorIntegration:
         assert len(normalized["date_range"]["start"]) == 10  # YYYY-MM-DD
 
     def test_invalid_template_rejected(self):
-        from lib.params_validator import validate_params
+        from megaton_lib.params_validator import validate_params
 
         data = {
             "schema_version": "1.0",
@@ -195,7 +195,7 @@ class TestValidatorIntegration:
         assert any(e["error_code"] == "INVALID_DATE" for e in errors)
 
     def test_invalid_absolute_date_rejected(self):
-        from lib.params_validator import validate_params
+        from megaton_lib.params_validator import validate_params
 
         data = {
             "schema_version": "1.0",
@@ -209,7 +209,7 @@ class TestValidatorIntegration:
         assert any(e["error_code"] == "INVALID_DATE" for e in errors)
 
     def test_prev_month_range_passes(self):
-        from lib.params_validator import validate_params
+        from megaton_lib.params_validator import validate_params
 
         data = {
             "schema_version": "1.0",

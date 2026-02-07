@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from lib.result_inspector import read_head, build_summary
+from megaton_lib.result_inspector import read_head, build_summary
 
 
 class TestResultInspector(unittest.TestCase):

@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from lib.params_diff import canonicalize_json
+from megaton_lib.params_diff import canonicalize_json
 
 
 class TestParamsDiff(unittest.TestCase):
