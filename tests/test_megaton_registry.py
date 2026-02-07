@@ -168,6 +168,19 @@ class TestRoutingFunctions(unittest.TestCase):
 
     @patch("lib.megaton_client.list_service_account_paths")
     @patch("lib.megaton_client.start.Megaton")
+    def test_get_megaton_for_property_accepts_int_id(self, mock_megaton_cls, mock_list):
+        mock_list.return_value = ["/creds/a.json"]
+        mg_a = _make_mock_megaton(
+            accounts=[{"id": "acc1", "properties": [{"id": "254800682", "name": "Prop"}]}],
+            sites=[],
+        )
+        mock_megaton_cls.return_value = mg_a
+
+        result = mc.get_megaton_for_property(254800682)
+        self.assertIs(result, mg_a)
+
+    @patch("lib.megaton_client.list_service_account_paths")
+    @patch("lib.megaton_client.start.Megaton")
     def test_get_megaton_for_site(self, mock_megaton_cls, mock_list):
         mock_list.return_value = ["/creds/b.json"]
         mg_b = _make_mock_megaton(
@@ -184,6 +197,26 @@ class TestRoutingFunctions(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             mc.get_megaton_for_site("https://unknown.example.com/")
         self.assertIn("unknown", str(ctx.exception))
+
+    @patch("lib.megaton_client.build_registry")
+    @patch("lib.megaton_client.get_megaton")
+    def test_get_megaton_for_property_rebuilds_on_miss(self, mock_get, mock_build):
+        mc._registry_built = True
+        mc._property_map.clear()
+        mock_get.return_value = MagicMock(name="mg")
+
+        state = {"count": 0}
+
+        def _rebuild_side_effect():
+            state["count"] += 1
+            if state["count"] == 2:
+                mc._property_map["P1"] = "/creds/a.json"
+                mc._registry_built = True
+
+        mock_build.side_effect = _rebuild_side_effect
+        result = mc.get_megaton_for_property("P1")
+        self.assertIsNotNone(result)
+        self.assertGreaterEqual(mock_build.call_count, 2)
 
 
 class TestMergedLists(unittest.TestCase):

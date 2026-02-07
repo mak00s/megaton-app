@@ -147,10 +147,9 @@ GSC演算子: `contains`, `notContains`, `equals`, `notEquals`, `includingRegex`
 
 ```python
 from megaton import start
-from lib.credentials import resolve_service_account_path
 
 # headless モードで初期化（UIなし）
-mg = start.Megaton(resolve_service_account_path(), headless=True)
+mg = start.Megaton("credentials/sa-xxx.json", headless=True)
 
 # GA4 アカウント・プロパティを直接指定
 mg.ga['4'].account.select("ACCOUNT_ID")

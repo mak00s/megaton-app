@@ -176,9 +176,60 @@ python scripts/query.py --list-ga4-properties
 python scripts/query.py --list-gsc-sites
 python scripts/query.py --list-bq-datasets --project my-project
 python scripts/query.py --list-jobs
+
+# バッチ実行（ディレクトリ内のJSONをファイル名順に実行）
+python scripts/query.py --batch configs/weekly/
+python scripts/query.py --batch configs/weekly/ --json
 ```
 
 `--json` 指定時は、成功/失敗ともに構造化JSONを返す（失敗時は `status=error`, `error_code` を含む）。
+
+### 日付テンプレート
+
+`date_range` に相対日付式を使うと、同じconfigを毎回書き換えずに再利用できる：
+
+| 式 | 意味 | 例（2026-02-07実行時） |
+|----|------|----------------------|
+| `today` | 実行日 | 2026-02-07 |
+| `today-Nd` | N日前 | today-7d → 2026-01-31 |
+| `today+Nd` | N日後 | today+3d → 2026-02-10 |
+| `month-start` | 当月1日 | 2026-02-01 |
+| `month-end` | 当月末日 | 2026-02-28 |
+| `prev-month-start` | 前月1日 | 2026-01-01 |
+| `prev-month-end` | 前月末日 | 2026-01-31 |
+| `week-start` | 今週月曜日 | 2026-02-02 |
+| `YYYY-MM-DD` | 絶対日付 | そのまま |
+
+```json
+{
+  "schema_version": "1.0",
+  "source": "gsc",
+  "site_url": "sc-domain:example.com",
+  "date_range": {"start": "today-30d", "end": "today-3d"},
+  "dimensions": ["query", "page"],
+  "limit": 25000
+}
+```
+
+### バッチ実行
+
+`configs/` ディレクトリにJSONを配置し、`--batch` で一括実行：
+
+```
+configs/
+  weekly/
+    01_gsc_queries.json     ← ファイル名順に実行
+    02_ga4_channels.json
+  monthly/
+    01_ga4_summary.json
+```
+
+```bash
+python scripts/query.py --batch configs/weekly/
+python scripts/query.py --batch configs/monthly/ --json
+```
+
+各configは独立した1ステップ。失敗しても残りは続行し、最後にサマリを表示。
 
 ### AI Agent が探索的分析をする場合（Python直接実行）
 

@@ -3,10 +3,13 @@
 複数のサービスアカウントJSONを自動検出し、
 property_id / site_url に応じて正しいクレデンシャルに自動ルーティングする。
 """
+import logging
 from megaton import start
 import pandas as pd
 from typing import Optional
 from lib.credentials import list_service_account_paths
+
+logger = logging.getLogger(__name__)
 
 # === レジストリ（複数クレデンシャル管理） ===
 
@@ -14,6 +17,20 @@ _instances: dict[str, object] = {}     # creds_path → Megaton instance
 _property_map: dict[str, str] = {}     # property_id → creds_path
 _site_map: dict[str, str] = {}         # site_url → creds_path
 _registry_built = False
+
+
+def _normalize_key(value: object) -> str:
+    """マップ検索用キーを正規化する。"""
+    return str(value).strip()
+
+
+def reset_registry() -> None:
+    """レジストリをリセット（環境変数変更後やNotebookでの再実行時に使用）"""
+    global _registry_built
+    _property_map.clear()
+    _site_map.clear()
+    _instances.clear()
+    _registry_built = False
 
 
 def get_megaton(creds_path: str | None = None):
@@ -48,24 +65,33 @@ def build_registry() -> None:
         try:
             for acc in mg.ga["4"].accounts:
                 for prop in acc.get("properties", []):
-                    _property_map[prop["id"]] = path
-        except Exception:
-            pass  # このクレデンシャルにGA4アクセスがない場合はスキップ
+                    _property_map[_normalize_key(prop["id"])] = path
+        except Exception as e:
+            logger.debug("Skipping GA4 for %s: %s", path, e)
         # GSC
         try:
             sites = mg.search.get.sites()
             for site in sites:
-                _site_map[site] = path
-        except Exception:
-            pass  # このクレデンシャルにGSCアクセスがない場合はスキップ
+                _site_map[_normalize_key(site)] = path
+        except Exception as e:
+            logger.debug("Skipping GSC for %s: %s", path, e)
 
     _registry_built = True
 
 
 def get_megaton_for_property(property_id: str):
     """指定GA4プロパティに対応するMegatonインスタンスを返す"""
+    key = _normalize_key(property_id)
     build_registry()
-    creds_path = _property_map.get(property_id)
+    creds_path = _property_map.get(key)
+    if creds_path is None:
+        # Notebook長時間実行時など、キャッシュが古い可能性があるため1回だけ再構築
+        _property_map.clear()
+        _site_map.clear()
+        global _registry_built
+        _registry_built = False
+        build_registry()
+        creds_path = _property_map.get(key)
     if creds_path is None:
         raise ValueError(f"No credential found for property_id: {property_id}")
     return get_megaton(creds_path)
@@ -73,8 +99,16 @@ def get_megaton_for_property(property_id: str):
 
 def get_megaton_for_site(site_url: str):
     """指定GSCサイトに対応するMegatonインスタンスを返す"""
+    key = _normalize_key(site_url)
     build_registry()
-    creds_path = _site_map.get(site_url)
+    creds_path = _site_map.get(key)
+    if creds_path is None:
+        _property_map.clear()
+        _site_map.clear()
+        global _registry_built
+        _registry_built = False
+        build_registry()
+        creds_path = _site_map.get(key)
     if creds_path is None:
         raise ValueError(f"No credential found for site_url: {site_url}")
     return get_megaton(creds_path)
@@ -106,18 +140,31 @@ def query_ga4(
     property_id: str,
     start_date: str,
     end_date: str,
-    dimensions: list,
-    metrics: list,
+    dimensions: list[str | tuple[str, str]],
+    metrics: list[str | tuple[str, str]],
     filter_d: Optional[str] = None,
     limit: int = 10000
 ) -> pd.DataFrame:
-    """GA4クエリを実行（自動ルーティング）"""
+    """GA4クエリを実行（自動ルーティング）
+
+    Args:
+        property_id: GA4プロパティID
+        start_date: 開始日（YYYY-MM-DD）
+        end_date: 終了日（YYYY-MM-DD）
+        dimensions: ディメンション。str or (APIフィールド名, エイリアス) のタプル
+            例: ["date", ("sessionDefaultChannelGroup", "channel")]
+        metrics: メトリクス。str or (APIフィールド名, エイリアス) のタプル
+            例: ["sessions", ("eventCount", "cv")]
+        filter_d: フィルタ式（"field==value;field!=value" 形式）
+        limit: 取得行数上限
+    """
+    property_id = _normalize_key(property_id)
     mg = get_megaton_for_property(property_id)
 
     # プロパティに紐づくアカウントを探して選択
     for acc in mg.ga["4"].accounts:
         for prop in acc.get("properties", []):
-            if prop["id"] == property_id:
+            if _normalize_key(prop["id"]) == property_id:
                 mg.ga["4"].account.select(acc["id"])
                 mg.ga["4"].property.select(property_id)
                 break
@@ -153,17 +200,28 @@ def query_gsc(
     site_url: str,
     start_date: str,
     end_date: str,
-    dimensions: list,
+    dimensions: list[str | tuple[str, str]],
     limit: int = 25000,
-    dimension_filter: Optional[list] = None
+    dimension_filter: Optional[list] = None,
+    page_to_path: bool = True,
 ) -> pd.DataFrame:
     """GSCクエリを実行（自動ルーティング）
 
     Args:
+        site_url: Search ConsoleサイトURL
+        start_date: 開始日（YYYY-MM-DD）
+        end_date: 終了日（YYYY-MM-DD）
+        dimensions: ディメンション。str or (APIフィールド名, エイリアス) のタプル
+            例: ["query", ("page", "url")]
+        limit: 取得行数上限
         dimension_filter: フィルタ条件のリスト
             例: [{"dimension": "query", "operator": "contains", "expression": "seo"}]
             演算子: contains, notContains, equals, notEquals, includingRegex, excludingRegex
+        page_to_path: page列をパスのみに変換する（デフォルト: True）
+            フルURL "https://example.com/path?q=1" → "/path"
+            フィルタはフルURLで評価された後に変換される
     """
+    site_url = _normalize_key(site_url)
     mg = get_megaton_for_site(site_url)
     mg.search.use(site_url)
     mg.search.set.dates(start_date, end_date)
@@ -173,7 +231,11 @@ def query_gsc(
         limit=limit,
         dimension_filter=dimension_filter
     )
-    return mg.search.data
+    df = mg.search.data
+    if page_to_path and df is not None and "page" in df.columns:
+        from urllib.parse import urlparse
+        df["page"] = df["page"].apply(lambda u: urlparse(u).path)
+    return df
 
 
 # === BigQuery ===

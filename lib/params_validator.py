@@ -4,6 +4,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from lib.date_template import resolve_date, resolve_dates_in_params
+
 SCHEMA_VERSION = "1.0"
 MAX_LIMIT = 100000
 DEFAULT_LIMIT = 1000
@@ -22,13 +24,14 @@ def _err(code: str, message: str, path: str, hint: str) -> dict[str, str]:
 
 
 def _is_valid_date(value: Any) -> bool:
+    """YYYY-MM-DD 絶対日付、またはテンプレート式を受理する。"""
     if not isinstance(value, str):
         return False
     try:
-        datetime.strptime(value, "%Y-%m-%d")
+        resolve_date(value)  # テンプレート式も含めて解決可能か検証
+        return True
     except ValueError:
         return False
-    return True
 
 
 def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, str]]]:
@@ -129,18 +132,18 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
                 errors.append(
                     _err(
                         "INVALID_DATE",
-                        "start must be YYYY-MM-DD",
+                        "start must be YYYY-MM-DD or a date template",
                         "$.date_range.start",
-                        "Use an absolute date like 2026-02-01.",
+                        "Use YYYY-MM-DD, today, today-7d, prev-month-start, etc.",
                     )
                 )
             if not _is_valid_date(date_range.get("end")):
                 errors.append(
                     _err(
                         "INVALID_DATE",
-                        "end must be YYYY-MM-DD",
+                        "end must be YYYY-MM-DD or a date template",
                         "$.date_range.end",
-                        "Use an absolute date like 2026-02-03.",
+                        "Use YYYY-MM-DD, today, today-3d, prev-month-end, etc.",
                     )
                 )
 
@@ -388,4 +391,8 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
 
     if errors:
         return None, errors
+
+    # テンプレート日付を実日付に解決
+    normalized = resolve_dates_in_params(normalized)
+
     return normalized, []

@@ -272,8 +272,8 @@ python scripts/query.py --list-jobs
 | `site_url` | string | GSC時 | Search ConsoleサイトURL |
 | `project_id` | string | BQ時 | GCPプロジェクトID |
 | `sql` | string | BQ時 | 実行するSQL |
-| `date_range.start` | string | GA4/GSC | 開始日（YYYY-MM-DD） |
-| `date_range.end` | string | GA4/GSC | 終了日（YYYY-MM-DD） |
+| `date_range.start` | string | GA4/GSC | 開始日（YYYY-MM-DD or テンプレート） |
+| `date_range.end` | string | GA4/GSC | 終了日（YYYY-MM-DD or テンプレート） |
 | `dimensions` | array | - | ディメンション一覧 |
 | `metrics` | array | GA4時 | メトリクス一覧 |
 | `filter_d` | string | GA4時 | GA4フィルタ（`field==value`形式） |
@@ -359,6 +359,51 @@ python scripts/query.py --list-jobs
     "table": "gsc_pages",
     "mode": "overwrite"
   }
+}
+```
+
+#### 日付テンプレート
+
+`date_range.start` / `date_range.end` には絶対日付の他にテンプレート式が使える。
+バリデーション時に実日付に解決される。
+
+| テンプレート式 | 意味 |
+|--------------|------|
+| `today` | 実行日 |
+| `today-Nd` | N日前（例: `today-7d`） |
+| `today+Nd` | N日後（例: `today+3d`） |
+| `month-start` | 当月1日 |
+| `month-end` | 当月末日 |
+| `prev-month-start` | 前月1日 |
+| `prev-month-end` | 前月末日 |
+| `week-start` | 今週月曜日 |
+| `YYYY-MM-DD` | 絶対日付（パススルー） |
+
+#### バッチ実行
+
+`--batch <dir>` でディレクトリ内のJSONをファイル名順に一括実行する。
+
+```bash
+python scripts/query.py --batch configs/weekly/ --json
+```
+
+各configは独立した1ステップとして順番に実行される。
+1つが失敗しても残りは続行。最後にサマリを出力。
+
+JSON出力例:
+```json
+{
+  "status": "ok",
+  "total": 3,
+  "succeeded": 2,
+  "failed": 1,
+  "skipped": 0,
+  "results": [
+    {"config": "01_gsc.json", "status": "ok", "row_count": 500},
+    {"config": "02_ga4.json", "status": "ok", "row_count": 120},
+    {"config": "03_bq.json", "status": "error", "error": "..."}
+  ],
+  "elapsed_sec": 12.34
 }
 ```
 

@@ -48,6 +48,7 @@ from lib.megaton_client import (
     save_to_sheet,
     save_to_bq,
 )
+from lib.batch_runner import run_batch, collect_configs
 from lib.job_manager import JobStore, now_iso
 from lib.params_validator import validate_params
 from lib.result_inspector import read_head, build_summary, apply_pipeline
@@ -729,6 +730,67 @@ def run_list_mode(args) -> tuple[bool, int]:
     return False, 0
 
 
+def _execute_single_config(params: dict, config_path: Path) -> dict:
+    """バッチ内の1configを実行。run_batch の execute_fn として使う。"""
+    df, header_lines = execute_query_from_params(params)
+    if df is None or df.empty:
+        return {"status": "error", "error": "No data returned"}
+
+    row_count = int(len(df))
+
+    # pipeline
+    pipeline_conf = params.get("pipeline") or {}
+    if pipeline_conf:
+        df = apply_pipeline(
+            df,
+            transform=pipeline_conf.get("transform"),
+            where=pipeline_conf.get("where"),
+            group_by=pipeline_conf.get("group_by"),
+            aggregate=pipeline_conf.get("aggregate"),
+            sort=pipeline_conf.get("sort"),
+            columns=pipeline_conf.get("columns"),
+            head=pipeline_conf.get("head"),
+        )
+
+    # save
+    save_conf = params.get("save")
+    save_result = None
+    if save_conf:
+        save_result = execute_save(df, save_conf)
+
+    return {
+        "status": "ok",
+        "row_count": int(len(df)),
+        "source": params.get("source"),
+        "save": save_result,
+    }
+
+
+def run_batch_mode(args) -> int:
+    """--batch モード: configsディレクトリ内のJSONを順番に実行。"""
+    def on_progress(config_name, index, total, result):
+        if not args.json:
+            status = result["status"]
+            icon = "✓" if status == "ok" else "✗" if status == "error" else "⊘"
+            print(f"  {icon} [{index}/{total}] {config_name}: {status}")
+
+    try:
+        summary = run_batch(
+            args.batch,
+            execute_fn=_execute_single_config,
+            on_progress=on_progress,
+        )
+    except (FileNotFoundError, ValueError) as e:
+        return emit_error(args, "BATCH_FAILED", str(e), "Check --batch path.")
+
+    if args.json:
+        print(json.dumps({"status": "ok", **summary}, ensure_ascii=False))
+    else:
+        print(f"\nBatch complete: {summary['succeeded']} ok, {summary['failed']} failed, {summary['skipped']} skipped ({summary['elapsed_sec']}s)")
+
+    return 1 if summary["failed"] > 0 else 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="Unified Query CLI")
     parser.add_argument("--params", default="input/params.json", help="Strict params JSON path (schema_version=1.0)")
@@ -746,6 +808,7 @@ def main():
     parser.add_argument("--group-by", help="Group by columns (comma-separated)")
     parser.add_argument("--aggregate", help="Aggregate functions (e.g. 'sum:clicks,mean:ctr')")
     parser.add_argument("--transform", help="Transform columns (e.g. 'date:date_format,page:url_decode')")
+    parser.add_argument("--batch", help="Run all JSON configs in directory (or single file)")
     parser.add_argument("--list-jobs", action="store_true", help="List recent jobs")
     parser.add_argument("--job-limit", type=int, default=20, help="Max items for --list-jobs")
     parser.add_argument("--run-job", help=argparse.SUPPRESS)
@@ -770,6 +833,7 @@ def main():
             args.cancel,
             args.result,
             args.list_jobs,
+            args.batch,
         ]
     )
 
@@ -844,6 +908,9 @@ def main():
 
     if args.list_jobs:
         return show_jobs(args, store)
+
+    if args.batch:
+        return run_batch_mode(args)
 
     params, err = load_params(args.params)
     if err:
