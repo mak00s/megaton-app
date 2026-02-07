@@ -96,6 +96,12 @@ python scripts/query.py --status job_20260207_120000_abcd1234
 # ジョブ結果確認
 python scripts/query.py --result job_20260207_120000_abcd1234
 
+# 先頭N行だけ取得
+python scripts/query.py --result job_20260207_120000_abcd1234 --head 20
+
+# 要約統計だけ取得
+python scripts/query.py --result job_20260207_120000_abcd1234 --summary
+
 # 一覧取得
 python scripts/query.py --list-ga4-properties
 python scripts/query.py --list-gsc-sites
