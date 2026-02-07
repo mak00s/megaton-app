@@ -17,6 +17,10 @@ __pycache__/
 .installed.cfg
 *.egg
 
+# Notebooks（private repo で管理）
+notebooks/
+jupytext.toml
+
 # Jupyter Notebook
 .ipynb_checkpoints/
 *.ipynb_checkpoints
