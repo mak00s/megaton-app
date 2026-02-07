@@ -439,7 +439,7 @@ OUTPUT_DIR = "../output/yokohama"
 **ノートブック作成規約:**
 
 1. `# %% tags=["parameters"]` セルに外から変更したい変数を集約
-2. セットアップセルで `from lib.notebook import init; init()` を呼ぶ
+2. セットアップセルで `from setup import init; init()` を呼ぶ
 3. 変数名は `UPPER_SNAKE_CASE`
 
 ---
@@ -455,12 +455,12 @@ OUTPUT_DIR = "../output/yokohama"
 ### Notebook での指定
 
 ```python
-# セットアップセルで init() を呼ぶだけ（パス・環境変数・モジュールを一括初期化）
-from lib.notebook import init
-init()
+# セットアップセルで init() を呼ぶだけ（パス解決・環境変数・モジュールを一括初期化）
+from setup import init; init()
 ```
 
-`init()` が `MEGATON_CREDS_PATH` をプロジェクトルートの `credentials/` に自動設定する。
+`notebooks/setup.py` の `init()` がプロジェクトルートを `__file__` から解決し、
+`MEGATON_CREDS_PATH` を `credentials/` に自動設定する。
 
 ### スクリプトでの指定
 
