@@ -33,8 +33,8 @@ class TestQueryJsonErrors(unittest.TestCase):
         self.assertEqual(payload["status"], "error")
         self.assertEqual(payload["error_code"], "INVALID_ARGUMENT")
 
-    def test_where_requires_result(self):
-        proc = self.run_cli(["--json", "--where", "clicks > 10"])
+    def test_where_invalid_with_submit_action(self):
+        proc = self.run_cli(["--json", "--submit", "--where", "clicks > 10"])
         self.assertNotEqual(proc.returncode, 0)
         payload = json.loads(proc.stdout)
         self.assertEqual(payload["status"], "error")

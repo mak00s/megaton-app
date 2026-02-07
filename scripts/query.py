@@ -702,6 +702,17 @@ def main():
     if handled:
         return code
 
+    action_mode_used = any(
+        [
+            args.run_job,
+            args.submit,
+            args.status,
+            args.cancel,
+            args.result,
+            args.list_jobs,
+        ]
+    )
+
     if args.head is not None and args.head <= 0:
         return emit_error(
             args,
@@ -711,12 +722,12 @@ def main():
         )
 
     pipeline_opts_used = has_pipeline_opts(args)
-    if pipeline_opts_used and not args.result:
+    if pipeline_opts_used and action_mode_used and not args.result:
         return emit_error(
             args,
             "INVALID_ARGUMENT",
-            "--where/--sort/--columns/--group-by/--aggregate must be used with --result",
-            "Use --result <job_id> with pipeline options.",
+            "--where/--sort/--columns/--group-by/--aggregate cannot be used with this action",
+            "Use pipeline options with --result <job_id> or direct query (--params).",
         )
     if (args.group_by and not args.aggregate) or (args.aggregate and not args.group_by):
         return emit_error(
@@ -732,12 +743,19 @@ def main():
             "--summary cannot be combined with pipeline options",
             "Use either --summary or pipeline options.",
         )
-    if (args.head is not None or args.summary) and not args.result:
+    if args.summary and not args.result:
         return emit_error(
             args,
             "INVALID_ARGUMENT",
-            "--head/--summary must be used with --result",
-            "Use --result <job_id> with --head/--summary.",
+            "--summary must be used with --result",
+            "Use --result <job_id> with --summary.",
+        )
+    if args.head is not None and action_mode_used and not args.result:
+        return emit_error(
+            args,
+            "INVALID_ARGUMENT",
+            "--head cannot be used with this action",
+            "Use --head with --result <job_id> or direct query (--params).",
         )
 
     if args.run_job:
@@ -771,6 +789,22 @@ def main():
                 "No data returned from query.",
                 "Check date range, filters, and property/site settings.",
             )
+
+        # 同期実行にも結果パイプラインを適用
+        if pipeline_opts_used or args.head is not None:
+            try:
+                df = apply_pipeline(
+                    df,
+                    where=args.where,
+                    group_by=args.group_by,
+                    aggregate=args.aggregate,
+                    sort=args.sort,
+                    columns=args.columns,
+                    head=args.head,
+                )
+            except ValueError as e:
+                code, hint = map_pipeline_error(str(e))
+                return emit_error(args, code, str(e), hint)
 
         if not args.json and not args.output:
             for line in header_lines:
