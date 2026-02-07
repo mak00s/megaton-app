@@ -83,6 +83,9 @@ python scripts/query.py --submit --params input/params.json
 # 状態確認
 python scripts/query.py --status <job_id>
 
+# キャンセル
+python scripts/query.py --cancel <job_id>
+
 # 結果確認
 python scripts/query.py --result <job_id>
 
@@ -126,6 +129,7 @@ python scripts/query.py --list-jobs
 |--------|------|
 | `queued` | キュー投入済み |
 | `running` | 実行中 |
+| `canceled` | キャンセル済み |
 | `succeeded` | 成功（`artifact_path` に結果CSVあり） |
 | `failed` | 失敗（`error` に詳細あり） |
 

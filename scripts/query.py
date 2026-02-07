@@ -11,6 +11,9 @@
     # ジョブ状態確認
     python scripts/query.py --status <job_id>
 
+    # ジョブをキャンセル
+    python scripts/query.py --cancel <job_id>
+
     # ジョブ結果確認
     python scripts/query.py --result <job_id>
 
@@ -22,9 +25,12 @@
 """
 import argparse
 import json
+import os
 import shutil
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 # libをパスに追加
@@ -246,11 +252,96 @@ def submit_job(args, store: JobStore) -> int:
     return 0
 
 
+def cancel_job(job_id: str, args, store: JobStore) -> int:
+    job = store.load_job(job_id)
+    if not job:
+        return emit_error(
+            args,
+            "JOB_NOT_FOUND",
+            f"job not found: {job_id}",
+            "Check job_id or run --list-jobs.",
+        )
+
+    status = job.get("status")
+    if status == "canceled":
+        payload = {
+            "job_id": job_id,
+            "job_status": "canceled",
+            "already_canceled": True,
+        }
+        if args.json:
+            emit_success(args, payload, mode="cancel")
+        else:
+            print(f"jobは既にキャンセル済みです: {job_id}")
+        return 0
+
+    if status in {"succeeded", "failed"}:
+        return emit_error(
+            args,
+            "JOB_NOT_CANCELLABLE",
+            f"job cannot be canceled in status={status}",
+            "Only queued/running jobs can be canceled.",
+            {"job_status": status},
+        )
+
+    pid = job.get("runner_pid")
+    terminate_status = "not_required"
+    if pid:
+        try:
+            # submit時にstart_new_session=Trueのため、プロセスグループごと停止
+            os.killpg(pid, signal.SIGTERM)
+            deadline = time.time() + 3.0
+            while time.time() < deadline:
+                try:
+                    os.kill(pid, 0)
+                    time.sleep(0.1)
+                except ProcessLookupError:
+                    break
+            else:
+                # SIGTERMで止まらない場合は強制終了
+                os.killpg(pid, signal.SIGKILL)
+            terminate_status = "terminated"
+        except ProcessLookupError:
+            terminate_status = "not_found"
+        except Exception as e:
+            return emit_error(
+                args,
+                "JOB_CANCEL_FAILED",
+                f"failed to terminate process for job {job_id}: {e}",
+                "Check process permissions and job status.",
+            )
+
+    store.update_job(
+        job_id,
+        status="canceled",
+        finished_at=now_iso(),
+        error={"type": "Canceled", "message": "Canceled by user"},
+    )
+
+    payload = {
+        "job_id": job_id,
+        "job_status": "canceled",
+        "previous_status": status,
+        "terminate_status": terminate_status,
+    }
+    if args.json:
+        emit_success(args, payload, mode="cancel")
+    else:
+        print(f"jobをキャンセルしました: {job_id}")
+        print(f"previous_status: {status}")
+        print(f"terminate_status: {terminate_status}")
+    return 0
+
+
 def run_job(job_id: str, store: JobStore) -> int:
     job = store.load_job(job_id)
     if not job:
         print(f"jobが見つかりません: {job_id}", file=sys.stderr)
         return 1
+
+    if job.get("status") == "canceled":
+        # 実行開始前にキャンセル済みなら何もしない
+        return 0
 
     store.update_job(
         job_id,
@@ -264,6 +355,11 @@ def run_job(job_id: str, store: JobStore) -> int:
         df, header_lines = execute_query_from_params(params)
         if df is None:
             raise RuntimeError("クエリ結果が取得できませんでした")
+
+        latest = store.load_job(job_id)
+        if latest and latest.get("status") == "canceled":
+            # 実行中にキャンセルされた場合、成功で上書きしない
+            return 1
 
         artifact_path = store.artifact_path(job_id)
         df.to_csv(artifact_path, index=False, encoding="utf-8-sig")
@@ -494,6 +590,7 @@ def main():
     parser.add_argument("--output", help="CSV output file path")
     parser.add_argument("--submit", action="store_true", help="Submit job asynchronously")
     parser.add_argument("--status", help="Show job status by job_id")
+    parser.add_argument("--cancel", help="Cancel job by job_id")
     parser.add_argument("--result", help="Show job result by job_id")
     parser.add_argument("--head", type=int, help="Show first N rows with --result")
     parser.add_argument("--summary", action="store_true", help="Show summary stats with --result")
@@ -507,7 +604,7 @@ def main():
     parser.add_argument("--list-bq-datasets", action="store_true", help="List BigQuery datasets")
     parser.add_argument("--project", help="GCP project ID for --list-bq-datasets")
     args = parser.parse_args()
-    store = JobStore()
+    store = JobStore(os.environ.get("QUERY_JOB_DIR", "output/jobs"))
 
     handled, code = run_list_mode(args)
     if handled:
@@ -536,6 +633,9 @@ def main():
 
     if args.status:
         return show_job_status(args.status, args, store)
+
+    if args.cancel:
+        return cancel_job(args.cancel, args, store)
 
     if args.result:
         return show_job_result(args.result, args, store)

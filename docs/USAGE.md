@@ -53,6 +53,9 @@ python scripts/query.py --submit --params input/params.json
 # ジョブ状態確認
 python scripts/query.py --status <job_id>
 
+# ジョブキャンセル
+python scripts/query.py --cancel <job_id>
+
 # ジョブ結果確認
 python scripts/query.py --result <job_id>
 
@@ -84,6 +87,7 @@ python scripts/query.py --list-bq-datasets --project my-project
 | `--params` | スキーマ検証済みJSON入力 | `input/params.json` |
 | `--submit` | ジョブを非同期投入 | OFF |
 | `--status <job_id>` | ジョブ状態の表示 | - |
+| `--cancel <job_id>` | 実行中/待機中ジョブのキャンセル | - |
 | `--result <job_id>` | ジョブ結果情報の表示 | - |
 | `--head <N>` | `--result` で先頭N行を返す | - |
 | `--summary` | `--result` で要約統計を返す | OFF |
