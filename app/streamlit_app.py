@@ -21,27 +21,28 @@ PARAMS_FILE = Path("input/params.json")
 def load_params_from_file():
     """外部JSONファイルからパラメータを読み込む"""
     if not PARAMS_FILE.exists():
-        return None, None, []
+        return None, None, [], None
     try:
         mtime = PARAMS_FILE.stat().st_mtime
         with open(PARAMS_FILE, "r", encoding="utf-8") as f:
             raw_params = json.load(f)
+        canonical = canonicalize_json(raw_params)
         params, errors = validate_params(raw_params)
-        return params, mtime, errors
+        return params, mtime, errors, canonical
     except json.JSONDecodeError as e:
         return None, None, [{
             "error_code": "INVALID_JSON",
             "message": f"Invalid JSON: {e}",
             "path": "$",
             "hint": "Fix JSON syntax in input/params.json."
-        }]
+        }], None
     except IOError as e:
         return None, None, [{
             "error_code": "FILE_IO_ERROR",
             "message": f"Failed to read params.json: {e}",
             "path": "$",
             "hint": "Check file permissions and file path."
-        }]
+        }], None
 
 def apply_params_to_session(params):
     """読み込んだパラメータをセッションに反映（ウィジェットのkeyも更新）"""
@@ -98,17 +99,29 @@ def apply_params_to_session(params):
     return True
 
 def check_file_updated():
-    """ファイル更新をチェック"""
+    """ファイル更新をチェック（mtime + 実質差分）"""
     if not PARAMS_FILE.exists():
-        return False
+        return False, None, None, []
 
     current_mtime = PARAMS_FILE.stat().st_mtime
     last_mtime = st.session_state.get("last_params_mtime", 0)
 
-    if current_mtime > last_mtime:
-        st.session_state["last_params_mtime"] = current_mtime
-        return True
-    return False
+    if current_mtime <= last_mtime:
+        return False, None, None, []
+
+    params, mtime, errors, canonical = load_params_from_file()
+    st.session_state["last_params_mtime"] = current_mtime
+
+    # JSONが壊れている場合はcanonical比較できないため、mtime更新として扱う
+    if canonical is None:
+        return True, params, mtime, errors
+
+    last_canonical = st.session_state.get("last_params_canonical")
+    if canonical == last_canonical:
+        return False, None, None, []
+
+    st.session_state["last_params_canonical"] = canonical
+    return True, params, mtime, errors
 
 # === 共通モジュールからインポート ===
 import sys
@@ -124,7 +137,9 @@ from lib.megaton_client import (
     query_bq,
     save_to_sheet,
 )
+from lib.params_diff import canonicalize_json
 from lib.params_validator import validate_params
+from lib.result_inspector import apply_pipeline, SUPPORTED_AGG_FUNCS
 
 # Streamlit用キャッシュラッパー
 @st.cache_data(ttl=300)
@@ -267,6 +282,8 @@ if "auto_execute" not in st.session_state:
     st.session_state["auto_execute"] = False
 if "params_validation_errors" not in st.session_state:
     st.session_state["params_validation_errors"] = []
+if "last_params_canonical" not in st.session_state:
+    st.session_state["last_params_canonical"] = None
 
 # 自動リフレッシュ（ファイル監視用：2秒ごと）
 if st.session_state.get("auto_watch", True):
@@ -276,18 +293,19 @@ if st.session_state.get("auto_watch", True):
 file_just_updated = False
 
 # ファイル変更チェック（メインスクリプト内で実行）
-if st.session_state.get("auto_watch", True) and check_file_updated():
-    params, _, errors = load_params_from_file()
-    if params:
-        apply_params_to_session(params)
-        st.session_state["params_validation_errors"] = []
-        st.toast("🔄 パラメータファイルが更新されました", icon="📄")
-        file_just_updated = True
-        if st.session_state.get("auto_execute", False):
-            st.session_state["auto_execute_pending"] = True
-    elif errors:
-        st.session_state["params_validation_errors"] = errors
-        st.toast("❌ params.json の検証に失敗しました", icon="⚠️")
+if st.session_state.get("auto_watch", True):
+    updated, params, _, errors = check_file_updated()
+    if updated:
+        if params:
+            apply_params_to_session(params)
+            st.session_state["params_validation_errors"] = []
+            st.toast("🔄 パラメータファイルが更新されました", icon="📄")
+            file_just_updated = True
+            if st.session_state.get("auto_execute", False):
+                st.session_state["auto_execute_pending"] = True
+        elif errors:
+            st.session_state["params_validation_errors"] = errors
+            st.toast("❌ params.json の検証に失敗しました", icon="⚠️")
 
 with st.sidebar:
     with st.expander("🤖 AI Agent 連携", expanded=True):
@@ -311,14 +329,19 @@ with st.sidebar:
 
         # 手動読み込みボタン
         if st.button("📥 JSONを開く", use_container_width=True):
-            params, mtime, errors = load_params_from_file()
+            params, mtime, errors, canonical = load_params_from_file()
             if params:
                 apply_params_to_session(params)
                 st.session_state["last_params_mtime"] = mtime
+                st.session_state["last_params_canonical"] = canonical
                 st.session_state["params_validation_errors"] = []
                 st.success("✓ パラメータを読み込みました")
                 st.rerun()
             elif errors:
+                if canonical is not None:
+                    st.session_state["last_params_canonical"] = canonical
+                if mtime is not None:
+                    st.session_state["last_params_mtime"] = mtime
                 st.session_state["params_validation_errors"] = errors
                 st.error("params.json の検証に失敗しました")
             else:
@@ -604,39 +627,195 @@ if execute_btn or auto_execute_pending or (file_just_updated and st.session_stat
 
 # 結果表示
 if "df" in st.session_state:
-    df = st.session_state["df"]
-    
+    raw_df = st.session_state["df"]
+
+    # === パイプラインUI ===
+    with st.expander("🔧 結果の絞り込み・集計", expanded=False):
+        pipeline_kwargs = {}
+
+        # --- 変換 ---
+        st.markdown("**変換**")
+        transform_parts = []
+
+        has_date_col = "date" in raw_df.columns
+        # URL列があるか判定（値が http で始まる文字列列を探す）
+        url_cols = []
+        for c in raw_df.select_dtypes(include="object").columns:
+            sample = raw_df[c].dropna().head(5).astype(str)
+            if sample.str.startswith("http").any():
+                url_cols.append(c)
+        has_url_col = len(url_cols) > 0
+
+        pcol1, pcol2 = st.columns(2)
+        with pcol1:
+            tf_date = st.checkbox(
+                "日付を YYYY-MM-DD に変換",
+                disabled=not has_date_col,
+                key="w_tf_date",
+            )
+            if tf_date and has_date_col:
+                transform_parts.append("date:date_format")
+
+            tf_url_decode = st.checkbox(
+                "URLデコード",
+                disabled=not has_url_col,
+                key="w_tf_url_decode",
+            )
+            if tf_url_decode and url_cols:
+                for uc in url_cols:
+                    transform_parts.append(f"{uc}:url_decode")
+
+        with pcol2:
+            tf_strip_qs = st.checkbox(
+                "クエリ文字列を除去",
+                disabled=not has_url_col,
+                key="w_tf_strip_qs",
+            )
+            if tf_strip_qs and url_cols:
+                keep_params = st.text_input(
+                    "残すパラメータ（カンマ区切り、空=全除去）",
+                    key="w_tf_keep_params",
+                    placeholder="id,ref",
+                )
+                for uc in url_cols:
+                    if keep_params.strip():
+                        transform_parts.append(f"{uc}:strip_qs:{keep_params.strip()}")
+                    else:
+                        transform_parts.append(f"{uc}:strip_qs")
+
+            tf_path_only = st.checkbox(
+                "パスのみ（ドメイン除去）",
+                disabled=not has_url_col,
+                key="w_tf_path_only",
+            )
+            if tf_path_only and url_cols:
+                for uc in url_cols:
+                    transform_parts.append(f"{uc}:path_only")
+
+        if transform_parts:
+            pipeline_kwargs["transform"] = ",".join(transform_parts)
+
+        st.divider()
+
+        # --- フィルタ ---
+        st.markdown("**フィルタ**")
+        where_expr = st.text_input(
+            "条件式（pandas query構文）",
+            key="w_pipeline_where",
+            placeholder='clicks > 100 and page.str.contains("/blog/")',
+        )
+        if where_expr.strip():
+            pipeline_kwargs["where"] = where_expr.strip()
+
+        st.divider()
+
+        # --- 表示列 ---
+        st.markdown("**表示列**")
+        selected_cols = st.multiselect(
+            "列を選択（空=全列）",
+            list(raw_df.columns),
+            key="w_pipeline_columns",
+        )
+        if selected_cols:
+            pipeline_kwargs["columns"] = ",".join(selected_cols)
+
+        st.divider()
+
+        # --- グループ集計 ---
+        st.markdown("**グループ集計**")
+        group_cols = st.multiselect(
+            "グループ列",
+            list(raw_df.columns),
+            key="w_pipeline_group_by",
+        )
+        numeric_cols = list(raw_df.select_dtypes(include="number").columns)
+        agg_exprs = []
+        if group_cols and numeric_cols:
+            st.caption("集計関数を設定")
+            for nc in numeric_cols:
+                agg_func = st.selectbox(
+                    f"{nc}",
+                    ["（なし）", "sum", "mean", "count", "min", "max", "median"],
+                    key=f"w_agg_{nc}",
+                )
+                if agg_func != "（なし）":
+                    agg_exprs.append(f"{agg_func}:{nc}")
+
+        if group_cols and agg_exprs:
+            pipeline_kwargs["group_by"] = ",".join(group_cols)
+            pipeline_kwargs["aggregate"] = ",".join(agg_exprs)
+
+            # グループ集計後はソート列名が変わるため更新
+            # sum_clicks のような列名でソートしたい場合があるので案内
+            derived_cols = [f"{a.split(':')[0]}_{a.split(':')[1]}" for a in agg_exprs]
+            st.caption(f"集計後の列: {', '.join(group_cols + derived_cols)}")
+
+        st.divider()
+
+        # --- 表示行数 ---
+        st.markdown("**表示行数**")
+        head_val = st.slider(
+            "先頭N行（0=全行）",
+            min_value=0,
+            max_value=min(len(raw_df), 10000),
+            value=0,
+            step=10,
+            key="w_pipeline_head",
+        )
+        if head_val > 0:
+            pipeline_kwargs["head"] = head_val
+
+    # === パイプライン適用 ===
+    pipeline_error = None
+    if pipeline_kwargs:
+        try:
+            display_df = apply_pipeline(raw_df, **pipeline_kwargs)
+        except ValueError as e:
+            pipeline_error = str(e)
+            display_df = raw_df
+    else:
+        display_df = raw_df
+
+    if pipeline_error:
+        st.error(f"パイプラインエラー: {pipeline_error}")
+
+    # 行数キャプション
+    if len(display_df) != len(raw_df):
+        st.caption(f"📊 {len(raw_df):,} 行 → {len(display_df):,} 行")
+    else:
+        st.caption(f"📊 {len(display_df):,} 行")
+
     # タブ
     tab1, tab2, tab3 = st.tabs(["📋 テーブル", "📈 チャート", "💾 保存"])
-    
+
     with tab1:
-        st.dataframe(df, use_container_width=True, height=400)
-        
+        st.dataframe(display_df, use_container_width=True, height=400)
+
         # 統計情報
         with st.expander("統計情報"):
-            st.write(df.describe())
-    
+            st.write(display_df.describe())
+
     with tab2:
-        if len(df.columns) >= 2:
+        if len(display_df.columns) >= 2:
             col1, col2 = st.columns(2)
             with col1:
-                x_col = st.selectbox("X軸", df.columns)
+                x_col = st.selectbox("X軸", display_df.columns)
             with col2:
-                y_col = st.selectbox("Y軸", [c for c in df.columns if c != x_col])
-            
+                y_col = st.selectbox("Y軸", [c for c in display_df.columns if c != x_col])
+
             chart_type = st.radio("チャートタイプ", ["折れ線", "棒グラフ"], horizontal=True)
-            
+
             if chart_type == "折れ線":
-                st.line_chart(df.set_index(x_col)[y_col])
+                st.line_chart(display_df.set_index(x_col)[y_col])
             else:
-                st.bar_chart(df.set_index(x_col)[y_col])
-    
+                st.bar_chart(display_df.set_index(x_col)[y_col])
+
     with tab3:
         st.subheader("ローカル保存")
         col1, col2 = st.columns(2)
         with col1:
             # CSV ダウンロード
-            csv = df.to_csv(index=False).encode('utf-8-sig')
+            csv = display_df.to_csv(index=False).encode('utf-8-sig')
             st.download_button(
                 "📥 CSV ダウンロード",
                 csv,
@@ -650,29 +829,29 @@ if "df" in st.session_state:
                 import os
                 os.makedirs("output", exist_ok=True)
                 filepath = f"output/result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-                df.to_csv(filepath, index=False, encoding='utf-8-sig')
+                display_df.to_csv(filepath, index=False, encoding='utf-8-sig')
                 st.success(f"保存しました: {filepath}")
-        
+
         st.divider()
         st.subheader("Google Sheets に保存")
-        
+
         # スプレッドシートURL
         sheet_url = st.text_input(
             "スプレッドシートURL",
             placeholder="https://docs.google.com/spreadsheets/d/xxxxx",
             key="w_sheet_url"
         )
-        
+
         col1, col2 = st.columns(2)
         with col1:
             sheet_name = st.text_input("シート名", value="data", key="w_sheet_name")
         with col2:
             save_mode = st.selectbox("保存モード", ["上書き", "追記", "アップサート"], key="w_save_mode")
-        
+
         # アップサート時のキー列
         if save_mode == "アップサート":
-            key_cols = st.multiselect("キー列", df.columns.tolist(), key="w_upsert_keys")
-        
+            key_cols = st.multiselect("キー列", display_df.columns.tolist(), key="w_upsert_keys")
+
         if st.button("📤 Google Sheets に保存", use_container_width=True, type="primary"):
             if not sheet_url:
                 st.error("スプレッドシートURLを入力してください")
@@ -680,11 +859,11 @@ if "df" in st.session_state:
                 try:
                     mode_map = {"上書き": "overwrite", "追記": "append", "アップサート": "upsert"}
                     mode = mode_map[save_mode]
-                    
+
                     if mode == "upsert" and not key_cols:
                         st.error("キー列を選択してください")
                     else:
-                        save_to_sheet(sheet_url, sheet_name, df, mode=mode, keys=key_cols if mode == "upsert" else None)
+                        save_to_sheet(sheet_url, sheet_name, display_df, mode=mode, keys=key_cols if mode == "upsert" else None)
                         st.success(f"✓ シート「{sheet_name}」に保存しました")
                 except Exception as e:
                     st.error(f"エラー: {e}")

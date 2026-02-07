@@ -32,6 +32,7 @@
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  [3] Streamlit UI: 自動反映（2秒ごとにファイル監視）             │
+│      - 更新時刻 + 実質差分で変更判定（空白/インデント/キー順を無視）│
 │      - UIに自動でパラメータが反映される                          │
 │      - 人間がドロップダウンで日付・プロパティを微調整             │
 │      - 「自動実行」ONなら自動でクエリ実行                        │
@@ -95,6 +96,11 @@ python scripts/query.py --result <job_id> --head 20
 # 結果の要約統計
 python scripts/query.py --result <job_id> --summary
 
+# 結果の変換（`--result`）
+python scripts/query.py --result <job_id> --json --transform "date:date_format"
+python scripts/query.py --result <job_id> --json --transform "page:url_decode,page:strip_qs,page:path_only"
+python scripts/query.py --result <job_id> --json --transform "page:strip_qs:id,ref" --group-by "page" --aggregate "sum:clicks"
+
 # 結果のパイプライン処理（`--result`）
 python scripts/query.py --result <job_id> --json --where "impressions >= 100 and ctr < 0.02" --sort "impressions DESC" --columns "query,clicks,impressions" --head 20
 python scripts/query.py --result <job_id> --json --group-by "page" --aggregate "sum:clicks,mean:ctr" --sort "sum_clicks DESC"
@@ -119,7 +125,7 @@ python scripts/query.py --list-jobs
 ```
 
 補足:
-- 同期実行（`--params`）で `--where` / `--sort` / `--columns` / `--group-by` / `--aggregate` / `--head` を使った場合、`data.pipeline` に `input_rows` / `output_rows` を含む実行メタが入る。
+- 同期実行（`--params`）で `--transform` / `--where` / `--sort` / `--columns` / `--group-by` / `--aggregate` / `--head` を使った場合、`data.pipeline` に `input_rows` / `output_rows` を含む実行メタが入る。
 
 失敗時:
 
@@ -138,12 +144,13 @@ python scripts/query.py --list-jobs
 `--result`（ジョブ結果CSV）または同期実行（`--params`）の結果DataFrameに対して変換し、必要行だけ返す。
 
 処理順序（固定）:
-`CSV読み込み → where → group-by+aggregate → sort → columns → head → 出力`
+`CSV読み込み → transform → where → group-by+aggregate → sort → columns → head → 出力`
 
 #### オプション
 
 | オプション | 書式 | 説明 |
 |-----------|------|------|
+| `--transform` | `col:func,col2:func2` | 列変換 |
 | `--where` | pandas query式 | 行フィルタ |
 | `--sort` | `col DESC,col2 ASC` | ソート |
 | `--columns` | `col1,col2` | 列選択 |
@@ -151,13 +158,30 @@ python scripts/query.py --list-jobs
 | `--aggregate` | `sum:clicks,mean:ctr` | 集計 |
 | `--head` | `N` | 先頭N行 |
 
+#### 変換関数（`--transform`）
+
+| 関数 | 書式 | 説明 |
+|------|------|------|
+| `date_format` | `date:date_format` | YYYYMMDD → YYYY-MM-DD |
+| `url_decode` | `page:url_decode` | %エンコード解除 |
+| `path_only` | `page:path_only` | URLからパスのみ抽出（ドメイン除去） |
+| `strip_qs` | `page:strip_qs` | 全クエリパラメータ除去 |
+| `strip_qs` | `page:strip_qs:id,ref` | 指定パラメータのみ保持（他は除去） |
+
+**strip_qs の引数仕様:**
+- 引数なし（`page:strip_qs`）→ 全クエリパラメータとフラグメントを除去
+- 引数あり（`page:strip_qs:id,ref`）→ 指定パラメータのみ保持、他は除去
+
+**カンマ曖昧性の解決:**
+`page:strip_qs:id,ref` の `ref` はstrip_qsの引数（新しいtransformではない）。コロンを含まないセグメントは直前のtransformの引数に追加される。
+
 #### 集計関数
 
 `sum`, `mean`, `count`, `min`, `max`, `median`
 
 #### 制約
 
-- `--where` / `--sort` / `--columns` / `--group-by` / `--aggregate` は `--result` または同期実行（`--params`）で使用
+- `--transform` / `--where` / `--sort` / `--columns` / `--group-by` / `--aggregate` は `--result` または同期実行（`--params`）で使用
 - `--group-by` と `--aggregate` は同時指定必須
 - `--summary` とパイプラインオプションは排他
 
@@ -165,6 +189,7 @@ python scripts/query.py --list-jobs
 
 | code | 条件 |
 |------|------|
+| `INVALID_TRANSFORM` | `--transform` 関数/列/式が不正 |
 | `INVALID_WHERE` | `--where` 式が不正 |
 | `INVALID_SORT` | `--sort` 書式不正 / 列不正 |
 | `INVALID_COLUMNS` | `--columns` に存在しない列 |

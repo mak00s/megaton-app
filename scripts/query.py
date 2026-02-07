@@ -89,11 +89,13 @@ def emit_error(args, error_code: str, message: str, hint: str | None = None, det
 
 def has_pipeline_opts(args) -> bool:
     """結果パイプライン系オプションが指定されているか"""
-    return any([args.where, args.sort, args.columns, args.group_by, args.aggregate])
+    return any([args.transform, args.where, args.sort, args.columns, args.group_by, args.aggregate])
 
 
 def map_pipeline_error(message: str) -> tuple[str, str]:
     """apply_pipelineのValueErrorメッセージをerror_code/hintに変換"""
+    if message.startswith("Invalid transform"):
+        return "INVALID_TRANSFORM", "Use format: 'column:func'. Supported: date_format, url_decode, path_only, strip_qs."
     if message.startswith("Invalid where expression"):
         return "INVALID_WHERE", "Use pandas query syntax. Example: 'clicks > 10 and ctr < 0.05'"
     if message.startswith("Invalid sort"):
@@ -471,6 +473,7 @@ def show_job_result(job_id: str, args, store: JobStore) -> int:
             input_rows = int(len(df))
             out_df = apply_pipeline(
                 df,
+                transform=args.transform,
                 where=args.where,
                 group_by=args.group_by,
                 aggregate=args.aggregate,
@@ -497,6 +500,7 @@ def show_job_result(job_id: str, args, store: JobStore) -> int:
         payload = {
             "job_id": job["job_id"],
             "pipeline": {
+                "transform": args.transform,
                 "where": args.where,
                 "sort": args.sort,
                 "columns": args.columns,
@@ -692,6 +696,7 @@ def main():
     parser.add_argument("--columns", help="Select columns (comma-separated)")
     parser.add_argument("--group-by", help="Group by columns (comma-separated)")
     parser.add_argument("--aggregate", help="Aggregate functions (e.g. 'sum:clicks,mean:ctr')")
+    parser.add_argument("--transform", help="Transform columns (e.g. 'date:date_format,page:url_decode')")
     parser.add_argument("--list-jobs", action="store_true", help="List recent jobs")
     parser.add_argument("--job-limit", type=int, default=20, help="Max items for --list-jobs")
     parser.add_argument("--run-job", help=argparse.SUPPRESS)
@@ -803,6 +808,7 @@ def main():
                 input_rows = int(len(df))
                 df = apply_pipeline(
                     df,
+                    transform=args.transform,
                     where=args.where,
                     group_by=args.group_by,
                     aggregate=args.aggregate,
@@ -811,6 +817,7 @@ def main():
                     head=args.head,
                 )
                 pipeline_info = {
+                    "transform": args.transform,
                     "where": args.where,
                     "sort": args.sort,
                     "columns": args.columns,
