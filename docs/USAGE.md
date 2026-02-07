@@ -47,6 +47,9 @@ AI Agent がデータを取得する際は、CLIスクリプトを使用。高�
 # source を見て自動分岐（ga4/gsc/bigquery）
 python scripts/query.py --params input/params.json
 
+# 同期実行 + 結果フィルタ（ジョブ不要）
+python scripts/query.py --params input/params.json --json --where "clicks > 10" --sort "clicks DESC" --head 20
+
 # 非同期ジョブとして投入
 python scripts/query.py --submit --params input/params.json
 
@@ -96,11 +99,11 @@ python scripts/query.py --list-bq-datasets --project my-project
 | `--result <job_id>` | ジョブ結果情報の表示 | - |
 | `--head <N>` | `--result` で先頭N行を返す | - |
 | `--summary` | `--result` で要約統計を返す | OFF |
-| `--where` | `--result` で行フィルタ（pandas query） | - |
-| `--sort` | `--result` でソート（`col DESC,col2 ASC`） | - |
-| `--columns` | `--result` で列選択（カンマ区切り） | - |
-| `--group-by` | `--result` でグループ列（カンマ区切り） | - |
-| `--aggregate` | `--result` で集計（`sum:clicks` 形式） | - |
+| `--where` | 同期実行/`--result` で行フィルタ（pandas query） | - |
+| `--sort` | 同期実行/`--result` でソート（`col DESC,col2 ASC`） | - |
+| `--columns` | 同期実行/`--result` で列選択（カンマ区切り） | - |
+| `--group-by` | 同期実行/`--result` でグループ列（カンマ区切り） | - |
+| `--aggregate` | 同期実行/`--result` で集計（`sum:clicks` 形式） | - |
 | `--list-jobs` | ジョブ一覧の表示 | OFF |
 | `--job-limit` | ジョブ一覧の件数上限 | 20 |
 | `--list-ga4-properties` | GA4プロパティ一覧 | OFF |
@@ -113,7 +116,7 @@ python scripts/query.py --list-bq-datasets --project my-project
 `--params` 実行時は `schema_version: "1.0"` を必須検証し、`source` とキー整合性が崩れている場合は実行前にエラー終了します。
 `--head` と `--summary` は `--result` と併用する。
 `--group-by` と `--aggregate` は同時指定が必須。
-`--summary` と `--where`/`--sort`/`--columns`/`--group-by`/`--aggregate` は同時指定不可。
+`--summary` は `--result` 専用で、パイプラインオプションとは同時指定不可。
 `--json` 指定時は成功・失敗ともに構造化JSONを返す（成功: `status=ok`、失敗: `status=error`）。
 
 ### ジョブ管理の保存先

@@ -10,6 +10,7 @@
 - `--json` 時の出力を成功/失敗ともに構造化JSONへ統一（`status`, `error_code` など）
 - ジョブキャンセルを追加（`--cancel <job_id>`）
 - `--result` に結果パイプラインを追加（`--where`, `--sort`, `--columns`, `--group-by`, `--aggregate`）
+- 同期実行（`--params`）にも同じ結果パイプラインを適用可能に拡張
 
 ## 2026-02-06
 

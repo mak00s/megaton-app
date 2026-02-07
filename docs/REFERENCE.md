@@ -95,9 +95,12 @@ python scripts/query.py --result <job_id> --head 20
 # 結果の要約統計
 python scripts/query.py --result <job_id> --summary
 
-# 結果のパイプライン処理
+# 結果のパイプライン処理（`--result`）
 python scripts/query.py --result <job_id> --json --where "impressions >= 100 and ctr < 0.02" --sort "impressions DESC" --columns "query,clicks,impressions" --head 20
 python scripts/query.py --result <job_id> --json --group-by "page" --aggregate "sum:clicks,mean:ctr" --sort "sum_clicks DESC"
+
+# 同期実行のパイプライン処理（`--params`）
+python scripts/query.py --params input/params.json --json --where "clicks > 10" --sort "clicks DESC" --head 20
 
 # ジョブ一覧
 python scripts/query.py --list-jobs
@@ -129,7 +132,7 @@ python scripts/query.py --list-jobs
 
 ### 結果パイプラインオプション
 
-`--result` と組み合わせて CSV をメモリ上で変換し、必要行だけ返す。
+`--result`（ジョブ結果CSV）または同期実行（`--params`）の結果DataFrameに対して変換し、必要行だけ返す。
 
 処理順序（固定）:
 `CSV読み込み → where → group-by+aggregate → sort → columns → head → 出力`
@@ -151,7 +154,7 @@ python scripts/query.py --list-jobs
 
 #### 制約
 
-- `--where` / `--sort` / `--columns` / `--group-by` / `--aggregate` は `--result` 必須
+- `--where` / `--sort` / `--columns` / `--group-by` / `--aggregate` は `--result` または同期実行（`--params`）で使用
 - `--group-by` と `--aggregate` は同時指定必須
 - `--summary` とパイプラインオプションは排他
 

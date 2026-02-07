@@ -106,6 +106,7 @@ python scripts/query.py --result job_20260207_120000_abcd1234 --head 20
 python scripts/query.py --result job_20260207_120000_abcd1234 --summary
 
 # 結果のフィルタ・集計
+python scripts/query.py --params input/params.json --json --where "clicks > 10" --sort "clicks DESC" --head 20
 python scripts/query.py --result job_20260207_120000_abcd1234 --json --where "clicks > 10" --sort "clicks DESC" --head 20
 python scripts/query.py --result job_20260207_120000_abcd1234 --json --group-by "page" --aggregate "sum:clicks,mean:ctr" --sort "sum_clicks DESC"
 python scripts/query.py --result job_20260207_120000_abcd1234 --json --columns "query,clicks" --where "impressions >= 100"
