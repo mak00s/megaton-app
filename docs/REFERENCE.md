@@ -95,6 +95,10 @@ python scripts/query.py --result <job_id> --head 20
 # 結果の要約統計
 python scripts/query.py --result <job_id> --summary
 
+# 結果のパイプライン処理
+python scripts/query.py --result <job_id> --json --where "impressions >= 100 and ctr < 0.02" --sort "impressions DESC" --columns "query,clicks,impressions" --head 20
+python scripts/query.py --result <job_id> --json --group-by "page" --aggregate "sum:clicks,mean:ctr" --sort "sum_clicks DESC"
+
 # ジョブ一覧
 python scripts/query.py --list-jobs
 ```
@@ -122,6 +126,43 @@ python scripts/query.py --list-jobs
   "details": {}
 }
 ```
+
+### 結果パイプラインオプション
+
+`--result` と組み合わせて CSV をメモリ上で変換し、必要行だけ返す。
+
+処理順序（固定）:
+`CSV読み込み → where → group-by+aggregate → sort → columns → head → 出力`
+
+#### オプション
+
+| オプション | 書式 | 説明 |
+|-----------|------|------|
+| `--where` | pandas query式 | 行フィルタ |
+| `--sort` | `col DESC,col2 ASC` | ソート |
+| `--columns` | `col1,col2` | 列選択 |
+| `--group-by` | `col1,col2` | グループ列 |
+| `--aggregate` | `sum:clicks,mean:ctr` | 集計 |
+| `--head` | `N` | 先頭N行 |
+
+#### 集計関数
+
+`sum`, `mean`, `count`, `min`, `max`, `median`
+
+#### 制約
+
+- `--where` / `--sort` / `--columns` / `--group-by` / `--aggregate` は `--result` 必須
+- `--group-by` と `--aggregate` は同時指定必須
+- `--summary` とパイプラインオプションは排他
+
+#### エラーコード
+
+| code | 条件 |
+|------|------|
+| `INVALID_WHERE` | `--where` 式が不正 |
+| `INVALID_SORT` | `--sort` 書式不正 / 列不正 |
+| `INVALID_COLUMNS` | `--columns` に存在しない列 |
+| `INVALID_AGGREGATE` | 集計関数/列/式が不正 |
 
 ### ジョブ状態
 

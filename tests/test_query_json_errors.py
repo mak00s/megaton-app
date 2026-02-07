@@ -33,6 +33,27 @@ class TestQueryJsonErrors(unittest.TestCase):
         self.assertEqual(payload["status"], "error")
         self.assertEqual(payload["error_code"], "INVALID_ARGUMENT")
 
+    def test_where_requires_result(self):
+        proc = self.run_cli(["--json", "--where", "clicks > 10"])
+        self.assertNotEqual(proc.returncode, 0)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["error_code"], "INVALID_ARGUMENT")
+
+    def test_group_by_requires_aggregate(self):
+        proc = self.run_cli(["--json", "--result", "job_dummy", "--group-by", "page"])
+        self.assertNotEqual(proc.returncode, 0)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["error_code"], "INVALID_ARGUMENT")
+
+    def test_summary_exclusive_with_pipeline(self):
+        proc = self.run_cli(["--json", "--result", "job_dummy", "--summary", "--where", "clicks > 10"])
+        self.assertNotEqual(proc.returncode, 0)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["error_code"], "INVALID_ARGUMENT")
+
     def test_missing_params_file(self):
         proc = self.run_cli(["--json", "--params", "input/not_found.json"])
         self.assertNotEqual(proc.returncode, 0)

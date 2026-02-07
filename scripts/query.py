@@ -33,6 +33,8 @@ import sys
 import time
 from pathlib import Path
 
+import pandas as pd
+
 # libをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -46,7 +48,7 @@ from lib.megaton_client import (
 )
 from lib.job_manager import JobStore, now_iso
 from lib.params_validator import validate_params
-from lib.result_inspector import read_head, build_summary
+from lib.result_inspector import read_head, build_summary, apply_pipeline
 
 
 def emit_success(args, data, **meta) -> None:
@@ -83,6 +85,26 @@ def emit_error(args, error_code: str, message: str, hint: str | None = None, det
                     file=sys.stderr,
                 )
     return 1
+
+
+def has_pipeline_opts(args) -> bool:
+    """結果パイプライン系オプションが指定されているか"""
+    return any([args.where, args.sort, args.columns, args.group_by, args.aggregate])
+
+
+def map_pipeline_error(message: str) -> tuple[str, str]:
+    """apply_pipelineのValueErrorメッセージをerror_code/hintに変換"""
+    if message.startswith("Invalid where expression"):
+        return "INVALID_WHERE", "Use pandas query syntax. Example: 'clicks > 10 and ctr < 0.05'"
+    if message.startswith("Invalid sort"):
+        return "INVALID_SORT", "Use sort format: 'column DESC,column2 ASC'."
+    if message.startswith("Invalid columns"):
+        return "INVALID_COLUMNS", "Use existing column names in comma-separated format."
+    if message.startswith("Invalid aggregate"):
+        return "INVALID_AGGREGATE", "Use --group-by with --aggregate like 'sum:clicks,mean:ctr'."
+    if message.startswith("Invalid head"):
+        return "INVALID_ARGUMENT", "Use --head 1 or greater."
+    return "INVALID_ARGUMENT", "Check pipeline options."
 
 
 def parse_gsc_filter(filter_str: str) -> list | None:
@@ -436,6 +458,71 @@ def show_job_result(job_id: str, args, store: JobStore) -> int:
             "Re-run the job.",
         )
 
+    # パイプライン系オプションあり: DataFrame全体を読み込み -> apply_pipeline
+    if has_pipeline_opts(args):
+        try:
+            df = pd.read_csv(artifact_path)
+            input_rows = int(len(df))
+            out_df = apply_pipeline(
+                df,
+                where=args.where,
+                group_by=args.group_by,
+                aggregate=args.aggregate,
+                sort=args.sort,
+                columns=args.columns,
+                head=args.head,
+            )
+        except ValueError as e:
+            code, hint = map_pipeline_error(str(e))
+            return emit_error(args, code, str(e), hint)
+        except Exception as e:
+            return emit_error(
+                args,
+                "RESULT_READ_FAILED",
+                f"failed to read result artifact: {e}",
+                "Check artifact file and pipeline options.",
+            )
+
+        if args.output:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            out_df.to_csv(args.output, index=False, encoding="utf-8-sig")
+
+        rows = json.loads(out_df.to_json(orient="records", force_ascii=False))
+        payload = {
+            "job_id": job["job_id"],
+            "pipeline": {
+                "where": args.where,
+                "sort": args.sort,
+                "columns": args.columns,
+                "group_by": args.group_by,
+                "aggregate": args.aggregate,
+                "head": args.head,
+                "input_rows": input_rows,
+                "output_rows": int(len(out_df)),
+            },
+            "rows": rows,
+            "row_count": int(len(rows)),
+        }
+        if args.output:
+            payload["saved_to"] = args.output
+
+        if args.json:
+            emit_success(args, payload, mode="job_result")
+        else:
+            print(f"job_id: {job['job_id']}")
+            print("\npipeline:")
+            print(json.dumps(payload["pipeline"], ensure_ascii=False, indent=2))
+            if len(out_df):
+                print()
+                print(out_df.to_string(index=False))
+            else:
+                print("\n(no rows)")
+            print(f"\n合計: {len(out_df)}行")
+            if args.output:
+                print(f"saved_to: {args.output}")
+        return 0
+
+    # 既存動作: head/summary/metadata
     if args.output:
         Path(args.output).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(artifact_path, args.output)
@@ -594,6 +681,11 @@ def main():
     parser.add_argument("--result", help="Show job result by job_id")
     parser.add_argument("--head", type=int, help="Show first N rows with --result")
     parser.add_argument("--summary", action="store_true", help="Show summary stats with --result")
+    parser.add_argument("--where", help="Filter rows (pandas query expression)")
+    parser.add_argument("--sort", help="Sort rows (e.g. 'clicks DESC,ctr ASC')")
+    parser.add_argument("--columns", help="Select columns (comma-separated)")
+    parser.add_argument("--group-by", help="Group by columns (comma-separated)")
+    parser.add_argument("--aggregate", help="Aggregate functions (e.g. 'sum:clicks,mean:ctr')")
     parser.add_argument("--list-jobs", action="store_true", help="List recent jobs")
     parser.add_argument("--job-limit", type=int, default=20, help="Max items for --list-jobs")
     parser.add_argument("--run-job", help=argparse.SUPPRESS)
@@ -616,6 +708,29 @@ def main():
             "INVALID_ARGUMENT",
             "--head must be a positive integer",
             "Use --head 1 or greater.",
+        )
+
+    pipeline_opts_used = has_pipeline_opts(args)
+    if pipeline_opts_used and not args.result:
+        return emit_error(
+            args,
+            "INVALID_ARGUMENT",
+            "--where/--sort/--columns/--group-by/--aggregate must be used with --result",
+            "Use --result <job_id> with pipeline options.",
+        )
+    if (args.group_by and not args.aggregate) or (args.aggregate and not args.group_by):
+        return emit_error(
+            args,
+            "INVALID_ARGUMENT",
+            "--group-by and --aggregate must be used together",
+            "Specify both --group-by and --aggregate.",
+        )
+    if args.summary and pipeline_opts_used:
+        return emit_error(
+            args,
+            "INVALID_ARGUMENT",
+            "--summary cannot be combined with pipeline options",
+            "Use either --summary or pipeline options.",
         )
     if (args.head is not None or args.summary) and not args.result:
         return emit_error(
