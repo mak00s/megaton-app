@@ -180,6 +180,40 @@ python scripts/query.py --list-jobs
 
 `--json` 指定時は、成功/失敗ともに構造化JSONを返す（失敗時は `status=error`, `error_code` を含む）。
 
+### AI Agent が探索的分析をする場合（Python直接実行）
+
+CLIやStreamlitを介さず、Pythonコードを直接実行して分析する場合は
+`lib/analysis` のヘルパーを使う。**context を浪費しない**設計。
+
+```python
+from lib.megaton_client import query_ga4, query_gsc
+from lib.analysis import show, properties, sites
+
+# プロパティ/サイト一覧
+properties()
+sites()
+
+# クエリ実行（結果はDataFrame、contextに載らない）
+df = query_ga4("254800682", "2025-06-01", "2026-01-31",
+               dimensions=["month", "year", "sessionDefaultChannelGroup"],
+               metrics=["eventCount"],
+               filter_d="eventName==purchase")
+
+# Python加工（contextゼロ）
+df = df[df["sessionDefaultChannelGroup"] != "Direct"]
+
+# 表示（行数制限付き、必要ならCSV保存）
+show(df)                                    # 先頭20行
+show(df, n=10)                              # 先頭10行
+show(df, save="output/result.csv")          # 保存＋先頭20行
+show(df, n=5, save="output/result.csv")     # 保存＋先頭5行
+```
+
+**ルール:**
+- `print(df.to_string())` は禁止。常に `show()` を使う
+- 大きい結果は `save=` でCSV保存し、contextにはサマリだけ載せる
+- 加工・集計はpandas で行い、最終結果だけ `show()` する
+
 ### Streamlit UI を使う場合
 
 ```bash
