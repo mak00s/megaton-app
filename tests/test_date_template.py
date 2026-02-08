@@ -19,6 +19,9 @@ class TestResolveDate:
     def test_absolute_date_passthrough(self):
         assert resolve_date("2026-01-15", reference=self.REF) == "2026-01-15"
 
+    def test_absolute_date_compact_yyyymmdd(self):
+        assert resolve_date("20260115", reference=self.REF) == "2026-01-15"
+
     def test_today(self):
         assert resolve_date("today", reference=self.REF) == "2026-02-07"
 
@@ -80,6 +83,10 @@ class TestResolveDate:
     def test_invalid_absolute_date_raises(self):
         with pytest.raises(ValueError, match="Invalid absolute date"):
             resolve_date("2026-13-40", reference=self.REF)
+
+    def test_invalid_absolute_date_compact_raises(self):
+        with pytest.raises(ValueError, match="Invalid absolute date"):
+            resolve_date("20261340", reference=self.REF)
 
     def test_today_uses_configured_timezone(self, monkeypatch):
         class FakeDatetime:

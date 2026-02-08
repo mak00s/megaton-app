@@ -33,24 +33,32 @@ def init() -> Path:
 
 
 def _find_project_root() -> Path:
-    """CWD から上方向に lib/ ディレクトリを探してプロジェクトルートを返す。"""
+    """CWD から上方向に credentials/ ディレクトリを探してプロジェクトルートを返す。"""
     d = Path.cwd()
     while d != d.parent:
-        if (d / "lib").is_dir():
+        if (d / "credentials").exists():
             return d
         d = d.parent
-    raise RuntimeError("Project root not found (no 'lib/' directory in parents)")
+    raise RuntimeError("Project root not found (no 'credentials/' directory in parents)")
 
 
 def _reload_lib() -> None:
     """lib 配下のモジュールを依存順にリロードする。"""
+    import megaton_lib.date_template
     import megaton_lib.credentials
     import megaton_lib.megaton_client
     import megaton_lib.analysis
+    import megaton_lib.sheets
+    import megaton_lib.periods
+    import megaton_lib.articles
 
-    importlib.reload(lib.credentials)
-    importlib.reload(lib.megaton_client)
-    importlib.reload(lib.analysis)
+    importlib.reload(megaton_lib.date_template)
+    importlib.reload(megaton_lib.credentials)
+    importlib.reload(megaton_lib.megaton_client)
+    importlib.reload(megaton_lib.analysis)
+    importlib.reload(megaton_lib.sheets)
+    importlib.reload(megaton_lib.periods)
+    importlib.reload(megaton_lib.articles)
 
     from megaton_lib.megaton_client import reset_registry
     reset_registry()
