@@ -12,6 +12,7 @@ params.json の date_range.start / end に相対日付式を書けるように�
   prev-month-end   → 前月末日
   week-start      → 今週月曜日（ISO: 月=0）
   YYYY-MM-DD      → そのまま（絶対日付はパススルー）
+  YYYYMMDD        → YYYY-MM-DD に正規化
 """
 
 from __future__ import annotations
@@ -58,13 +59,20 @@ def resolve_date(expr: str, *, reference: date | None = None) -> str:
     ref = reference or _current_date_in_configured_tz()
     expr = expr.strip()
 
-    # 絶対日付（YYYY-MM-DD）は実在チェックして返す
+    # 絶対日付（YYYY-MM-DD / YYYYMMDD）は実在チェックして返す
     if re.match(r"^\d{4}-\d{2}-\d{2}$", expr):
         try:
             datetime.strptime(expr, "%Y-%m-%d")
         except ValueError as e:
             raise ValueError(f"Invalid absolute date: '{expr}'") from e
         return expr
+
+    if re.match(r"^\d{8}$", expr):
+        try:
+            dt = datetime.strptime(expr, "%Y%m%d")
+        except ValueError as e:
+            raise ValueError(f"Invalid absolute date: '{expr}'") from e
+        return dt.strftime("%Y-%m-%d")
 
     if expr == "today":
         return ref.isoformat()

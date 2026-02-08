@@ -10,6 +10,40 @@ DEFAULT_CREDS_DIR = Path("credentials")
 DEFAULT_ENV_VAR = "MEGATON_CREDS_PATH"
 
 
+def _find_dir_upwards(dir_name: str, *, start: Path | None = None) -> Path | None:
+    """Find a directory named ``dir_name`` by walking up from CWD (or ``start``).
+
+    Returns the first match, or None if not found.
+    """
+    d = (start or Path.cwd()).resolve()
+    while True:
+        candidate = d / dir_name
+        if candidate.exists() and candidate.is_dir():
+            return candidate
+        if d == d.parent:
+            return None
+        d = d.parent
+
+
+def _resolve_default_dir(default_dir: Path | str) -> Path:
+    """Resolve default credentials directory.
+
+    If a relative ``default_dir`` does not exist, try to find it in parent dirs
+    (only for the standard 'credentials' default) so notebooks can run from
+    subdirectories without extra setup.
+    """
+    directory = Path(default_dir)
+    if directory.is_absolute():
+        return directory
+    if directory.exists():
+        return directory
+    if directory == DEFAULT_CREDS_DIR:
+        found = _find_dir_upwards(directory.name)
+        if found is not None:
+            return found
+    return directory
+
+
 def resolve_service_account_path(
     env_var: str = DEFAULT_ENV_VAR,
     default_dir: Path | str = DEFAULT_CREDS_DIR,
@@ -27,7 +61,10 @@ def resolve_service_account_path(
     if env_value:
         return _resolve_from_path(Path(env_value).expanduser(), env_var)
 
-    return _resolve_single_json(Path(default_dir), f"{env_var} or default credentials directory")
+    return _resolve_single_json(
+        _resolve_default_dir(default_dir),
+        f"{env_var} or default credentials directory",
+    )
 
 
 def _resolve_from_path(path: Path, env_var: str) -> str:
@@ -60,7 +97,7 @@ def list_service_account_paths(
             return [str(path)]
         return sorted(str(p) for p in path.glob("*.json") if p.is_file())
 
-    directory = Path(default_dir)
+    directory = _resolve_default_dir(default_dir)
     if not directory.exists():
         return []
     return sorted(str(p) for p in directory.glob("*.json") if p.is_file())
@@ -83,4 +120,3 @@ def _resolve_single_json(directory: Path, source_label: str) -> str:
         f"{', '.join(str(p.name) for p in files)}. "
         f"Set {DEFAULT_ENV_VAR} to the target JSON file path."
     )
-

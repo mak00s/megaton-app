@@ -4,6 +4,7 @@
 property_id / site_url に応じて正しいクレデンシャルに自動ルーティングする。
 """
 import logging
+import os
 from megaton import start
 import pandas as pd
 from typing import Optional
@@ -93,7 +94,15 @@ def get_megaton_for_property(property_id: str):
         build_registry()
         creds_path = _property_map.get(key)
     if creds_path is None:
-        raise ValueError(f"No credential found for property_id: {property_id}")
+        creds_dir = os.environ.get("MEGATON_CREDS_PATH", "(not set)")
+        found_paths = list_service_account_paths()
+        known_ids = sorted(_property_map.keys()) or ["(none)"]
+        raise ValueError(
+            f"No credential found for property_id: {property_id}\n"
+            f"  MEGATON_CREDS_PATH: {creds_dir}\n"
+            f"  Credential files found: {found_paths}\n"
+            f"  Known property IDs: {known_ids}"
+        )
     return get_megaton(creds_path)
 
 

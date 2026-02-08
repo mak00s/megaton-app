@@ -38,6 +38,25 @@ class TestCredentials(unittest.TestCase):
                 with self.assertRaises(FileNotFoundError):
                     resolve_service_account_path(default_dir=tmp)
 
+    def test_resolve_walks_up_to_find_credentials_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "credentials").mkdir()
+            cred_file = root / "credentials" / "sa.json"
+            cred_file.write_text("{}", encoding="utf-8")
+
+            nested = root / "notebooks" / "reports"
+            nested.mkdir(parents=True)
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(nested)
+                with patch.dict(os.environ, {}, clear=True):
+                    path = resolve_service_account_path()
+                    self.assertEqual(str(Path(path).resolve()), str(cred_file.resolve()))
+            finally:
+                os.chdir(old_cwd)
+
 
 class TestListServiceAccountPaths(unittest.TestCase):
     def test_list_single_file_via_env(self):
@@ -93,6 +112,26 @@ class TestListServiceAccountPaths(unittest.TestCase):
             with patch.dict(os.environ, {}, clear=True):
                 with self.assertRaises(RuntimeError):
                     resolve_service_account_path(default_dir=tmp)
+
+    def test_list_walks_up_to_find_credentials_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "credentials").mkdir()
+            (root / "credentials" / "a.json").write_text("{}", encoding="utf-8")
+            (root / "credentials" / "b.json").write_text("{}", encoding="utf-8")
+
+            nested = root / "notebooks" / "reports"
+            nested.mkdir(parents=True)
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(nested)
+                with patch.dict(os.environ, {}, clear=True):
+                    paths = list_service_account_paths()
+                    self.assertEqual(len(paths), 2)
+                    self.assertEqual(paths, sorted(paths))
+            finally:
+                os.chdir(old_cwd)
 
 
 if __name__ == "__main__":
