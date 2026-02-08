@@ -15,6 +15,7 @@ def aggregate_article_meta(
     df_meta_raw: pd.DataFrame,
     *,
     preferred_langs: Iterable[str] = ("jp", "en"),
+    title_joiner: str = " / ",
     lang_order: dict[str, int] | None = None,
     min_valid_year: int = 2000,
 ) -> pd.DataFrame:
@@ -31,7 +32,7 @@ def aggregate_article_meta(
 
     Rules:
     - language: unique non-empty langs, ordered by ``lang_order``, joined with "/"
-    - title: pick PV-max title per preferred language, join with " / "
+    - title: pick PV-max title per preferred language, join with ``title_joiner``
       fallback: PV-max valid title across all langs, then article_id
     - category: PV-max valid category, else category from PV-max row
     - date: pick date from PV-max row among valid parsed dates (year>=min_valid_year)
@@ -90,7 +91,7 @@ def aggregate_article_meta(
         if not titles and len(valid_title) > 0:
             best = valid_title.loc[pd.to_numeric(valid_title["pv"], errors="coerce").fillna(-1).idxmax(), "article_title"]
             titles.append(str(best))
-        article_title = " / ".join(titles) if titles else str(g.name)
+        article_title = title_joiner.join(titles) if titles else str(g.name)
 
         valid_cat = g[g["article_category"].notna() & ~g["article_category"].isin(["", "(not set)"])]
         if len(valid_cat) > 0:
