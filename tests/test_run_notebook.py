@@ -101,7 +101,7 @@ class TestInjectParams:
 
     def test_date_template_resolved(self):
         cells = self._make_params_cell('START = "2025-01-01"\n')
-        with patch("lib.date_template.resolve_date", return_value="2025-12-25"):
+        with patch("megaton_lib.date_template.resolve_date", return_value="2025-12-25"):
             result = inject_params(cells, {"START": "today"})
         assert "START = '2025-12-25'" in result[0]["source"]
 

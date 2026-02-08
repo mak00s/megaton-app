@@ -37,16 +37,16 @@ class TestGetMegaton(unittest.TestCase):
     def tearDown(self):
         _reset_registry()
 
-    @patch("lib.megaton_client.start.Megaton")
-    @patch("lib.megaton_client.list_service_account_paths", return_value=["/creds/a.json"])
+    @patch("megaton_lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths", return_value=["/creds/a.json"])
     def test_singleton_per_path(self, mock_list, mock_megaton):
         mg1 = mc.get_megaton("/creds/a.json")
         mg2 = mc.get_megaton("/creds/a.json")
         self.assertIs(mg1, mg2)
         mock_megaton.assert_called_once_with("/creds/a.json", headless=True)
 
-    @patch("lib.megaton_client.start.Megaton")
-    @patch("lib.megaton_client.list_service_account_paths", return_value=["/creds/a.json"])
+    @patch("megaton_lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths", return_value=["/creds/a.json"])
     def test_different_paths_different_instances(self, mock_list, mock_megaton):
         mock_megaton.side_effect = [MagicMock(name="mg_a"), MagicMock(name="mg_b")]
         mg1 = mc.get_megaton("/creds/a.json")
@@ -54,13 +54,13 @@ class TestGetMegaton(unittest.TestCase):
         self.assertIsNot(mg1, mg2)
         self.assertEqual(mock_megaton.call_count, 2)
 
-    @patch("lib.megaton_client.list_service_account_paths", return_value=[])
+    @patch("megaton_lib.megaton_client.list_service_account_paths", return_value=[])
     def test_no_creds_raises(self, mock_list):
         with self.assertRaises(FileNotFoundError):
             mc.get_megaton()
 
-    @patch("lib.megaton_client.start.Megaton")
-    @patch("lib.megaton_client.list_service_account_paths", return_value=["/creds/first.json", "/creds/second.json"])
+    @patch("megaton_lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths", return_value=["/creds/first.json", "/creds/second.json"])
     def test_none_path_uses_first(self, mock_list, mock_megaton):
         mc.get_megaton()
         mock_megaton.assert_called_once_with("/creds/first.json", headless=True)
@@ -73,8 +73,8 @@ class TestBuildRegistry(unittest.TestCase):
     def tearDown(self):
         _reset_registry()
 
-    @patch("lib.megaton_client.list_service_account_paths")
-    @patch("lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths")
+    @patch("megaton_lib.megaton_client.start.Megaton")
     def test_maps_properties_from_two_creds(self, mock_megaton_cls, mock_list):
         mock_list.return_value = ["/creds/a.json", "/creds/b.json"]
 
@@ -95,8 +95,8 @@ class TestBuildRegistry(unittest.TestCase):
         self.assertEqual(mc._site_map["https://a.example.com/"], "/creds/a.json")
         self.assertEqual(mc._site_map["https://b.example.com/"], "/creds/b.json")
 
-    @patch("lib.megaton_client.list_service_account_paths")
-    @patch("lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths")
+    @patch("megaton_lib.megaton_client.start.Megaton")
     def test_skips_no_access_credential(self, mock_megaton_cls, mock_list):
         """GA4アクセスのないクレデンシャルはスキップ"""
         mock_list.return_value = ["/creds/a.json", "/creds/b.json"]
@@ -124,8 +124,8 @@ class TestBuildRegistry(unittest.TestCase):
         self.assertNotIn("P1", mc._site_map.values())
         self.assertIn("https://b.example.com/", mc._site_map)
 
-    @patch("lib.megaton_client.list_service_account_paths")
-    @patch("lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths")
+    @patch("megaton_lib.megaton_client.start.Megaton")
     def test_registry_built_once(self, mock_megaton_cls, mock_list):
         """build_registry は一度だけ実行"""
         mock_list.return_value = ["/creds/a.json"]
@@ -147,8 +147,8 @@ class TestRoutingFunctions(unittest.TestCase):
     def tearDown(self):
         _reset_registry()
 
-    @patch("lib.megaton_client.list_service_account_paths")
-    @patch("lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths")
+    @patch("megaton_lib.megaton_client.start.Megaton")
     def test_get_megaton_for_property(self, mock_megaton_cls, mock_list):
         mock_list.return_value = ["/creds/a.json"]
         mg_a = _make_mock_megaton(
@@ -160,14 +160,14 @@ class TestRoutingFunctions(unittest.TestCase):
         result = mc.get_megaton_for_property("P1")
         self.assertIs(result, mg_a)
 
-    @patch("lib.megaton_client.list_service_account_paths", return_value=[])
+    @patch("megaton_lib.megaton_client.list_service_account_paths", return_value=[])
     def test_get_megaton_for_property_not_found(self, mock_list):
         with self.assertRaises(ValueError) as ctx:
             mc.get_megaton_for_property("UNKNOWN")
         self.assertIn("UNKNOWN", str(ctx.exception))
 
-    @patch("lib.megaton_client.list_service_account_paths")
-    @patch("lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths")
+    @patch("megaton_lib.megaton_client.start.Megaton")
     def test_get_megaton_for_property_accepts_int_id(self, mock_megaton_cls, mock_list):
         mock_list.return_value = ["/creds/a.json"]
         mg_a = _make_mock_megaton(
@@ -179,8 +179,8 @@ class TestRoutingFunctions(unittest.TestCase):
         result = mc.get_megaton_for_property(254800682)
         self.assertIs(result, mg_a)
 
-    @patch("lib.megaton_client.list_service_account_paths")
-    @patch("lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths")
+    @patch("megaton_lib.megaton_client.start.Megaton")
     def test_get_megaton_for_site(self, mock_megaton_cls, mock_list):
         mock_list.return_value = ["/creds/b.json"]
         mg_b = _make_mock_megaton(
@@ -192,14 +192,14 @@ class TestRoutingFunctions(unittest.TestCase):
         result = mc.get_megaton_for_site("https://example.com/")
         self.assertIs(result, mg_b)
 
-    @patch("lib.megaton_client.list_service_account_paths", return_value=[])
+    @patch("megaton_lib.megaton_client.list_service_account_paths", return_value=[])
     def test_get_megaton_for_site_not_found(self, mock_list):
         with self.assertRaises(ValueError) as ctx:
             mc.get_megaton_for_site("https://unknown.example.com/")
         self.assertIn("unknown", str(ctx.exception))
 
-    @patch("lib.megaton_client.build_registry")
-    @patch("lib.megaton_client.get_megaton")
+    @patch("megaton_lib.megaton_client.build_registry")
+    @patch("megaton_lib.megaton_client.get_megaton")
     def test_get_megaton_for_property_rebuilds_on_miss(self, mock_get, mock_build):
         mc._registry_built = True
         mc._property_map.clear()
@@ -228,8 +228,8 @@ class TestGetGA4(unittest.TestCase):
     def tearDown(self):
         _reset_registry()
 
-    @patch("lib.megaton_client.list_service_account_paths")
-    @patch("lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths")
+    @patch("megaton_lib.megaton_client.start.Megaton")
     def test_selects_account_and_property(self, mock_megaton_cls, mock_list):
         mock_list.return_value = ["/creds/a.json"]
         mg_a = _make_mock_megaton(
@@ -243,8 +243,8 @@ class TestGetGA4(unittest.TestCase):
         mg_a.ga["4"].account.select.assert_called_once_with("acc1")
         mg_a.ga["4"].property.select.assert_called_once_with("P1")
 
-    @patch("lib.megaton_client.list_service_account_paths")
-    @patch("lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths")
+    @patch("megaton_lib.megaton_client.start.Megaton")
     def test_multiple_accounts_finds_correct(self, mock_megaton_cls, mock_list):
         """複数アカウントから正しいプロパティを持つアカウントを選択"""
         mock_list.return_value = ["/creds/a.json"]
@@ -261,8 +261,8 @@ class TestGetGA4(unittest.TestCase):
         mg_a.ga["4"].account.select.assert_called_once_with("acc2")
         mg_a.ga["4"].property.select.assert_called_once_with("P2")
 
-    @patch("lib.megaton_client.list_service_account_paths")
-    @patch("lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths")
+    @patch("megaton_lib.megaton_client.start.Megaton")
     def test_integer_property_id(self, mock_megaton_cls, mock_list):
         """整数の property_id も正規化して動作"""
         mock_list.return_value = ["/creds/a.json"]
@@ -276,7 +276,7 @@ class TestGetGA4(unittest.TestCase):
         self.assertIs(result, mg_a)
         mg_a.ga["4"].account.select.assert_called_once_with("acc1")
 
-    @patch("lib.megaton_client.list_service_account_paths", return_value=[])
+    @patch("megaton_lib.megaton_client.list_service_account_paths", return_value=[])
     def test_credential_not_found_raises(self, mock_list):
         """レジストリにないプロパティはValueError"""
         with self.assertRaises(ValueError):
@@ -292,8 +292,8 @@ class TestGetGSC(unittest.TestCase):
     def tearDown(self):
         _reset_registry()
 
-    @patch("lib.megaton_client.list_service_account_paths")
-    @patch("lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths")
+    @patch("megaton_lib.megaton_client.start.Megaton")
     def test_selects_site(self, mock_megaton_cls, mock_list):
         mock_list.return_value = ["/creds/b.json"]
         mg_b = _make_mock_megaton(
@@ -306,7 +306,7 @@ class TestGetGSC(unittest.TestCase):
         self.assertIs(result, mg_b)
         mg_b.search.use.assert_called_once_with("https://example.com/")
 
-    @patch("lib.megaton_client.list_service_account_paths", return_value=[])
+    @patch("megaton_lib.megaton_client.list_service_account_paths", return_value=[])
     def test_credential_not_found_raises(self, mock_list):
         """レジストリにないサイトはValueError"""
         with self.assertRaises(ValueError):
@@ -322,8 +322,8 @@ class TestQueryRefactored(unittest.TestCase):
     def tearDown(self):
         _reset_registry()
 
-    @patch("lib.megaton_client.list_service_account_paths")
-    @patch("lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths")
+    @patch("megaton_lib.megaton_client.start.Megaton")
     def test_query_ga4_uses_get_ga4(self, mock_megaton_cls, mock_list):
         import pandas as pd
         mock_list.return_value = ["/creds/a.json"]
@@ -342,8 +342,8 @@ class TestQueryRefactored(unittest.TestCase):
         mg_a.report.run.assert_called_once()
         self.assertEqual(len(df), 1)
 
-    @patch("lib.megaton_client.list_service_account_paths")
-    @patch("lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths")
+    @patch("megaton_lib.megaton_client.start.Megaton")
     def test_query_gsc_uses_get_gsc(self, mock_megaton_cls, mock_list):
         import pandas as pd
         mock_list.return_value = ["/creds/b.json"]
@@ -375,8 +375,8 @@ class TestMergedLists(unittest.TestCase):
     def tearDown(self):
         _reset_registry()
 
-    @patch("lib.megaton_client.list_service_account_paths")
-    @patch("lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths")
+    @patch("megaton_lib.megaton_client.start.Megaton")
     def test_get_ga4_properties_merges(self, mock_megaton_cls, mock_list):
         mock_list.return_value = ["/creds/a.json", "/creds/b.json"]
 
@@ -396,8 +396,8 @@ class TestMergedLists(unittest.TestCase):
         self.assertIn("P2", ids)
         self.assertEqual(len(props), 2)
 
-    @patch("lib.megaton_client.list_service_account_paths")
-    @patch("lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths")
+    @patch("megaton_lib.megaton_client.start.Megaton")
     def test_get_ga4_properties_deduplicates(self, mock_megaton_cls, mock_list):
         """同じプロパティIDが複数クレデンシャルにある場合、重複除去"""
         mock_list.return_value = ["/creds/a.json", "/creds/b.json"]
@@ -415,8 +415,8 @@ class TestMergedLists(unittest.TestCase):
         props = mc.get_ga4_properties()
         self.assertEqual(len(props), 1)
 
-    @patch("lib.megaton_client.list_service_account_paths")
-    @patch("lib.megaton_client.start.Megaton")
+    @patch("megaton_lib.megaton_client.list_service_account_paths")
+    @patch("megaton_lib.megaton_client.start.Megaton")
     def test_get_gsc_sites_merges_and_deduplicates(self, mock_megaton_cls, mock_list):
         mock_list.return_value = ["/creds/a.json", "/creds/b.json"]
 

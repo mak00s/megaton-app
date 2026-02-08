@@ -33,7 +33,7 @@ class TestMegatonExecution(unittest.TestCase):
         mg.ga = {"4": ga4}
         mg.report.data = pd.DataFrame([{"sessions": 10}])
 
-        with patch("lib.megaton_client.get_megaton_for_property", return_value=mg):
+        with patch("megaton_lib.megaton_client.get_megaton_for_property", return_value=mg):
             df = mc.query_ga4(
                 property_id="P2",
                 start_date="2026-01-01",
@@ -53,7 +53,7 @@ class TestMegatonExecution(unittest.TestCase):
     def test_query_gsc_runs_with_dimension_filter(self):
         mg = MagicMock()
         mg.search.data = pd.DataFrame([{"clicks": 1}])
-        with patch("lib.megaton_client.get_megaton_for_site", return_value=mg):
+        with patch("megaton_lib.megaton_client.get_megaton_for_site", return_value=mg):
             df = mc.query_gsc(
                 site_url="sc-domain:example.com",
                 start_date="2026-01-01",
@@ -72,7 +72,7 @@ class TestMegatonExecution(unittest.TestCase):
         bq1 = MagicMock(name="bq1")
         bq2 = MagicMock(name="bq2")
         mg.launch_bigquery.side_effect = [bq1, bq2]
-        with patch("lib.megaton_client.get_megaton", return_value=mg):
+        with patch("megaton_lib.megaton_client.get_megaton", return_value=mg):
             a1 = mc.get_bigquery("proj-a")
             a2 = mc.get_bigquery("proj-a")
             b1 = mc.get_bigquery("proj-b")
@@ -83,7 +83,7 @@ class TestMegatonExecution(unittest.TestCase):
     def test_query_bq_calls_run_dataframe(self):
         bq = MagicMock()
         bq.run.return_value = pd.DataFrame([{"x": 1}])
-        with patch("lib.megaton_client.get_bigquery", return_value=bq):
+        with patch("megaton_lib.megaton_client.get_bigquery", return_value=bq):
             df = mc.query_bq("proj", "select 1")
         self.assertEqual(len(df), 1)
         bq.run.assert_called_once_with("select 1", to_dataframe=True)
@@ -109,7 +109,7 @@ class TestMegatonExecution(unittest.TestCase):
         bq = types.SimpleNamespace(client=client)
 
         with patch.dict(sys.modules, {"google.cloud.bigquery": fake_bq}), patch(
-            "lib.megaton_client.get_bigquery", return_value=bq
+            "megaton_lib.megaton_client.get_bigquery", return_value=bq
         ):
             out = mc.save_to_bq("p", "d", "t", pd.DataFrame([{"a": 1}]), mode="overwrite")
             self.assertEqual(out["table"], "p.d.t")
@@ -125,7 +125,7 @@ class TestMegatonExecution(unittest.TestCase):
 
     def test_save_to_sheet_modes(self):
         mg = MagicMock()
-        with patch("lib.megaton_client.get_megaton", return_value=mg):
+        with patch("megaton_lib.megaton_client.get_megaton", return_value=mg):
             df = pd.DataFrame([{"a": 1}])
             mc.save_to_sheet("https://docs.google.com/spreadsheets/d/x", "data", df, mode="overwrite")
             mg.save.to.sheet.assert_called_once()
