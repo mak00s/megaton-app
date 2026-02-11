@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import pandas as pd
 import pytest
 
-from megaton_lib.sheets import save_sheet_from_template
+from megaton_lib.sheets import save_sheet_from_template, upsert_or_skip
 
 
 @dataclass
@@ -16,10 +16,16 @@ class _FakeSheet:
     id: int | None = None
 
     def select(self, name: str) -> bool:
+        # In real usage, the sheet may be created/duplicated just before select.
         if name not in self.ids:
-            return False
+            self.ids[name] = max(self.ids.values() or [0]) + 1
         self.id = self.ids[name]
         return True
+
+    def clear(self):
+        return True
+
+    _driver = None
 
 
 def _fake_mg(*, sheets: list[str], ids: dict[str, int]):
@@ -84,3 +90,80 @@ def test_create_if_missing_false_skips():
     assert mg.gs._driver.duplicate_sheet.call_count == 0
     assert mg.save.to.sheet.call_count == 0
 
+
+def test_create_when_no_template_matches_regex():
+    mg = _fake_mg(sheets=["_page-m"], ids={"_page-m": 1})
+    # Provide a create method to emulate gsheet API
+    mg.gs.sheet.create = Mock()
+    df = pd.DataFrame({"a": [1]})
+
+    wrote = save_sheet_from_template(mg, "202502", df, template_regex=r"^\\d{6}$")
+
+    assert wrote is True
+    assert mg.gs._driver.duplicate_sheet.call_count == 0
+    mg.gs.sheet.create.assert_called_once_with("202502")
+    mg.save.to.sheet.assert_called_once()
+
+
+# ── upsert_or_skip ──────────────────────────────────────────────
+
+
+def _upsert_mg():
+    """Create a minimal mg mock for upsert_or_skip tests."""
+    upsert_mock = Mock()
+    mg = SimpleNamespace(upsert=SimpleNamespace(to=SimpleNamespace(sheet=upsert_mock)))
+    return mg, upsert_mock
+
+
+def test_upsert_or_skip_calls_upsert_when_data_present():
+    mg, mock = _upsert_mg()
+    df = pd.DataFrame({"month": ["2024-01"], "page": ["/a"], "pv": [10]})
+
+    result = upsert_or_skip(mg, "_page-m", df, keys=["month", "page"])
+
+    assert result is True
+    mock.assert_called_once_with(
+        "_page-m", df, keys=["month", "page"], sort_by=["month", "page"],
+    )
+
+
+def test_upsert_or_skip_skips_empty_dataframe():
+    mg, mock = _upsert_mg()
+    df = pd.DataFrame()
+
+    result = upsert_or_skip(mg, "_page-m", df, keys=["month", "page"])
+
+    assert result is False
+    mock.assert_not_called()
+
+
+def test_upsert_or_skip_skips_none():
+    mg, mock = _upsert_mg()
+
+    result = upsert_or_skip(mg, "_page-m", None, keys=["month"])
+
+    assert result is False
+    mock.assert_not_called()
+
+
+def test_upsert_or_skip_custom_sort_by():
+    mg, mock = _upsert_mg()
+    df = pd.DataFrame({"a": [1], "b": [2]})
+
+    upsert_or_skip(mg, "sheet", df, keys=["a"], sort_by=["b", "a"])
+
+    mock.assert_called_once_with("sheet", df, keys=["a"], sort_by=["b", "a"])
+
+
+def test_upsert_or_skip_forwards_extra_kwargs():
+    mg, mock = _upsert_mg()
+    df = pd.DataFrame({"a": [1], "link": ["x"], "ts": ["now"]})
+
+    upsert_or_skip(mg, "_link", df,
+                   keys=["a", "link"], columns=["a", "link", "ts"])
+
+    mock.assert_called_once_with(
+        "_link", df,
+        keys=["a", "link"], sort_by=["a", "link"],
+        columns=["a", "link", "ts"],
+    )

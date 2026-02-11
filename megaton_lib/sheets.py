@@ -13,6 +13,30 @@ from typing import Optional
 import pandas as pd
 
 
+def upsert_or_skip(mg, name: str, df: pd.DataFrame, *, keys: list, sort_by: list | None = None, **kwargs) -> bool:
+    """Upsert DataFrame to a worksheet, or print skip message when empty.
+
+    This is a thin convenience wrapper around ``mg.upsert.to.sheet()`` that
+    notebooks use to avoid repeating the if/else empty-check pattern.
+
+    Args:
+        mg: Megaton instance with a spreadsheet already opened.
+        name: worksheet name.
+        df: DataFrame to upsert.
+        keys: column(s) used for deduplication.
+        sort_by: column(s) to sort the final result. Defaults to *keys*.
+        **kwargs: extra arguments forwarded to ``mg.upsert.to.sheet()``.
+
+    Returns:
+        True if upsert was performed, False if skipped.
+    """
+    if df is None or (isinstance(df, pd.DataFrame) and df.empty) or len(df) == 0:
+        print(f"[skip] {name}: no rows")
+        return False
+    mg.upsert.to.sheet(name, df, keys=keys, sort_by=sort_by or keys, **kwargs)
+    return True
+
+
 def save_sheet_from_template(
     mg,
     sheet_name: str,
@@ -23,6 +47,8 @@ def save_sheet_from_template(
     template_sheet: Optional[str] = None,
     template_regex: str = r"^\d{6}$",
     skip_if_empty: bool = True,
+    clear_after_duplicate: bool = True,
+    save_kwargs: Optional[dict] = None,
 ) -> bool:
     """Save a DataFrame to a worksheet, duplicating a template when missing.
 
@@ -66,7 +92,17 @@ def save_sheet_from_template(
 
         if template_sheet is None:
             candidates = [s for s in sheets if re.match(template_regex, s)]
-            template_sheet = candidates[-1] if candidates else sheets[-1]
+            if candidates:
+                # Prefer the most recent-looking name (e.g., "202502" > "202501").
+                # Fallback to sheet order if names aren't numeric.
+                numeric = [s for s in candidates if str(s).isdigit()]
+                template_sheet = max(numeric, key=lambda x: int(str(x))) if numeric else candidates[-1]
+            else:
+                # No suitable template exists; create an empty worksheet instead of
+                # duplicating an unrelated sheet.
+                mg.gs.sheet.create(sheet_name)
+                mg.save.to.sheet(sheet_name, df, start_row=start_row, **(save_kwargs or {}))
+                return True
         elif template_sheet not in sheets:
             raise ValueError(f"Template worksheet not found: {template_sheet}")
 
@@ -79,6 +115,22 @@ def save_sheet_from_template(
 
         mg.gs._driver.duplicate_sheet(src_id, new_sheet_name=sheet_name)
 
-    mg.save.to.sheet(sheet_name, df, start_row=start_row)
-    return True
+        # Clear values in the duplicated sheet so the old template contents don't remain.
+        # This keeps formatting while ensuring the new write is clean.
+        if clear_after_duplicate:
+            try:
+                mg.gs.sheet.select(sheet_name)
+                if start_row <= 1:
+                    mg.gs.sheet.clear()
+                else:
+                    ws = getattr(mg.gs.sheet, "_driver", None)
+                    if ws and hasattr(ws, "batch_clear") and hasattr(ws, "row_count"):
+                        ws.batch_clear([f"{start_row}:{ws.row_count}"])
+                    else:
+                        # Fallback: clear everything (format is preserved; values are removed)
+                        mg.gs.sheet.clear()
+            except Exception as e:
+                print(f"[warn] {sheet_name}: failed to clear duplicated sheet values: {e}")
 
+    mg.save.to.sheet(sheet_name, df, start_row=start_row, **(save_kwargs or {}))
+    return True
