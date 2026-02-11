@@ -143,7 +143,7 @@ def fetch_nav_clicks(
     """Fetch click/file_download events and match against ``_link`` sheet.
 
     When *group_by_month* is True, returns ``[month, fromPath, nav_clicks]``.
-    When False, returns ``[fromPath, nav_clicks]`` (for ALL cumulative sheet).
+    When False, returns ``[fromPath, nav_clicks]`` (for ARTICLE cumulative sheet).
     """
     dims_base = ["pagePath", "linkUrl"]
     if group_by_month:

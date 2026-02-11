@@ -1,6 +1,6 @@
 """Report output orchestration for Corp Talks.
 
-Analogous to ``with_report.py`` — builds DataFrames for monthly / ALL sheets
+Analogous to ``with_report.py`` — builds DataFrames for monthly / ARTICLE sheets
 and writes them to Google Sheets.
 """
 
@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .date_utils import month_ranges_between
 from .sheets import save_sheet_from_template
 from .talks_scraping import normalize_meta_sheet
 
@@ -81,66 +80,47 @@ def write_monthly_sheets(mg, df_month_view: pd.DataFrame) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# ALL cumulative sheet
+# ARTICLE cumulative sheet
 # ---------------------------------------------------------------------------
 
 _TALK_PATH_REGEX = r"^/(en|jp)/company/talk/[^.]+\.html$"
 
 
-def build_all_sheet(
-    mg,
-    *,
-    hostname: str,
-    path_regex: str = _TALK_PATH_REGEX,
-    cumulative_start: str,
-    cumulative_end: str,
+def build_article_sheet(
+    df_article_m: pd.DataFrame,
     df_meta: pd.DataFrame,
-    df_link_sheet: pd.DataFrame,
+    *,
+    path_regex: str = _TALK_PATH_REGEX,
 ) -> pd.DataFrame:
-    """Build the ALL cumulative sheet DataFrame.
+    """Build the ARTICLE cumulative sheet from accumulated ``_article-m`` data.
 
-    Runs GA4 queries for the full cumulative range, computes nav_clicks,
-    and merges with metadata. Returns a DataFrame ready for sheet output.
+    Aggregates monthly rows in *df_article_m* across all months per page,
+    merges with *df_meta* for title/tag/lang/date, and computes derived
+    metrics (nav_rate, read_rate).
+
+    This is a pure DataFrame transformation — no GA4 queries.
     """
-    from .talks_ga4 import fetch_nav_clicks
+    # Filter to article pages only (exclude Top pages)
+    df = df_article_m.copy()
+    if len(df) == 0:
+        return pd.DataFrame(columns=[
+            "lang", "published_date", "tag", "title", "page",
+            "uu_total", "new_users",
+            "nav_clicks", "nav_rate", "read_rate",
+        ])
 
-    all_ranges = month_ranges_between(cumulative_start, cumulative_end)
+    df["page"] = df["page"].astype(str).str.strip()
+    df = df[df["page"].str.match(path_regex)].copy()
 
-    # Page metrics (no yearMonth dimension — cumulative)
-    mg.report.set.dates(cumulative_start, cumulative_end)
-    mg.report.run(
-        d=["pagePath"],
-        m=[
-            (["screenPageViews", "sessions", "totalUsers", "newUsers"], {}),
-            (["eventCount"], {"filter_d": "eventName==footer_view"}),
-        ],
-        filter_d=f"hostName=={hostname};pagePath=~{path_regex}",
-        show=False,
-    )
-    df_metrics = mg.report.data.copy() if mg.report.data is not None else pd.DataFrame()
+    # Aggregate across months per page (sum additive metrics)
+    sum_cols = ["pv", "sessions", "nav_clicks", "total_users", "new_users", "footer_views"]
+    for c in sum_cols:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
+        else:
+            df[c] = 0
 
-    if len(df_metrics) > 0:
-        df_metrics = df_metrics.rename(columns={
-            "pagePath": "page",
-            "screenPageViews": "pv",
-            "totalUsers": "total_users",
-            "newUsers": "new_users",
-            "eventCount": "footer_views",
-        })
-        df_metrics["page"] = df_metrics["page"].astype(str).str.strip()
-        for c in ["pv", "sessions", "total_users", "new_users", "footer_views"]:
-            if c in df_metrics.columns:
-                df_metrics[c] = pd.to_numeric(df_metrics[c], errors="coerce").fillna(0).astype(int)
-    else:
-        df_metrics = pd.DataFrame(columns=["page", "pv", "sessions", "total_users", "new_users", "footer_views"])
-
-    # Navigation clicks (cumulative, no month grouping)
-    df_nav_m = fetch_nav_clicks(
-        mg, all_ranges,
-        hostname=hostname, path_regex=path_regex,
-        df_link_sheet=df_link_sheet,
-        group_by_month=False,
-    )
+    df_agg = df.groupby("page", as_index=False)[sum_cols].sum()
 
     # Metadata
     meta = normalize_meta_sheet(df_meta)
@@ -154,17 +134,15 @@ def build_all_sheet(
     meta = meta[(meta["title"].astype(str).str.strip() != "") & meta["published_date"].notna()].copy()
 
     # Merge
-    df_all = meta.merge(df_metrics, on="page", how="left")
-    df_all = df_all.merge(df_nav_m.rename(columns={"fromPath": "page"}), on="page", how="left")
-    for c in ["pv", "sessions", "nav_clicks", "total_users", "new_users", "footer_views"]:
-        if c in df_all.columns:
-            df_all[c] = pd.to_numeric(df_all[c], errors="coerce").fillna(0).astype(int)
+    df_all = meta.merge(df_agg, on="page", how="left")
+    for c in sum_cols:
+        df_all[c] = pd.to_numeric(df_all[c], errors="coerce").fillna(0).astype(int)
 
     df_all["nav_rate"] = (df_all["nav_clicks"] / df_all["sessions"]).where(df_all["sessions"] > 0, 0.0)
     df_all["uu_total"] = df_all["total_users"].fillna(0).astype(int)
 
-    pv = pd.to_numeric(df_all.get("pv"), errors="coerce").fillna(0)
-    fv = pd.to_numeric(df_all.get("footer_views"), errors="coerce").fillna(0)
+    pv = pd.to_numeric(df_all["pv"], errors="coerce").fillna(0)
+    fv = pd.to_numeric(df_all["footer_views"], errors="coerce").fillna(0)
     df_all["read_rate"] = 0.0
     mask = pv > 0
     df_all.loc[mask, "read_rate"] = (fv[mask] / pv[mask]).astype(float)
@@ -177,7 +155,7 @@ def build_all_sheet(
 
     df_out = df_all[[
         "lang", "published_date", "tag", "title", "page",
-        "uu_total", "total_users", "new_users",
+        "uu_total", "new_users",
         "nav_clicks", "nav_rate", "read_rate",
     ]].copy()
     df_out["published_date"] = pd.to_datetime(df_out["published_date"], errors="coerce").dt.strftime("%Y-%m-%d")
