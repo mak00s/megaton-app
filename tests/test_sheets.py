@@ -92,7 +92,7 @@ def test_create_if_missing_false_skips():
 
 
 def test_create_when_no_template_matches_regex():
-    mg = _fake_mg(sheets=["_page-m"], ids={"_page-m": 1})
+    mg = _fake_mg(sheets=["_article-m"], ids={"_article-m": 1})
     # Provide a create method to emulate gsheet API
     mg.gs.sheet.create = Mock()
     df = pd.DataFrame({"a": [1]})
@@ -119,11 +119,11 @@ def test_upsert_or_skip_calls_upsert_when_data_present():
     mg, mock = _upsert_mg()
     df = pd.DataFrame({"month": ["2024-01"], "page": ["/a"], "pv": [10]})
 
-    result = upsert_or_skip(mg, "_page-m", df, keys=["month", "page"])
+    result = upsert_or_skip(mg, "_article-m", df, keys=["month", "page"])
 
     assert result is True
     mock.assert_called_once_with(
-        "_page-m", df, keys=["month", "page"], sort_by=["month", "page"],
+        "_article-m", df, keys=["month", "page"], sort_by=["month", "page"],
     )
 
 
@@ -131,7 +131,7 @@ def test_upsert_or_skip_skips_empty_dataframe():
     mg, mock = _upsert_mg()
     df = pd.DataFrame()
 
-    result = upsert_or_skip(mg, "_page-m", df, keys=["month", "page"])
+    result = upsert_or_skip(mg, "_article-m", df, keys=["month", "page"])
 
     assert result is False
     mock.assert_not_called()
@@ -140,7 +140,7 @@ def test_upsert_or_skip_skips_empty_dataframe():
 def test_upsert_or_skip_skips_none():
     mg, mock = _upsert_mg()
 
-    result = upsert_or_skip(mg, "_page-m", None, keys=["month"])
+    result = upsert_or_skip(mg, "_article-m", None, keys=["month"])
 
     assert result is False
     mock.assert_not_called()

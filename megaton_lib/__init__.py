@@ -17,6 +17,6 @@ WITH report:
 Corp Talks report:
     talks_scraping   : scrape_talk_cards, scrape_article_links, normalize_url, crawl_new_article_links
     talks_ga4        : preprocess_page_metrics, preprocess_top_pages, fetch_nav_clicks, attach_nav_metrics
-    talks_report     : build_monthly_view, write_monthly_sheets, build_all_sheet
+    talks_report     : build_monthly_view, write_monthly_sheets, build_article_sheet
     talks_retention  : query_retention_summary, query_retention_day_curve, query_retention_depth
 """
