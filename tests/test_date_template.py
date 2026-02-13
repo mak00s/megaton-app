@@ -44,6 +44,12 @@ class TestResolveDate:
         ref = date(2024, 2, 15)
         assert resolve_date("month-end", reference=ref) == "2024-02-29"
 
+    def test_year_start(self):
+        assert resolve_date("year-start", reference=self.REF) == "2026-01-01"
+
+    def test_year_end(self):
+        assert resolve_date("year-end", reference=self.REF) == "2026-12-31"
+
     def test_prev_month_start(self):
         assert resolve_date("prev-month-start", reference=self.REF) == "2026-01-01"
 

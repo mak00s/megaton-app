@@ -34,6 +34,11 @@ def test_parse_quarter_case_insensitive():
     ]
 
 
+def test_parse_this_year_token():
+    got = parse_summary_tokens("this-year", reference=datetime(2026, 2, 8))
+    assert got == [("2026", [f"2026{m:02d}" for m in range(1, 13)])]
+
+
 def test_parse_ignores_empty_tokens():
     assert parse_summary_tokens("0,,1,", reference=datetime(2026, 2, 8)) == [
         ("202602", ["202602"]),
@@ -44,4 +49,3 @@ def test_parse_ignores_empty_tokens():
 def test_empty_string_raises():
     with pytest.raises(ValueError):
         parse_summary_tokens("")
-
