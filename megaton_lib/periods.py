@@ -28,6 +28,7 @@ def parse_summary_tokens(
 
     Supported token formats:
     - N: single month N months ago relative to reference ("0" = this month)
+    - this-year: current year based on reference ("2026" => 202601..202612)
     - YYYY: whole year ("2025" => 202501..202512)
     - YYYYQn: quarter ("2025Q1" => 202501..202503)
     """
@@ -63,6 +64,12 @@ def parse_summary_tokens(
             result.append((token, months))
             continue
 
+        if token.lower() == "this-year":
+            year = ref_dt.strftime("%Y")
+            months = [f"{year}{mm:02d}" for mm in range(1, 13)]
+            result.append((year, months))
+            continue
+
         # Relative month token
         n = int(token)
         dt = ref_dt - relativedelta(months=n)
@@ -70,4 +77,3 @@ def parse_summary_tokens(
         result.append((ym, [ym]))
 
     return result
-

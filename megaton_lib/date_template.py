@@ -8,6 +8,8 @@ params.json の date_range.start / end に相対日付式を書けるように�
   today+Nd        → N日後
   month-start     → 当月1日
   month-end       → 当月末日
+  year-start      → 当年1月1日
+  year-end        → 当年12月31日
   prev-month-start → 前月1日
   prev-month-end   → 前月末日
   week-start      → 今週月曜日（ISO: 月=0）
@@ -90,6 +92,12 @@ def resolve_date(expr: str, *, reference: date | None = None) -> str:
         last_day = calendar.monthrange(ref.year, ref.month)[1]
         return ref.replace(day=last_day).isoformat()
 
+    if expr == "year-start":
+        return ref.replace(month=1, day=1).isoformat()
+
+    if expr == "year-end":
+        return ref.replace(month=12, day=31).isoformat()
+
     if expr == "prev-month-start":
         first = ref.replace(day=1)
         prev = first - timedelta(days=1)
@@ -105,7 +113,7 @@ def resolve_date(expr: str, *, reference: date | None = None) -> str:
 
     raise ValueError(
         f"Unknown date template: '{expr}'. "
-        "Use today, today±Nd, month-start, month-end, "
+        "Use today, today±Nd, month-start, month-end, year-start, year-end, "
         "prev-month-start, prev-month-end, week-start, or YYYY-MM-DD."
     )
 
