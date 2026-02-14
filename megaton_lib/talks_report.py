@@ -338,6 +338,13 @@ def build_monthly_rows(
     months = df_all["month"].drop_duplicates().tolist()
     if len(months) == 0:
         return empty
+    # Display columns: each month + annual total/average right after December.
+    display_cols: list[tuple[str, str]] = []
+    for ym in months:
+        display_cols.append(("month", ym))
+        if ym[4:6] == "12":
+            display_cols.append(("total", ym[:4]))
+            display_cols.append(("avg", ym[:4]))
 
     # Backward compatible fallback for older _talks-m schema
     if "pv_all" not in df_all.columns:
@@ -376,22 +383,67 @@ def build_monthly_rows(
 
     # Helper: extract values per month
     def _extract(df: pd.DataFrame, col: str, kind: str) -> list:
+        def _to_num(raw):
+            if pd.isna(raw):
+                return pd.NA
+            if isinstance(raw, str):
+                s = raw.strip()
+                if s == "":
+                    return pd.NA
+                if s.endswith("%"):
+                    v = pd.to_numeric(s[:-1], errors="coerce")
+                    if pd.isna(v):
+                        return pd.NA
+                    return float(v) / 100.0
+                raw = s
+            return pd.to_numeric(raw, errors="coerce")
+
         vals: list = []
-        for ym in months:
-            s = df.loc[df["month"] == ym, col] if col in df.columns else pd.Series(dtype=object)
-            if len(s) == 0:
+        for col_type, token in display_cols:
+            if col not in df.columns:
                 vals.append("")
                 continue
-            v = pd.to_numeric(s.iloc[0], errors="coerce")
+
+            if col_type == "month":
+                s = df.loc[df["month"] == token, col]
+                if len(s) == 0:
+                    vals.append("")
+                    continue
+                v = _to_num(s.iloc[0])
+                if pd.isna(v):
+                    vals.append("")
+                elif kind == "int":
+                    vals.append(int(v))
+                else:
+                    vals.append(float(v))
+                continue
+
+            # col_type in {"total", "avg"}
+            s_year = df.loc[df["month"].astype(str).str.startswith(token), col]
+            if len(s_year) == 0:
+                vals.append("")
+                continue
+            year_vals = pd.Series([_to_num(x) for x in s_year]).dropna()
+            if len(year_vals) == 0:
+                vals.append("")
+                continue
+            if col_type == "total":
+                if kind == "int":
+                    vals.append(int(year_vals.sum()))
+                else:
+                    # Rate columns (float) do not have a meaningful yearly sum.
+                    vals.append("")
+                continue
+            v = year_vals.mean()
             if pd.isna(v):
                 vals.append("")
             elif kind == "int":
-                vals.append(int(v))
+                vals.append(int(round(float(v))))
             else:
                 vals.append(float(v))
         return vals
 
-    empty_vals = [""] * len(months)
+    empty_vals = [""] * len(display_cols)
 
     # Top section
     top_pv_df = df_all[["month", "pv_top"]].copy()
@@ -420,12 +472,22 @@ def build_monthly_rows(
     # Header rows
     year_row: list[str] = [""]
     prev_y = ""
-    for ym in months:
-        y = ym[:4]
+    for col_type, token in display_cols:
+        if col_type == "avg":
+            year_row.append("")
+            continue
+        y = token[:4]
         year_row.append(y if y != prev_y else "")
         prev_y = y
 
-    month_row = ["指標"] + [f"{int(m[4:6])}月" for m in months]
+    month_row = ["指標"] + [
+        (
+            f"{int(token[4:6])}月"
+            if col_type == "month"
+            else ("年合計" if col_type == "total" else "年平均")
+        )
+        for col_type, token in display_cols
+    ]
 
     return body_rows, year_row, month_row
 

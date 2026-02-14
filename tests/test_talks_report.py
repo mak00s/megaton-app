@@ -358,6 +358,51 @@ class TestBuildMonthlyRows:
         assert year_row[1] == "2026"
         assert year_row[2] == ""
 
+    def test_inserts_annual_total_and_average_after_december(self):
+        talks = pd.DataFrame({
+            "month": ["202611", "202612", "202701"],
+            "lang": ["ALL", "ALL", "ALL"],
+            "pv_top": [100, 200, 300],
+            "uu_top": [10, 30, 50],
+            "pv_all": [1000, 1200, 1400],
+            "uu_all": [100, 120, 140],
+            "new_users_all": [40, 60, 80],
+            "nav_rate": [0.1, 0.3, 0.2],
+            "read_rate": [0.2, 0.4, 0.3],
+            "revisit_rate": [0.5, 0.7, 0.6],
+        })
+
+        body, year_row, month_row = build_monthly_rows(
+            talks, pd.DataFrame(),
+            talk_top_regex=self.TALK_TOP_REGEX,
+        )
+
+        # 指標 + 2026/11, 2026/12, 2026年合計, 2026年平均, 2027/1
+        assert month_row == ["指標", "11月", "12月", "年合計", "年平均", "1月"]
+        assert year_row == ["", "2026", "", "", "", "2027"]
+
+        # Top PV: 100, 200, 300(2026合計), 150(2026平均), 300
+        assert body[1] == ["PV", 100, 200, 300, 150, 300]
+        # 全体 UU: 100, 120, 220(2026合計), 110(2026平均), 140
+        assert body[5] == ["UU", 100, 120, 220, 110, 140]
+        # Rate rows: annual total is blank, annual average is set
+        assert body[7] == ["閲覧後回遊率", 0.1, 0.3, "", 0.2, 0.2]
+
+    def test_rate_percent_string_values(self):
+        """Rate columns should accept '%' strings loaded from Sheets."""
+        talks = self._make_talks_m().copy()
+        talks["nav_rate"] = ["10%", "12%", "8%", "9%"]
+        talks["read_rate"] = ["20%", "22%", "18%", "19%"]
+        talks["revisit_rate"] = ["50%", "52%", "45%", "48%"]
+
+        body, _, _ = build_monthly_rows(
+            talks, self._make_article_m(),
+            talk_top_regex=self.TALK_TOP_REGEX,
+        )
+        assert body[7][1] == 0.1   # 閲覧後回遊率 (1月)
+        assert body[8][1] == 0.2   # 読了率 (1月)
+        assert body[9][1] == 0.5   # Talks再訪率 (1月)
+
 
 # ---------------------------------------------------------------------------
 # read_monthly_definitions
