@@ -170,6 +170,11 @@ class TestBuildTalksM:
             "sessions": [80, 40, 120],
             "uu": [70, 35, 100],
             "new_users": [30, 15, 42],
+            "pv_top": [25, 5, 30],
+            "uu_top": [20, 4, 24],
+            "pv_all": [125, 55, 180],
+            "uu_all": [85, 39, 124],
+            "new_users_all": [34, 16, 50],
             "footer_views": [20, 10, 30],
             "read_rate": [0.2, 0.2, 0.2],
         })
@@ -182,17 +187,6 @@ class TestBuildTalksM:
                 "/en/company/talk/20260115.html",
             ],
             "nav_clicks": [10, 5],
-        })
-
-    def _make_retention(self) -> pd.DataFrame:
-        return pd.DataFrame({
-            "month": ["202601", "202601"],
-            "language": ["JP", "EN"],
-            "new_users_first_ever": [30, 15],
-            "retained_d7_users": [12, 6],
-            "retained_d30_users": [6, 3],
-            "retention_d7": [0.4, 0.4],
-            "retention_d30": [0.2, 0.2],
         })
 
     def _make_revisit(self) -> pd.DataFrame:
@@ -208,7 +202,6 @@ class TestBuildTalksM:
         result = build_talks_m(
             self._make_ga4(),
             df_article_m=self._make_article_m(),
-            df_retention_m=self._make_retention(),
             df_revisit_m=self._make_revisit(),
         )
         assert len(result) == 3  # JP, EN, ALL
@@ -216,35 +209,34 @@ class TestBuildTalksM:
         assert all_row["nav_clicks"] == 15  # 10+5
         assert all_row["nav_rate"] == round(15 / 120, 6)
 
-    def test_retention_all_weighted(self):
+    def test_monthly_summary_columns(self):
         result = build_talks_m(
             self._make_ga4(),
             df_article_m=self._make_article_m(),
-            df_retention_m=self._make_retention(),
             df_revisit_m=self._make_revisit(),
         )
         all_row = result[result["lang"] == "ALL"].iloc[0]
-        # ALL d7: (12+6)/(30+15) = 18/45 = 0.4
-        assert all_row["retention_d7"] == round(18 / 45, 6)
+        assert all_row["pv_top"] == 30
+        assert all_row["uu_top"] == 24
+        assert all_row["pv_all"] == 180
+        assert all_row["uu_all"] == 124
+        assert all_row["new_users_all"] == 50
 
     def test_empty_ga4(self):
         result = build_talks_m(
             pd.DataFrame(columns=["month", "lang", "pv", "sessions", "uu", "new_users", "footer_views", "read_rate"]),
             df_article_m=self._make_article_m(),
-            df_retention_m=self._make_retention(),
             df_revisit_m=self._make_revisit(),
         )
         assert len(result) == 0
 
-    def test_missing_retention(self):
+    def test_missing_revisit(self):
         result = build_talks_m(
             self._make_ga4(),
             df_article_m=self._make_article_m(),
-            df_retention_m=pd.DataFrame(),
             df_revisit_m=pd.DataFrame(),
         )
         assert len(result) == 3
-        assert pd.isna(result.iloc[0]["retention_d7"])
         assert pd.isna(result.iloc[0]["revisit_rate"])
 
 
@@ -261,12 +253,16 @@ class TestBuildMonthlyRows:
         return pd.DataFrame({
             "month": ["202601", "202602", "202601", "202602"],
             "lang": ["ALL", "ALL", "JP", "JP"],
+            "pv": [100, 120, 70, 80],
             "uu": [100, 120, 70, 80],
             "new_users": [40, 50, 30, 35],
+            "pv_top": [30, 35, 0, 0],
+            "uu_top": [200, 220, 0, 0],
+            "pv_all": [260, 300, 0, 0],
+            "uu_all": [300, 340, 0, 0],
+            "new_users_all": [120, 130, 0, 0],
             "nav_rate": [0.1, 0.12, 0.08, 0.09],
             "read_rate": [0.2, 0.22, 0.18, 0.19],
-            "retention_d7": [0.4, 0.42, 0.35, 0.37],
-            "retention_d30": [0.2, 0.21, 0.18, 0.19],
             "revisit_rate": [0.5, 0.52, 0.45, 0.48],
         })
 
@@ -274,6 +270,7 @@ class TestBuildMonthlyRows:
         return pd.DataFrame({
             "month": ["202601", "202602"],
             "page": ["/jp/company/talk/", "/jp/company/talk/"],
+            "pv": [30, 35],
             "total_users": [200, 220],
             "new_users": [80, 90],
         })
@@ -287,30 +284,60 @@ class TestBuildMonthlyRows:
         assert len(month_row) == 3  # ["指標", "1月", "2月"]
         assert month_row[1] == "1月"
         assert month_row[2] == "2月"
-        # body: Top(3) + 記事(8) = 11 rows
-        assert len(body) == 11
+        # body: Top(3) + 全体(7) = 10 rows
+        assert len(body) == 10
         assert body[0][0] == "Top"
-        assert body[3][0] == "記事"
+        assert body[3][0] == "全体"
 
     def test_top_values(self):
         body, _, _ = build_monthly_rows(
             self._make_talks_m(), self._make_article_m(),
             talk_top_regex=self.TALK_TOP_REGEX,
         )
-        # Top UU row: [label, jan, feb]
-        assert body[1][0] == "UU"
-        assert body[1][1] == 200
-        assert body[1][2] == 220
+        # Top PV row: [label, jan, feb]
+        assert body[1][0] == "PV"
+        assert body[1][1] == 30
+        assert body[1][2] == 35
+        # Top UU row
+        assert body[2][0] == "UU"
+        assert body[2][1] == 200
+        assert body[2][2] == 220
 
-    def test_article_values(self):
+    def test_all_values(self):
         body, _, _ = build_monthly_rows(
             self._make_talks_m(), self._make_article_m(),
             talk_top_regex=self.TALK_TOP_REGEX,
         )
-        # 記事 UU row (index 4): from ALL rows
-        assert body[4][0] == "UU"
+        # 全体 PV row (index 4): from ALL rows
+        assert body[4][0] == "PV"
+        assert body[4][1] == 260
+        assert body[4][2] == 300
+        # 全体 UU row (index 5)
+        assert body[5][0] == "UU"
+        assert body[5][1] == 300
+        assert body[5][2] == 340
+        # 全体 新規UU row (index 6)
+        assert body[6][0] == "新規UU"
+        assert body[6][1] == 120
+        assert body[6][2] == 130
+
+    def test_fallback_when_new_columns_exist_but_empty(self):
+        talks = self._make_talks_m().copy()
+        # Simulate old _talks-m rows where new columns exist but are empty
+        for c in ["pv_top", "uu_top", "pv_all", "uu_all", "new_users_all"]:
+            talks[c] = pd.NA
+
+        body, _, _ = build_monthly_rows(
+            talks, self._make_article_m(),
+            talk_top_regex=self.TALK_TOP_REGEX,
+        )
+        # Top fallback from _article-m
+        assert body[1][1] == 30
+        assert body[2][1] == 200
+        # 全体 fallback from pv/uu/new_users
         assert body[4][1] == 100
-        assert body[4][2] == 120
+        assert body[5][1] == 100
+        assert body[6][1] == 40
 
     def test_empty_talks_m(self):
         body, year_row, month_row = build_monthly_rows(
@@ -368,6 +395,29 @@ class TestReadMonthlyDefinitions:
         rows = read_monthly_definitions(str(p))
         assert rows == []
 
+    def test_stops_at_next_heading_any_level(self, tmp_path):
+        md = """\
+### §12-1. MONTHLY 指標定義（シート注記用）
+
+| 表示名 | 説明 |
+|---|---|
+| PV | 表示回数の合計 |
+| UU | 閲覧者数 |
+
+## 出力シート一覧
+
+| シート名 | キー |
+|---|---|
+| `_meta` | URL |
+"""
+        p = tmp_path / "corp-talks.md"
+        p.write_text(md, encoding="utf-8")
+        rows = read_monthly_definitions(str(p))
+        assert rows == [
+            ["PV", "表示回数の合計"],
+            ["UU", "閲覧者数"],
+        ]
+
 
 # ---------------------------------------------------------------------------
 # write_monthly_definitions
@@ -395,12 +445,12 @@ class TestWriteMonthlyDefinitions:
             batch_clear=lambda ranges: calls.update(cleared=ranges),
             update=lambda cell, data: calls.update(cell=cell, data=data),
         )
-        result = write_monthly_definitions(ws, start_cell="B17", md_path=str(p))
+        result = write_monthly_definitions(ws, start_cell="A17", md_path=str(p))
         assert result is True
         assert "cleared" in calls
-        assert calls["cell"] == "B17"
-        assert calls["data"][0] == ["指標の定義", "", ""]
-        assert calls["data"][1][0] == "UU"
+        assert calls["cell"] == "A17"
+        assert calls["data"][0] == ["指標の定義"]
+        assert calls["data"][1][0] == "UU：ユニークユーザー数"
 
     def test_skips_when_no_md(self, tmp_path):
         ws = types.SimpleNamespace()

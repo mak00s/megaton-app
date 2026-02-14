@@ -199,33 +199,6 @@ def _aggregate_nav_clicks(
     return pd.concat([by_lang, by_all], ignore_index=True)
 
 
-def _aggregate_retention(
-    df_retention_m: pd.DataFrame,
-    target_months: list[str],
-) -> pd.DataFrame:
-    """Extract retention_d7/d30 for *target_months* + compute ALL row."""
-    need = {"month", "language", "new_users_first_ever", "retained_d7_users", "retained_d30_users"}
-    if len(df_retention_m) == 0 or not need.issubset(df_retention_m.columns) or len(target_months) == 0:
-        return pd.DataFrame(columns=["month", "lang", "retention_d7", "retention_d30"])
-
-    tmp = df_retention_m.copy()
-    tmp["month"] = tmp["month"].astype(str).str.strip()
-    tmp = tmp[tmp["month"].isin(target_months)].copy()
-    tmp["lang"] = tmp["language"].astype(str).str.upper().str.strip()
-    for c in ["new_users_first_ever", "retained_d7_users", "retained_d30_users"]:
-        tmp[c] = pd.to_numeric(tmp[c], errors="coerce").fillna(0).astype(int)
-    tmp["retention_d7"] = pd.to_numeric(tmp.get("retention_d7"), errors="coerce")
-    tmp["retention_d30"] = pd.to_numeric(tmp.get("retention_d30"), errors="coerce")
-    out = tmp[["month", "lang", "new_users_first_ever", "retained_d7_users", "retained_d30_users", "retention_d7", "retention_d30"]].copy()
-
-    # ALL row (weighted average)
-    agg = out.groupby("month", as_index=False)[["new_users_first_ever", "retained_d7_users", "retained_d30_users"]].sum()
-    agg["lang"] = "ALL"
-    agg["retention_d7"] = (agg["retained_d7_users"] / agg["new_users_first_ever"]).where(agg["new_users_first_ever"] > 0, 0.0)
-    agg["retention_d30"] = (agg["retained_d30_users"] / agg["new_users_first_ever"]).where(agg["new_users_first_ever"] > 0, 0.0)
-    return pd.concat([out, agg], ignore_index=True)
-
-
 def _aggregate_revisit(
     df_revisit_m: pd.DataFrame,
     target_months: list[str],
@@ -259,16 +232,18 @@ def build_talks_m(
     df_ga4_monthly: pd.DataFrame,
     *,
     df_article_m: pd.DataFrame,
-    df_retention_m: pd.DataFrame,
     df_revisit_m: pd.DataFrame,
+    df_retention_m: pd.DataFrame | None = None,  # backward-compatible: ignored
 ) -> pd.DataFrame:
     """Build the ``_talks-m`` DataFrame from GA4 monthly totals + sheet data.
 
     *df_ga4_monthly* has columns ``month, lang, pv, sessions, uu, new_users,
-    footer_views, read_rate`` — produced by the notebook's GA4 query.
+    footer_views, read_rate`` and optional monthly summary columns
+    (``pv_top``, ``uu_top``, ``pv_all``, ``uu_all``, ``new_users_all``) —
+    produced by the notebook's GA4 query.
 
     The other DataFrames come from the accumulated sheets (``_article-m``,
-    ``_retention-m``, ``_revisit-m``).
+    ``_revisit-m``).
 
     Returns a DataFrame ready for upsert to the ``_talks-m`` sheet.
     Pure DataFrame transformation — no API calls.
@@ -276,8 +251,9 @@ def build_talks_m(
     if len(df_ga4_monthly) == 0:
         return pd.DataFrame(columns=[
             "month", "lang", "pv", "sessions", "uu", "new_users",
+            "pv_top", "uu_top", "pv_all", "uu_all", "new_users_all",
             "footer_views", "read_rate", "nav_clicks", "nav_rate",
-            "retention_d7", "retention_d30", "revisit_rate",
+            "revisit_rate",
         ])
 
     df_ga4_monthly = df_ga4_monthly.copy()
@@ -287,7 +263,6 @@ def build_talks_m(
 
     # Aggregate supplemental metrics for target months
     df_nav = _aggregate_nav_clicks(df_article_m, target_months)
-    df_ret = _aggregate_retention(df_retention_m, target_months)
     df_rev = _aggregate_revisit(df_revisit_m, target_months)
 
     # Merge
@@ -295,14 +270,20 @@ def build_talks_m(
     df["nav_clicks"] = pd.to_numeric(df.get("nav_clicks"), errors="coerce").fillna(0).astype(int)
     df["nav_rate"] = (df["nav_clicks"] / df["sessions"]).where(df["sessions"] > 0, 0.0)
 
-    if len(df_ret) > 0:
-        df = df.merge(
-            df_ret[["month", "lang", "retention_d7", "retention_d30"]].drop_duplicates(subset=["month", "lang"]),
-            on=["month", "lang"], how="left",
-        )
-    else:
-        df["retention_d7"] = pd.NA
-        df["retention_d30"] = pd.NA
+    # Optional monthly summary columns for MONTHLY sheet
+    for c in ["pv_top", "uu_top", "pv_all", "uu_all", "new_users_all"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
+        else:
+            # Backward compatible fallback
+            if c == "pv_all":
+                df[c] = pd.to_numeric(df.get("pv"), errors="coerce").fillna(0).astype(int)
+            elif c == "uu_all":
+                df[c] = pd.to_numeric(df.get("uu"), errors="coerce").fillna(0).astype(int)
+            elif c == "new_users_all":
+                df[c] = pd.to_numeric(df.get("new_users"), errors="coerce").fillna(0).astype(int)
+            else:
+                df[c] = 0
 
     if len(df_rev) > 0:
         df = df.merge(
@@ -313,12 +294,10 @@ def build_talks_m(
         df["revisit_rate"] = pd.NA
 
     df["read_rate"] = pd.to_numeric(df["read_rate"], errors="coerce").fillna(0.0).astype(float)
-    df["retention_d7"] = pd.to_numeric(df["retention_d7"], errors="coerce")
-    df["retention_d30"] = pd.to_numeric(df["retention_d30"], errors="coerce")
     df["revisit_rate"] = pd.to_numeric(df["revisit_rate"], errors="coerce")
 
     df = df.sort_values(["month", "lang"], kind="mergesort").reset_index(drop=True)
-    for c in ["nav_rate", "read_rate", "retention_d7", "retention_d30", "revisit_rate"]:
+    for c in ["nav_rate", "read_rate", "revisit_rate"]:
         df[c] = df[c].round(6)
 
     return df
@@ -338,7 +317,7 @@ def build_monthly_rows(
 
     Returns ``(body_rows, year_row, month_row)`` ready for sheet output.
 
-    *body_rows*: list of lists — Top section (UU/新規UU) + 記事 section.
+    *body_rows*: list of lists — Top section + 全体 section.
     *year_row*: ``["", year1, "", year2, ...]``
     *month_row*: ``["指標", "1月", "2月", ...]``
 
@@ -360,15 +339,40 @@ def build_monthly_rows(
     if len(months) == 0:
         return empty
 
-    # Top page UU/新規UU from _article-m
-    df_top_monthly = pd.DataFrame(columns=["month", "total_users", "new_users"])
-    if len(df_article_m) > 0 and {"month", "page", "total_users", "new_users"}.issubset(df_article_m.columns):
+    # Backward compatible fallback for older _talks-m schema
+    if "pv_all" not in df_all.columns:
+        df_all["pv_all"] = pd.NA
+    if "uu_all" not in df_all.columns:
+        df_all["uu_all"] = pd.NA
+    if "new_users_all" not in df_all.columns:
+        df_all["new_users_all"] = pd.NA
+
+    # Top page PV/UU fallback from _article-m
+    df_top_monthly = pd.DataFrame(columns=["month", "pv", "total_users"])
+    if len(df_article_m) > 0 and {"month", "page", "total_users"}.issubset(df_article_m.columns):
         top_mask = df_article_m["page"].astype(str).str.match(talk_top_regex)
         df_top = df_article_m[top_mask].copy()
         df_top["month"] = df_top["month"].astype(str).str.strip()
-        for c in ["total_users", "new_users"]:
+        if "pv" not in df_top.columns:
+            df_top["pv"] = 0
+        for c in ["pv", "total_users"]:
             df_top[c] = pd.to_numeric(df_top[c], errors="coerce").fillna(0).astype(int)
-        df_top_monthly = df_top.groupby("month", as_index=False)[["total_users", "new_users"]].sum()
+        df_top_monthly = df_top.groupby("month", as_index=False)[["pv", "total_users"]].sum()
+
+    # Fill missing values in new columns from fallback sources
+    pv_fallback = pd.to_numeric(df_all.get("pv"), errors="coerce")
+    uu_fallback = pd.to_numeric(df_all.get("uu"), errors="coerce")
+    nu_fallback = pd.to_numeric(df_all.get("new_users"), errors="coerce")
+    df_all["pv_all"] = pd.to_numeric(df_all["pv_all"], errors="coerce").fillna(pv_fallback).fillna(0).astype(int)
+    df_all["uu_all"] = pd.to_numeric(df_all["uu_all"], errors="coerce").fillna(uu_fallback).fillna(0).astype(int)
+    df_all["new_users_all"] = pd.to_numeric(df_all["new_users_all"], errors="coerce").fillna(nu_fallback).fillna(0).astype(int)
+
+    top_pv_by_month = df_top_monthly.set_index("month")["pv"] if len(df_top_monthly) > 0 else pd.Series(dtype="int64")
+    top_uu_by_month = df_top_monthly.set_index("month")["total_users"] if len(df_top_monthly) > 0 else pd.Series(dtype="int64")
+    pv_top_curr = pd.to_numeric(df_all.get("pv_top"), errors="coerce")
+    uu_top_curr = pd.to_numeric(df_all.get("uu_top"), errors="coerce")
+    df_all["pv_top"] = pv_top_curr.fillna(df_all["month"].map(top_pv_by_month)).fillna(0).astype(int)
+    df_all["uu_top"] = uu_top_curr.fillna(df_all["month"].map(top_uu_by_month)).fillna(0).astype(int)
 
     # Helper: extract values per month
     def _extract(df: pd.DataFrame, col: str, kind: str) -> list:
@@ -390,27 +394,28 @@ def build_monthly_rows(
     empty_vals = [""] * len(months)
 
     # Top section
+    top_pv_df = df_all[["month", "pv_top"]].copy()
+    top_uu_df = df_all[["month", "uu_top"]].copy()
     top_rows = [
         ["Top", *empty_vals],
-        ["UU", *_extract(df_top_monthly, "total_users", "int")],
-        ["新規UU", *_extract(df_top_monthly, "new_users", "int")],
+        ["PV", *_extract(top_pv_df, "pv_top", "int")],
+        ["UU", *_extract(top_uu_df, "uu_top", "int")],
     ]
 
-    # Article section
-    article_defs = [
-        ("UU", "uu", "int"),
-        ("新規UU", "new_users", "int"),
-        ("回遊率", "nav_rate", "float"),
+    # 全体 section
+    all_defs = [
+        ("PV", "pv_all", "int"),
+        ("UU", "uu_all", "int"),
+        ("新規UU", "new_users_all", "int"),
+        ("閲覧後回遊率", "nav_rate", "float"),
         ("読了率", "read_rate", "float"),
-        ("維持率D7", "retention_d7", "float"),
-        ("維持率D30", "retention_d30", "float"),
-        ("再訪率", "revisit_rate", "float"),
+        ("Talks再訪率", "revisit_rate", "float"),
     ]
-    article_rows = [["記事", *empty_vals]]
-    for label, col, kind in article_defs:
-        article_rows.append([label, *_extract(df_all, col, kind)])
+    all_rows = [["全体", *empty_vals]]
+    for label, col, kind in all_defs:
+        all_rows.append([label, *_extract(df_all, col, kind)])
 
-    body_rows = top_rows + article_rows
+    body_rows = top_rows + all_rows
 
     # Header rows
     year_row: list[str] = [""]
@@ -476,7 +481,9 @@ def read_monthly_definitions(md_path: str) -> list[list[str]]:
         if t.startswith("### §12-1."):
             in_section = True
             continue
-        if in_section and t.startswith("### "):
+        # Stop when the next heading starts (## / ### / etc.).
+        # This prevents accidentally reading later tables in the document.
+        if in_section and t.startswith("#"):
             break
         if not in_section or not t.startswith("|"):
             continue
@@ -497,7 +504,7 @@ def read_monthly_definitions(md_path: str) -> list[list[str]]:
     return table_rows
 
 
-def write_monthly_definitions(ws, *, start_cell: str = "B17", md_path: str) -> bool:
+def write_monthly_definitions(ws, *, start_cell: str = "A17", md_path: str) -> bool:
     """Write metric definitions from *md_path* to the worksheet *ws*.
 
     *ws* is a gspread Worksheet (or compatible) that supports ``.update()``
@@ -511,15 +518,17 @@ def write_monthly_definitions(ws, *, start_cell: str = "B17", md_path: str) -> b
         return False
 
     col, row = _split_a1(start_cell)
-    col3 = _index_to_col(_col_to_index(col) + 2)
+    # Clear a few columns to remove old 3-column layout residues.
+    col3 = _index_to_col(_col_to_index(col) + 3)
     clear_to = row + max(60, len(rows) + 8)
     clear_range = f"{col}{row}:{col3}{clear_to}"
     if hasattr(ws, "batch_clear"):
         ws.batch_clear([clear_range])
 
-    out_rows = [["指標の定義", "", ""]]
+    out_rows = [["指標の定義"]]
     for name, desc in rows:
-        out_rows.append([name, "", desc])
+        line = f"{name}：{desc}" if str(desc).strip() else str(name)
+        out_rows.append([line])
     ws.update(start_cell, out_rows)
     print(f"MONTHLY definitions updated: rows={len(out_rows)} at {start_cell}")
     return True
