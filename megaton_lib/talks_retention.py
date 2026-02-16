@@ -10,12 +10,10 @@ Provides:
 
 from __future__ import annotations
 
-import os
-
 import pandas as pd
 
-from .credentials import list_service_account_paths
 from .date_utils import months_between
+from .megaton_client import get_bq_client
 
 
 # ---------------------------------------------------------------------------
@@ -26,16 +24,12 @@ def init_bq_client(project_id: str, *, creds_hint: str = "corp"):
     """Initialize a BigQuery client, auto-selecting credentials if needed.
 
     Returns a ``google.cloud.bigquery.Client`` instance.
+
+    .. deprecated::
+        Use :func:`megaton_lib.megaton_client.get_bq_client` instead.
+        This wrapper delegates to it for backward compatibility.
     """
-    from google.cloud import bigquery
-
-    if not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
-        paths = list_service_account_paths()
-        if paths:
-            match = [p for p in paths if creds_hint in os.path.basename(p).lower()]
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = match[0] if match else paths[0]
-
-    return bigquery.Client(project=project_id)
+    return get_bq_client(project_id, creds_hint=creds_hint)
 
 
 def resolve_cohort_months(
