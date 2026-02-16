@@ -288,13 +288,45 @@ def query_gsc(
 # === BigQuery ===
 
 _bq_clients = {}
+_bq_native_clients = {}
+
 
 def get_bigquery(project_id: str):
-    """BigQueryクライアントを取得"""
+    """Megaton経由のBigQueryクライアントを取得（レガシー）"""
     if project_id not in _bq_clients:
         mg = get_megaton()
         _bq_clients[project_id] = mg.launch_bigquery(project_id)
     return _bq_clients[project_id]
+
+
+def get_bq_client(project_id: str, *, creds_hint: str = "corp"):
+    """google.cloud.bigquery.Client を直接取得する。
+
+    Megaton の BQ ラッパーを経由せず、パラメータ化クエリなど
+    ネイティブ API をフルに使える軽量クライアント。
+
+    Args:
+        project_id: GCP プロジェクト ID。
+        creds_hint: credentials/ 内のファイル名に含まれるキーワード。
+            複数ファイルがある場合のマッチングに使用。
+
+    Returns:
+        google.cloud.bigquery.Client
+    """
+    # NOTE: キャッシュは project_id のみで管理。同一プロジェクトに対して
+    # 異なる creds_hint で呼び分けるケースは現状想定外。
+    # 将来必要になった場合はキーを (project_id, resolved_path) にする。
+    if project_id not in _bq_native_clients:
+        from google.cloud import bigquery
+
+        if not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+            paths = list_service_account_paths()
+            if paths:
+                match = [p for p in paths if creds_hint in os.path.basename(p).lower()]
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = match[0] if match else paths[0]
+
+        _bq_native_clients[project_id] = bigquery.Client(project=project_id)
+    return _bq_native_clients[project_id]
 
 
 def get_bq_datasets(project_id: str) -> list:
@@ -303,10 +335,46 @@ def get_bq_datasets(project_id: str) -> list:
     return bq.datasets
 
 
-def query_bq(project_id: str, sql: str) -> pd.DataFrame:
-    """BigQueryクエリを実行"""
-    bq = get_bigquery(project_id)
-    return bq.run(sql, to_dataframe=True)
+def query_bq(
+    project_id: str,
+    sql: str,
+    params: Optional[dict[str, str]] = None,
+    *,
+    location: Optional[str] = None,
+) -> pd.DataFrame:
+    """BigQueryクエリを実行しDataFrameで返す。
+
+    パラメータなしの場合は Megaton BQ ラッパー経由（後方互換）。
+    パラメータ付きの場合は google.cloud.bigquery.Client を直接使用。
+
+    Args:
+        project_id: GCP プロジェクト ID。
+        sql: SQL クエリ文字列。パラメータは ``@name`` で参照。
+        params: ``{"name": "value"}`` 形式のクエリパラメータ。
+            現在は全て STRING 型として扱う。
+        location: BQ ジョブの実行リージョン。None の場合は
+            BigQuery クライアントのデフォルトに従う。
+
+    Returns:
+        クエリ結果の DataFrame。
+    """
+    if params is None:
+        bq = get_bigquery(project_id)
+        return bq.run(sql, to_dataframe=True)
+
+    from google.cloud import bigquery
+
+    client = get_bq_client(project_id)
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter(k, "STRING", v)
+            for k, v in params.items()
+        ]
+    )
+    kwargs: dict = {"job_config": job_config}
+    if location is not None:
+        kwargs["location"] = location
+    return client.query(sql, **kwargs).to_dataframe()
 
 
 def save_to_bq(

@@ -17,6 +17,12 @@ WITH report:
 Corp Talks report:
     talks_scraping   : scrape_talk_cards, scrape_article_links, normalize_url, crawl_new_article_links
     talks_ga4        : preprocess_page_metrics, preprocess_top_pages, fetch_nav_clicks, attach_nav_metrics
-    talks_report     : build_monthly_view, write_monthly_sheets, build_article_sheet, build_talks_m, build_monthly_rows
+    talks_report     : build_article_sheet, build_talks_m, build_monthly_rows, write_monthly_sheet
     talks_retention  : query_retention_summary, query_retention_day_curve, query_retention_depth
+
+DEI Lab report:
+    dei_ga4          : classify_source_channel, ensure_trailing_slash, build_page_metrics
+
+SLQM report:
+    slqm_ga4         : get_13month_start, ym_from_year_month, safe_merge_many, fillna_int, compute_sp_ratio
 """
