@@ -51,7 +51,12 @@ def _load_and_validate(config_path: Path) -> tuple[dict | None, list[dict]]:
     try:
         raw = json.loads(config_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
-        return None, [{"error_code": "INVALID_JSON", "message": str(e)}]
+        return None, [{
+            "error_code": "INVALID_JSON",
+            "message": str(e),
+            "path": "$",
+            "hint": "Fix JSON syntax in config file.",
+        }]
 
     params, errors = validate_params(raw)
     if errors:
@@ -120,12 +125,23 @@ def run_batch(
             if status == "ok":
                 succeeded += 1
             else:
+                if "error_code" not in entry:
+                    entry["error_code"] = "BATCH_STEP_FAILED"
+                if "message" not in entry and "error" in entry:
+                    entry["message"] = str(entry.get("error"))
+                if "message" not in entry:
+                    entry["message"] = "Batch step failed."
+                if "hint" not in entry:
+                    entry["hint"] = "Check config and query parameters."
                 failed += 1
         except Exception as e:
             entry = {
                 "config": config_name,
                 "status": "error",
-                "error": str(e),
+                "error_code": "BATCH_STEP_EXCEPTION",
+                "message": str(e),
+                "hint": "Check config, credentials, and query parameters.",
+                "details": {"exception_type": type(e).__name__},
             }
             failed += 1
 

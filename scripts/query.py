@@ -732,31 +732,68 @@ def run_list_mode(args) -> tuple[bool, int]:
 
 def _execute_single_config(params: dict, config_path: Path) -> dict:
     """バッチ内の1configを実行。run_batch の execute_fn として使う。"""
-    df, header_lines = execute_query_from_params(params)
+    try:
+        df, header_lines = execute_query_from_params(params)
+    except Exception as e:
+        return {
+            "status": "error",
+            "error_code": "QUERY_EXECUTION_FAILED",
+            "message": str(e),
+            "hint": "Check source-specific params and credentials.",
+        }
     if df is None or df.empty:
-        return {"status": "error", "error": "No data returned"}
+        return {
+            "status": "error",
+            "error_code": "NO_DATA_RETURNED",
+            "message": "No data returned.",
+            "hint": "Adjust date range, filters, or source parameters.",
+        }
 
     row_count = int(len(df))
 
     # pipeline
     pipeline_conf = params.get("pipeline") or {}
     if pipeline_conf:
-        df = apply_pipeline(
-            df,
-            transform=pipeline_conf.get("transform"),
-            where=pipeline_conf.get("where"),
-            group_by=pipeline_conf.get("group_by"),
-            aggregate=pipeline_conf.get("aggregate"),
-            sort=pipeline_conf.get("sort"),
-            columns=pipeline_conf.get("columns"),
-            head=pipeline_conf.get("head"),
-        )
+        try:
+            df = apply_pipeline(
+                df,
+                transform=pipeline_conf.get("transform"),
+                where=pipeline_conf.get("where"),
+                group_by=pipeline_conf.get("group_by"),
+                aggregate=pipeline_conf.get("aggregate"),
+                sort=pipeline_conf.get("sort"),
+                columns=pipeline_conf.get("columns"),
+                head=pipeline_conf.get("head"),
+            )
+        except ValueError as e:
+            code, hint = map_pipeline_error(str(e))
+            return {
+                "status": "error",
+                "error_code": code,
+                "message": str(e),
+                "hint": hint,
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "error_code": "PIPELINE_FAILED",
+                "message": str(e),
+                "hint": "Check pipeline settings in config.",
+            }
 
     # save
     save_conf = params.get("save")
     save_result = None
     if save_conf:
-        save_result = execute_save(df, save_conf)
+        try:
+            save_result = execute_save(df, save_conf)
+        except Exception as e:
+            return {
+                "status": "error",
+                "error_code": "SAVE_FAILED",
+                "message": str(e),
+                "hint": "Check save target settings and permissions.",
+            }
 
     return {
         "status": "ok",
