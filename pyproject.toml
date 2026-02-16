@@ -9,3 +9,12 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 include = ["megaton_lib*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-markers"]
+markers = [
+    "unit: fast, isolated tests (default layer)",
+    "contract: interface/schema/output contract tests",
+    "integration: cross-module flow tests",
+]
