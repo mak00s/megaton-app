@@ -52,6 +52,16 @@ class TestMegatonExecution(unittest.TestCase):
         mg.report.set.dates.assert_called_once_with("2026-01-01", "2026-01-31")
         mg.report.run.assert_called_once()
 
+    def test_query_ga4_invalid_dimensions_type(self):
+        with self.assertRaises(TypeError):
+            mc.query_ga4(
+                property_id="P2",
+                start_date="2026-01-01",
+                end_date="2026-01-31",
+                dimensions="date",  # type: ignore[arg-type]
+                metrics=["sessions"],
+            )
+
     def test_query_gsc_runs_with_dimension_filter(self):
         mg = MagicMock()
         mg.search.data = pd.DataFrame([{"clicks": 1}])
@@ -68,6 +78,16 @@ class TestMegatonExecution(unittest.TestCase):
         mg.search.use.assert_called_once_with("sc-domain:example.com")
         mg.search.set.dates.assert_called_once_with("2026-01-01", "2026-01-31")
         mg.search.run.assert_called_once()
+
+    def test_query_gsc_invalid_dimension_filter_shape(self):
+        with self.assertRaises(ValueError):
+            mc.query_gsc(
+                site_url="sc-domain:example.com",
+                start_date="2026-01-01",
+                end_date="2026-01-31",
+                dimensions=["query"],
+                dimension_filter=[{"dimension": "query", "operator": "contains"}],  # expression missing
+            )
 
     def test_get_bigquery_is_cached_by_project(self):
         mg = MagicMock()
@@ -259,6 +279,50 @@ class TestMegatonExecution(unittest.TestCase):
         call_kwargs = fake_client.query.call_args
         self.assertEqual(call_kwargs.kwargs["location"], "us-central1")
 
+    def test_query_bq_with_non_string_param_values_are_stringified(self):
+        fake_bigquery = MagicMock()
+
+        class FakeScalarQueryParameter:
+            def __init__(self, name, type_, value):
+                self.name = name
+                self.type_ = type_
+                self.value = value
+
+        fake_bigquery.ScalarQueryParameter = FakeScalarQueryParameter
+        fake_bigquery.QueryJobConfig = MagicMock()
+
+        fake_client = MagicMock()
+        fake_client.query.return_value.to_dataframe.return_value = pd.DataFrame()
+
+        with patch.dict(sys.modules, {"google.cloud.bigquery": fake_bigquery}), \
+             patch("megaton_lib.megaton_client.get_bq_client", return_value=fake_client):
+            mc.query_bq("proj", "SELECT @n AS n", params={"n": 123})
+
+        qp = fake_bigquery.QueryJobConfig.call_args.kwargs["query_parameters"][0]
+        self.assertEqual(qp.value, "123")
+
+    def test_query_bq_with_none_param_value_preserved(self):
+        fake_bigquery = MagicMock()
+
+        class FakeScalarQueryParameter:
+            def __init__(self, name, type_, value):
+                self.name = name
+                self.type_ = type_
+                self.value = value
+
+        fake_bigquery.ScalarQueryParameter = FakeScalarQueryParameter
+        fake_bigquery.QueryJobConfig = MagicMock()
+
+        fake_client = MagicMock()
+        fake_client.query.return_value.to_dataframe.return_value = pd.DataFrame()
+
+        with patch.dict(sys.modules, {"google.cloud.bigquery": fake_bigquery}), \
+             patch("megaton_lib.megaton_client.get_bq_client", return_value=fake_client):
+            mc.query_bq("proj", "SELECT @x AS x", params={"x": None})
+
+        qp = fake_bigquery.QueryJobConfig.call_args.kwargs["query_parameters"][0]
+        self.assertIsNone(qp.value)
+
     def test_query_bq_with_params_default_location_none(self):
         """location 未指定 → kwargs に location が含まれない"""
         fake_bigquery = MagicMock()
@@ -274,6 +338,10 @@ class TestMegatonExecution(unittest.TestCase):
 
         call_kwargs = fake_client.query.call_args.kwargs
         self.assertNotIn("location", call_kwargs)
+
+    def test_query_bq_invalid_params_type(self):
+        with self.assertRaises(TypeError):
+            mc.query_bq("proj", "SELECT 1", params=[("x", 1)])  # type: ignore[arg-type]
 
     def test_query_bq_with_empty_params_uses_native(self):
         """params={} (空dict) → native client 経由（None とは区別）"""

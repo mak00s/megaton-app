@@ -5,12 +5,33 @@ property_id / site_url に応じて正しいクレデンシャルに自動ルー
 """
 import logging
 import os
+from collections.abc import Mapping, Sequence
 from megaton import start
 import pandas as pd
-from typing import Optional
+from typing import Optional, TypedDict, TypeAlias
 from megaton_lib.credentials import list_service_account_paths
 
 logger = logging.getLogger(__name__)
+
+# === Public type hints (API boundary) ===
+
+FieldSpec: TypeAlias = str | tuple[str, str]
+
+
+class GscDimensionFilter(TypedDict):
+    dimension: str
+    operator: str
+    expression: str
+
+
+class AuthContext(TypedDict):
+    megaton_env_var: str
+    megaton_env_value: str | None
+    megaton_candidate_paths: list[str]
+    google_application_credentials: str | None
+    bq_creds_hint: str
+    resolved_bq_creds_path: str | None
+    resolved_bq_source: str | None
 
 # === レジストリ（複数クレデンシャル管理） ===
 
@@ -23,6 +44,78 @@ _registry_built = False
 def _normalize_key(value: object) -> str:
     """マップ検索用キーを正規化する。"""
     return str(value).strip()
+
+
+def _normalize_fields(
+    fields: Sequence[FieldSpec],
+    *,
+    name: str,
+) -> list[FieldSpec]:
+    """Field list を検証し、Megaton に渡せる list へ正規化する。"""
+    if not isinstance(fields, Sequence) or isinstance(fields, (str, bytes)):
+        raise TypeError(f"{name} must be a sequence of field specs.")
+    normalized: list[FieldSpec] = []
+    for item in fields:
+        if isinstance(item, str):
+            value = item.strip()
+            if not value:
+                raise ValueError(f"{name} contains an empty field name.")
+            normalized.append(value)
+            continue
+        if (
+            isinstance(item, tuple)
+            and len(item) == 2
+            and all(isinstance(v, str) and v.strip() for v in item)
+        ):
+            normalized.append((item[0].strip(), item[1].strip()))
+            continue
+        raise TypeError(
+            f"{name} items must be str or tuple[str, str]. got={item!r}"
+        )
+    return normalized
+
+
+def _normalize_gsc_dimension_filter(
+    filters: Sequence[GscDimensionFilter] | None,
+) -> list[GscDimensionFilter] | None:
+    """GSC dimension_filter の境界検証。"""
+    if filters is None:
+        return None
+    if not isinstance(filters, Sequence) or isinstance(filters, (str, bytes)):
+        raise TypeError("dimension_filter must be a sequence of filter dicts.")
+    normalized: list[GscDimensionFilter] = []
+    required = {"dimension", "operator", "expression"}
+    for item in filters:
+        if not isinstance(item, Mapping):
+            raise TypeError(f"dimension_filter item must be mapping. got={item!r}")
+        missing = required - set(item.keys())
+        if missing:
+            raise ValueError(f"dimension_filter item missing keys: {sorted(missing)}")
+        normalized.append(
+            GscDimensionFilter(
+                dimension=str(item["dimension"]).strip(),
+                operator=str(item["operator"]).strip(),
+                expression=str(item["expression"]).strip(),
+            )
+        )
+    return normalized
+
+
+def _normalize_bq_params(
+    params: Mapping[str, object] | None,
+) -> dict[str, str | None] | None:
+    """BQ query params を string dict に正規化する。"""
+    if params is None:
+        return None
+    if not isinstance(params, Mapping):
+        raise TypeError("params must be a mapping of parameter name to value.")
+    normalized: dict[str, str | None] = {}
+    for key, value in params.items():
+        k = str(key).strip()
+        if not k:
+            raise ValueError("params contains an empty parameter name.")
+        normalized[k] = None if value is None else str(value)
+    return normalized
 
 
 def reset_registry() -> None:
@@ -199,8 +292,8 @@ def query_ga4(
     property_id: str,
     start_date: str,
     end_date: str,
-    dimensions: list[str | tuple[str, str]],
-    metrics: list[str | tuple[str, str]],
+    dimensions: Sequence[FieldSpec],
+    metrics: Sequence[FieldSpec],
     filter_d: Optional[str] = None,
     limit: int = 10000,
 ) -> pd.DataFrame:
@@ -217,11 +310,13 @@ def query_ga4(
         filter_d: フィルタ式（"field==value;field!=value" 形式）
         limit: 取得行数上限
     """
+    dimensions_l = _normalize_fields(dimensions, name="dimensions")
+    metrics_l = _normalize_fields(metrics, name="metrics")
     mg = get_ga4(property_id)
     mg.report.set.dates(start_date, end_date)
     result = mg.report.run(
-        d=dimensions,
-        m=metrics,
+        d=dimensions_l,
+        m=metrics_l,
         filter_d=filter_d if filter_d else None,
         limit=limit,
         show=False,
@@ -249,9 +344,9 @@ def query_gsc(
     site_url: str,
     start_date: str,
     end_date: str,
-    dimensions: list[str | tuple[str, str]],
+    dimensions: Sequence[FieldSpec],
     limit: int = 25000,
-    dimension_filter: Optional[list] = None,
+    dimension_filter: Sequence[GscDimensionFilter] | None = None,
     page_to_path: bool = True,
 ) -> pd.DataFrame:
     """GSCクエリを実行（自動ルーティング）
@@ -270,13 +365,15 @@ def query_gsc(
             フルURL "https://example.com/path?q=1" → "/path"
             フィルタはフルURLで評価された後に変換される
     """
+    dimensions_l = _normalize_fields(dimensions, name="dimensions")
+    dimension_filter_l = _normalize_gsc_dimension_filter(dimension_filter)
     mg = get_gsc(site_url)
     mg.search.set.dates(start_date, end_date)
     mg.search.run(
-        dimensions=dimensions,
+        dimensions=dimensions_l,
         metrics=["clicks", "impressions", "ctr", "position"],
         limit=limit,
-        dimension_filter=dimension_filter
+        dimension_filter=dimension_filter_l
     )
     df = mg.search.data
     if page_to_path and df is not None and "page" in df.columns:
@@ -338,7 +435,7 @@ def ensure_bq_credentials(*, creds_hint: str = "corp") -> str | None:
     return resolved
 
 
-def describe_auth_context(*, creds_hint: str = "corp") -> dict:
+def describe_auth_context(*, creds_hint: str = "corp") -> AuthContext:
     """現在の認証解決コンテキストを返す（デバッグ/運用確認用）。"""
     megaton_paths = list_service_account_paths()
     gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
@@ -392,7 +489,7 @@ def get_bq_datasets(project_id: str) -> list:
 def query_bq(
     project_id: str,
     sql: str,
-    params: Optional[dict[str, str]] = None,
+    params: Mapping[str, object] | None = None,
     *,
     location: Optional[str] = None,
 ) -> pd.DataFrame:
@@ -412,7 +509,8 @@ def query_bq(
     Returns:
         クエリ結果の DataFrame。
     """
-    if params is None:
+    normalized_params = _normalize_bq_params(params)
+    if normalized_params is None:
         bq = get_bigquery(project_id)
         return bq.run(sql, to_dataframe=True)
 
@@ -422,7 +520,7 @@ def query_bq(
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ScalarQueryParameter(k, "STRING", v)
-            for k, v in params.items()
+            for k, v in normalized_params.items()
         ]
     )
     kwargs: dict = {"job_config": job_config}
