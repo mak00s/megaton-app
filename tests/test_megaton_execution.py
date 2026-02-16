@@ -151,6 +151,41 @@ class TestMegatonExecution(unittest.TestCase):
     # get_bq_client
     # ------------------------------------------------------------------
 
+    def test_resolve_bq_creds_path_prefers_gac_env(self):
+        with patch.dict("os.environ", {"GOOGLE_APPLICATION_CREDENTIALS": "/env/path.json"}, clear=True), \
+             patch("megaton_lib.megaton_client.list_service_account_paths", return_value=["/creds/a.json"]):
+            path = mc.resolve_bq_creds_path(creds_hint="corp")
+        self.assertEqual(path, "/env/path.json")
+
+    def test_resolve_bq_creds_path_uses_hint_match(self):
+        with patch.dict("os.environ", {}, clear=True), \
+             patch("megaton_lib.megaton_client.list_service_account_paths",
+                   return_value=["/creds/with.json", "/creds/corp-main.json"]):
+            path = mc.resolve_bq_creds_path(creds_hint="corp")
+        self.assertEqual(path, "/creds/corp-main.json")
+
+    def test_resolve_bq_creds_path_returns_none_if_no_candidates(self):
+        with patch.dict("os.environ", {}, clear=True), \
+             patch("megaton_lib.megaton_client.list_service_account_paths", return_value=[]):
+            path = mc.resolve_bq_creds_path()
+        self.assertIsNone(path)
+
+    def test_ensure_bq_credentials_sets_env_when_missing(self):
+        with patch.dict("os.environ", {}, clear=True), \
+             patch("megaton_lib.megaton_client.list_service_account_paths", return_value=["/creds/corp.json"]):
+            path = mc.ensure_bq_credentials(creds_hint="corp")
+            self.assertEqual(path, "/creds/corp.json")
+            self.assertEqual(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"), "/creds/corp.json")
+
+    def test_describe_auth_context(self):
+        with patch.dict("os.environ", {"MEGATON_CREDS_PATH": "/creds", "GOOGLE_APPLICATION_CREDENTIALS": "/env/path.json"}, clear=True), \
+             patch("megaton_lib.megaton_client.list_service_account_paths", return_value=["/creds/a.json"]):
+            info = mc.describe_auth_context(creds_hint="corp")
+        self.assertEqual(info["megaton_env_var"], "MEGATON_CREDS_PATH")
+        self.assertEqual(info["google_application_credentials"], "/env/path.json")
+        self.assertEqual(info["resolved_bq_creds_path"], "/env/path.json")
+        self.assertEqual(info["resolved_bq_source"], "GOOGLE_APPLICATION_CREDENTIALS")
+
     def test_get_bq_client_cached_by_project(self):
         fake_bigquery = MagicMock()
         client1 = MagicMock(name="client1")

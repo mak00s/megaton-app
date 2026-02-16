@@ -299,6 +299,64 @@ def get_bigquery(project_id: str):
     return _bq_clients[project_id]
 
 
+def _select_credential_path(*, creds_hint: str = "") -> str | None:
+    """候補JSON一覧から、hint一致を優先して1件選ぶ。"""
+    paths = list_service_account_paths()
+    if not paths:
+        return None
+    hint = (creds_hint or "").lower().strip()
+    if hint:
+        match = [p for p in paths if hint in os.path.basename(p).lower()]
+        if match:
+            return match[0]
+    return paths[0]
+
+
+def resolve_bq_creds_path(*, creds_hint: str = "corp") -> str | None:
+    """BigQuery(native)で使用する認証JSONパスを解決する。
+
+    Resolution order:
+    1) ``GOOGLE_APPLICATION_CREDENTIALS`` が設定済みならその値
+    2) ``MEGATON_CREDS_PATH`` / ``credentials/*.json`` から選択
+       - ``creds_hint`` を含むファイル名を優先
+       - 見つからなければ先頭ファイル
+
+    Returns:
+        解決済みパス。候補がなければ ``None``。
+    """
+    gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+    if gac:
+        return gac
+    return _select_credential_path(creds_hint=creds_hint)
+
+
+def ensure_bq_credentials(*, creds_hint: str = "corp") -> str | None:
+    """必要に応じて ``GOOGLE_APPLICATION_CREDENTIALS`` を設定して返す。"""
+    resolved = resolve_bq_creds_path(creds_hint=creds_hint)
+    if resolved and not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = resolved
+    return resolved
+
+
+def describe_auth_context(*, creds_hint: str = "corp") -> dict:
+    """現在の認証解決コンテキストを返す（デバッグ/運用確認用）。"""
+    megaton_paths = list_service_account_paths()
+    gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+    resolved_bq = resolve_bq_creds_path(creds_hint=creds_hint)
+    return {
+        "megaton_env_var": "MEGATON_CREDS_PATH",
+        "megaton_env_value": os.environ.get("MEGATON_CREDS_PATH", "").strip() or None,
+        "megaton_candidate_paths": megaton_paths,
+        "google_application_credentials": gac or None,
+        "bq_creds_hint": creds_hint,
+        "resolved_bq_creds_path": resolved_bq,
+        "resolved_bq_source": (
+            "GOOGLE_APPLICATION_CREDENTIALS" if gac
+            else ("MEGATON_CREDS_PATH_or_credentials" if resolved_bq else None)
+        ),
+    }
+
+
 def get_bq_client(project_id: str, *, creds_hint: str = "corp"):
     """google.cloud.bigquery.Client を直接取得する。
 
@@ -319,11 +377,7 @@ def get_bq_client(project_id: str, *, creds_hint: str = "corp"):
     if project_id not in _bq_native_clients:
         from google.cloud import bigquery
 
-        if not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
-            paths = list_service_account_paths()
-            if paths:
-                match = [p for p in paths if creds_hint in os.path.basename(p).lower()]
-                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = match[0] if match else paths[0]
+        ensure_bq_credentials(creds_hint=creds_hint)
 
         _bq_native_clients[project_id] = bigquery.Client(project=project_id)
     return _bq_native_clients[project_id]
