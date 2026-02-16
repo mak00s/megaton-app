@@ -25,4 +25,7 @@ DEI Lab report:
 
 SLQM report:
     slqm_ga4         : get_13month_start, ym_from_year_month, safe_merge_many, fillna_int, compute_sp_ratio
+    slqm_analysis    : fetch_daily_metrics, fetch_page_metrics, fetch_channel_breakdown,
+                       fetch_source_medium, fetch_landing_pages, fetch_session_quality,
+                       fetch_new_vs_returning, fetch_page_transitions
 """

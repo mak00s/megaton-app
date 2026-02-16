@@ -202,7 +202,7 @@ def query_ga4(
     dimensions: list[str | tuple[str, str]],
     metrics: list[str | tuple[str, str]],
     filter_d: Optional[str] = None,
-    limit: int = 10000
+    limit: int = 10000,
 ) -> pd.DataFrame:
     """GA4クエリを実行（自動ルーティング）
 
@@ -219,14 +219,14 @@ def query_ga4(
     """
     mg = get_ga4(property_id)
     mg.report.set.dates(start_date, end_date)
-    mg.report.run(
+    result = mg.report.run(
         d=dimensions,
         m=metrics,
         filter_d=filter_d if filter_d else None,
         limit=limit,
-        show=False
+        show=False,
     )
-    return mg.report.data
+    return result.df if result is not None else pd.DataFrame()
 
 
 # === GSC ===
