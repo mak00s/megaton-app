@@ -229,6 +229,9 @@ df = mg.report.data
 - `show=False`: レポート実行後の自動表示をスキップ
 - アカウント・プロパティは ID を直接指定
 - 認証JSONは `MEGATON_CREDS_PATH` で指定（未指定時は `credentials/*.json` を自動探索）
+- BigQuery のパラメータ化クエリ（`query_bq(..., params=...)`）は
+  `GOOGLE_APPLICATION_CREDENTIALS` を優先して使用。未設定時は
+  `MEGATON_CREDS_PATH` / `credentials/*.json` から自動選択（`creds_hint` 優先）
 
 ---
 

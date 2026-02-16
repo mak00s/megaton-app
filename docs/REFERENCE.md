@@ -452,6 +452,33 @@ OUTPUT_DIR = "../output/yokohama"
 - Git管理: **除外**（.gitignoreで設定済み）
 - 推奨指定: 環境変数 `MEGATON_CREDS_PATH`（JSONファイル or JSONを1つ含むディレクトリ）
 
+### 認証解決ルール（実装準拠）
+
+#### GA4 / GSC（Megaton経由）
+
+`MEGATON_CREDS_PATH` と `credentials/*.json` から候補を収集し、
+`get_ga4(property_id)` / `get_gsc(site_url)` が対象に対応する認証を選ぶ。
+
+候補解決順:
+1. `MEGATON_CREDS_PATH` がファイルを指す: その1件
+2. `MEGATON_CREDS_PATH` がディレクトリを指す: 配下 `*.json`（ファイル名昇順）
+3. 未指定時: `credentials/*.json`（親ディレクトリ探索あり）
+
+#### BigQuery（native client）
+
+`query_bq(..., params=...)` は `google.cloud.bigquery.Client` を使用。
+認証解決順:
+1. `GOOGLE_APPLICATION_CREDENTIALS` が設定済みならそれを優先
+2. 未設定時、`MEGATON_CREDS_PATH` / `credentials/*.json` 候補から1件選択
+   - `get_bq_client(project_id, creds_hint="corp")` の `creds_hint` を含むファイル名を優先
+   - 一致がなければ先頭候補
+
+補足:
+- `get_bq_client` の native client キャッシュキーは現在 `project_id` 単位
+  （同一プロジェクトで複数認証を切り替える用途は想定外）
+- `talks_retention.init_bq_client()` は deprecated ラッパーで、
+  実体は `megaton_client.get_bq_client()` に委譲
+
 ### Notebook での指定
 
 ```python
@@ -467,6 +494,17 @@ from setup import init; init()
 ```python
 import os
 CREDS_PATH = os.environ["MEGATON_CREDS_PATH"]  # ファイル or ディレクトリを指定
+```
+
+### 解決結果の確認
+
+実行時にどの認証が使われるかを確認するには:
+
+```python
+from megaton_lib.megaton_client import describe_auth_context
+
+info = describe_auth_context(creds_hint="corp")
+# info["resolved_bq_creds_path"], info["resolved_bq_source"] などを確認
 ```
 
 ---
