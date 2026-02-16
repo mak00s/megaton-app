@@ -1,3 +1,4 @@
+import os
 import sys
 import types
 import unittest
@@ -14,6 +15,7 @@ def _reset_registry():
     mc._site_map.clear()
     mc._registry_built = False
     mc._bq_clients.clear()
+    mc._bq_native_clients.clear()
 
 
 class TestMegatonExecution(unittest.TestCase):
@@ -144,6 +146,114 @@ class TestMegatonExecution(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 mc.save_to_sheet("https://docs.google.com/spreadsheets/d/x", "data", df, mode="upsert", keys=None)
+
+    # ------------------------------------------------------------------
+    # get_bq_client
+    # ------------------------------------------------------------------
+
+    def test_get_bq_client_cached_by_project(self):
+        fake_bigquery = MagicMock()
+        client1 = MagicMock(name="client1")
+        client2 = MagicMock(name="client2")
+        fake_bigquery.Client.side_effect = [client1, client2]
+
+        with patch.dict(sys.modules, {"google.cloud.bigquery": fake_bigquery}), \
+             patch("megaton_lib.megaton_client.list_service_account_paths", return_value=["/creds/corp.json"]), \
+             patch.dict("os.environ", {}, clear=True):
+            a1 = mc.get_bq_client("proj-a")
+            a2 = mc.get_bq_client("proj-a")
+            b1 = mc.get_bq_client("proj-b")
+
+        self.assertIs(a1, a2)
+        self.assertIsNot(a1, b1)
+        self.assertEqual(fake_bigquery.Client.call_count, 2)
+
+    def test_get_bq_client_creds_hint_matching(self):
+        fake_bigquery = MagicMock()
+        fake_bigquery.Client.return_value = MagicMock()
+
+        with patch.dict(sys.modules, {"google.cloud.bigquery": fake_bigquery}), \
+             patch("megaton_lib.megaton_client.list_service_account_paths",
+                   return_value=["/creds/with.json", "/creds/corp.json"]), \
+             patch.dict("os.environ", {}, clear=True):
+            mc.get_bq_client("proj-x", creds_hint="corp")
+            self.assertIn("corp", os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", ""))
+
+    # ------------------------------------------------------------------
+    # query_bq with params
+    # ------------------------------------------------------------------
+
+    def test_query_bq_without_params_uses_legacy(self):
+        """params=None → 従来の get_bigquery().run() 経由"""
+        bq = MagicMock()
+        bq.run.return_value = pd.DataFrame([{"x": 1}])
+        with patch("megaton_lib.megaton_client.get_bigquery", return_value=bq):
+            df = mc.query_bq("proj", "select 1")
+        self.assertEqual(len(df), 1)
+        bq.run.assert_called_once_with("select 1", to_dataframe=True)
+
+    def test_query_bq_with_params_uses_native_client(self):
+        """params あり → get_bq_client() + parameterized query"""
+        fake_bigquery = MagicMock()
+
+        class FakeScalarQueryParameter:
+            def __init__(self, name, type_, value):
+                self.name = name
+                self.type_ = type_
+                self.value = value
+
+        fake_bigquery.ScalarQueryParameter = FakeScalarQueryParameter
+        fake_bigquery.QueryJobConfig = MagicMock()
+
+        fake_client = MagicMock()
+        fake_result_df = pd.DataFrame([{"user": "abc", "cnt": 5}])
+        fake_client.query.return_value.to_dataframe.return_value = fake_result_df
+
+        with patch.dict(sys.modules, {"google.cloud.bigquery": fake_bigquery}), \
+             patch("megaton_lib.megaton_client.get_bq_client", return_value=fake_client):
+            df = mc.query_bq(
+                "proj",
+                "SELECT * FROM t WHERE month = @m",
+                params={"m": "202602"},
+                location="us-central1",
+            )
+
+        self.assertEqual(len(df), 1)
+        self.assertEqual(df.iloc[0]["user"], "abc")
+        fake_client.query.assert_called_once()
+        call_kwargs = fake_client.query.call_args
+        self.assertEqual(call_kwargs.kwargs["location"], "us-central1")
+
+    def test_query_bq_with_params_default_location_none(self):
+        """location 未指定 → kwargs に location が含まれない"""
+        fake_bigquery = MagicMock()
+        fake_bigquery.ScalarQueryParameter = lambda n, t, v: (n, t, v)
+        fake_bigquery.QueryJobConfig = MagicMock()
+
+        fake_client = MagicMock()
+        fake_client.query.return_value.to_dataframe.return_value = pd.DataFrame()
+
+        with patch.dict(sys.modules, {"google.cloud.bigquery": fake_bigquery}), \
+             patch("megaton_lib.megaton_client.get_bq_client", return_value=fake_client):
+            mc.query_bq("proj", "SELECT 1", params={"x": "1"})
+
+        call_kwargs = fake_client.query.call_args.kwargs
+        self.assertNotIn("location", call_kwargs)
+
+    def test_query_bq_with_empty_params_uses_native(self):
+        """params={} (空dict) → native client 経由（None とは区別）"""
+        fake_bigquery = MagicMock()
+        fake_bigquery.QueryJobConfig = MagicMock()
+
+        fake_client = MagicMock()
+        fake_client.query.return_value.to_dataframe.return_value = pd.DataFrame()
+
+        with patch.dict(sys.modules, {"google.cloud.bigquery": fake_bigquery}), \
+             patch("megaton_lib.megaton_client.get_bq_client", return_value=fake_client):
+            df = mc.query_bq("proj", "SELECT 1", params={})
+
+        self.assertTrue(df.empty)
+        fake_client.query.assert_called_once()
 
 
 if __name__ == "__main__":
