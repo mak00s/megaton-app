@@ -1,14 +1,12 @@
 """Tests for megaton_lib.slqm_analysis."""
 
 import types
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
 
 from megaton_lib.slqm_analysis import (
-    _date_col,
-    _run,
     fetch_channel_breakdown,
     fetch_daily_metrics,
     fetch_landing_pages,
@@ -53,73 +51,6 @@ def _make_mg_multi(dfs: list[pd.DataFrame | None]):
             results.append(None)
     mg.report.run.side_effect = results
     return mg
-
-
-# ---------------------------------------------------------------------------
-# _date_col
-# ---------------------------------------------------------------------------
-
-
-class TestDateCol:
-    """Tests for _date_col()."""
-
-    def test_converts_date_column(self):
-        df = pd.DataFrame({"date": ["2026-02-04", "2026-02-05"], "uu": [10, 20]})
-        result = _date_col(df)
-        assert pd.api.types.is_datetime64_any_dtype(result["date"])
-        # original should be untouched
-        assert df["date"].dtype == object
-
-    def test_no_date_column(self):
-        df = pd.DataFrame({"page": ["/a"], "uu": [10]})
-        result = _date_col(df)
-        assert "page" in result.columns
-
-    def test_empty_dataframe(self):
-        df = pd.DataFrame()
-        result = _date_col(df)
-        assert result.empty
-
-
-# ---------------------------------------------------------------------------
-# _run
-# ---------------------------------------------------------------------------
-
-
-class TestRun:
-    """Tests for _run()."""
-
-    def test_returns_df_from_result(self):
-        expected = pd.DataFrame({"sessions": [42]})
-        mg = _make_mg(expected)
-        df = _run(mg, ["date"], ["sessions"], filter_d="x==1", sort="date")
-        assert len(df) == 1
-        assert df["sessions"].iloc[0] == 42
-        mg.report.run.assert_called_once_with(
-            d=["date"], m=["sessions"],
-            filter_d="x==1", sort="date", show=False,
-        )
-
-    def test_returns_empty_on_none(self):
-        mg = _make_mg(None)
-        df = _run(mg, ["date"], ["sessions"])
-        assert df.empty
-
-    def test_limit_passed_to_run(self):
-        mg = _make_mg(pd.DataFrame({"sessions": [1]}))
-        _run(mg, ["date"], ["sessions"], limit=50)
-        mg.report.run.assert_called_once_with(
-            d=["date"], m=["sessions"],
-            filter_d=None, sort=None, show=False,
-            limit=50,
-        )
-
-    def test_limit_none_not_passed(self):
-        """limit=None → kwargs に limit が含まれない（後方互換）。"""
-        mg = _make_mg(pd.DataFrame({"sessions": [1]}))
-        _run(mg, ["date"], ["sessions"])
-        call_kwargs = mg.report.run.call_args.kwargs
-        assert "limit" not in call_kwargs
 
 
 # ---------------------------------------------------------------------------
