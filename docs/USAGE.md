@@ -310,6 +310,11 @@ sites = config_df.to_dict('records')
 # 全テスト
 python -m pytest -q
 
+# レイヤ別（unit / contract / integration）
+python -m pytest -q -m unit
+python -m pytest -q -m contract
+python -m pytest -q -m integration
+
 # query.py のカバレッジ（CIと同じ閾値）
 python -m pytest -q --cov=scripts.query --cov-report=term-missing --cov-fail-under=90
 ```
