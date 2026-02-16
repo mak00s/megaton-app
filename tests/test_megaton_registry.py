@@ -331,7 +331,7 @@ class TestQueryRefactored(unittest.TestCase):
             accounts=[{"id": "acc1", "properties": [{"id": "P1", "name": "Prop1"}]}],
             sites=[],
         )
-        mg_a.report.data = pd.DataFrame({"date": ["2025-01-01"], "sessions": [100]})
+        mg_a.report.run.return_value.df = pd.DataFrame({"date": ["2025-01-01"], "sessions": [100]})
         mock_megaton_cls.return_value = mg_a
 
         df = mc.query_ga4("P1", "2025-01-01", "2025-01-31", ["date"], ["sessions"])

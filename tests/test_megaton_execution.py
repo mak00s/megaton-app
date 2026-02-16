@@ -33,7 +33,7 @@ class TestMegatonExecution(unittest.TestCase):
             {"id": "acc2", "properties": [{"id": "P2"}]},
         ]
         mg.ga = {"4": ga4}
-        mg.report.data = pd.DataFrame([{"sessions": 10}])
+        mg.report.run.return_value.df = pd.DataFrame([{"sessions": 10}])
 
         with patch("megaton_lib.megaton_client.get_megaton_for_property", return_value=mg):
             df = mc.query_ga4(
