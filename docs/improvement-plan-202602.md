@@ -38,11 +38,12 @@ GA4 APIでは再訪問コホートが取れず、BQに切り替えた。しか�
 → ~~**同じデータソースに対して megaton と MCP で認証経路が異なり、使い分けが必要になる**~~
 → MCP側の `sa_corp-1872_gsc-api.json` を `credentials/` に symlink して統合。`build_registry()` が自動発見。
 
-### 4. 滞在時間メトリクスの罠
+### 4. 滞在時間メトリクスの罠 → ✅ docstring で対応（⑦）
 
 `userEngagementDuration` をイベントスコープで取ったら全部0。セッションスコープの `averageSessionDuration` に切り替えたら取れたが、どのメトリクスがどのスコープで動くか、megaton側にガードがない。
 
-→ **megatonがスコープ不一致を検知・警告する仕組みがない**
+→ ~~**megatonがスコープ不一致を検知・警告する仕組みがない**~~
+→ 自動検証の実装コストが高いため、`slqm_analysis.py` のモジュール docstring と `fetch_session_quality()` の docstring にスコープの罠を明記して対応。
 
 ### 5. `mg.report.data` の暗黙的な状態共有 → ✅ 緩和済み（②で対応）
 
@@ -99,6 +100,15 @@ df = query_bq("project-id", "SELECT * FROM t WHERE month = @m",
               params={"m": "202602"}, location="asia-northeast1")
 ```
 
+**付随改善（①-b: 認証解決の構造化）:**
+BQ認証のインライン処理を4関数に分解し、解決順序を明文化:
+- `_select_credential_path()` — 候補JSONからhint一致優先で選択
+- `resolve_bq_creds_path()` — GAC環境変数 → 候補探索の解決順序
+- `ensure_bq_credentials()` — 必要時に `GOOGLE_APPLICATION_CREDENTIALS` をセット
+- `describe_auth_context()` — デバッグ用の認証状態可視化
+- `docs/REFERENCE.md` — 認証解決ルールのドキュメント追加
+- `docs/USAGE.md` — BQ認証の補足追加
+
 #### ✅ ② `query_ga4()` が `ReportResult.df` を直接返すように修正（完了 2026-02-16）
 
 megaton の `mg.report.run()` は既に `ReportResult` オブジェクトを返していた。megaton PyPI 側の変更は不要。`megaton_client.query_ga4()` と `slqm_analysis._run()` で `result.df` を使うように修正し、ステートフルな `mg.report.data` への依存を排除。
@@ -125,14 +135,64 @@ megaton の `mg.report.run()` は既に `ReportResult` オブジェクトを返�
 
 変更ファイル:
 - `megaton_lib/slqm_analysis.py` — 新規作成
-- `tests/test_slqm_analysis.py` — テスト23件
+- `tests/test_slqm_analysis.py` — テスト20件
 - `megaton_lib/__init__.py` — ドキュメント更新
 
 **付随修正（Codexレビュー対応）:**
 - `dei_ga4.py`: `classify_source_channel()` の `ai_name.capitalize()` バグ修正（"ChatGPT" → "Chatgpt" 問題）
 - `megaton_client.py`: `query_bq()` の `location` デフォルトを `None` に変更（固定値 `"asia-northeast1"` の排除）
+- `slqm_analysis.py`: `fetch_source_medium()` / `fetch_landing_pages()` の `limit` 引数が `_run()` → `mg.report.run()` に伝播されていなかったバグを修正。テスト追加。
+
+#### ✅ ③-b 共通GA4ヘルパーの抽出（完了 2026-02-16）
+
+`slqm_analysis.py` 内の `_run()` / `_date_col()` およびインライン `pd.to_numeric` パターンを汎用モジュール `ga4_helpers.py` に抽出:
+
+| 関数 | 用途 |
+|---|---|
+| `run_report_df()` | `mg.report.run()` → DataFrame 変換（limit 対応含む） |
+| `build_filter()` | フィルタ文字列を `;` 結合（空/None スキップ） |
+| `to_datetime_col()` | date 列を datetime に変換 |
+| `to_numeric_cols()` | 指定列を数値化（fillna/astype 対応） |
+
+変更ファイル:
+- `megaton_lib/ga4_helpers.py` — 新規作成
+- `tests/test_ga4_helpers.py` — テスト10件
+- `megaton_lib/slqm_analysis.py` — `ga4_helpers` の関数に置き換え、スコープの罠を docstring に追記
+
+#### ✅ ③-c ノートブック側の `mg.report.data` 依存排除（完了 2026-02-16）
+
+`megaton-notebooks/notebooks/reports/slqm.py` の `get_metric_df()` を `result.df` パターンに修正。`prep_rules` 使用時は `mg.report.prep(conf, df=result.df)` で `mg.report.data` への依存を排除。
 
 ### 中：構造を整理するもの
+
+#### ✅ ⑧ 公開API境界の入力バリデーション（完了 2026-02-16）
+
+`query_ga4()` / `query_gsc()` / `query_bq()` に渡す引数を、内部に入る前に検証・正規化するレイヤーを挿入。
+
+型定義:
+- `FieldSpec` — `str | tuple[str, str]` のエイリアス
+- `GscDimensionFilter` — TypedDict で `dimension`, `operator`, `expression` を必須に
+- `AuthContext` — `describe_auth_context()` の戻り値型
+
+バリデーション関数（全て内部 `_` prefix）:
+- `_normalize_fields()` — str/tuple 以外・空文字列を reject、strip 済みで返す
+- `_normalize_gsc_dimension_filter()` — 必須キーの存在確認
+- `_normalize_bq_params()` — 値を `str()` で文字列化、`None` は `None` を保持（SQL NULL対応）
+
+変更ファイル:
+- `megaton_lib/megaton_client.py` — バリデーション関数追加、公開API型ヒント強化
+- `tests/test_megaton_execution.py` — テスト5件追加
+
+#### ✅ ⑨ バッチ実行のエラーレポート構造化（完了 2026-02-16）
+
+自由形式だったエラー情報を `error_code` / `message` / `hint` の統一スキーマに整理。
+
+- `batch_runner.py` — JSON パースエラーに `path`/`hint` 追加、`run_batch` ループで構造化フォールバック補完、例外に `details.exception_type` 追加
+- `scripts/query.py` — `_execute_single_config` の3段階（クエリ実行→パイプライン→保存）に個別 try/except と段階別 `error_code`（`QUERY_EXECUTION_FAILED`, `NO_DATA_RETURNED`, `PIPELINE_FAILED`, `SAVE_FAILED` 等）
+
+#### ✅ ⑩ テスト基盤の整備（完了 2026-02-16）
+
+`pyproject.toml` に pytest マーカー定義を追加（`unit`, `contract`, `integration`）。`tests/conftest.py` にレイヤードマーカーの自動適用を設定。
 
 #### ④ megaton_lib のディレクトリ分割
 
@@ -166,9 +226,11 @@ ln -s ~/Dropbox/python/key/sa_corp-1872_gsc-api.json credentials/sa_corp-1872_gs
 
 > **Note**: ②で megaton_lib 側は `result.df` を直接使う設計に統一済み。megaton PyPI 側の変更は未着手だが、megaton_lib のユーザーコードでは問題が発生しにくくなっている。
 
-#### ⑦ メトリクス/ディメンションのスコープ検証
+#### ⑦ メトリクス/ディメンションのスコープ検証 → docstring で対応（完了 2026-02-16）
 
-GA4 APIのメタデータを使い、イベントスコープのクエリにセッションスコープのメトリクスを混ぜた場合に警告を出す。
+~~GA4 APIのメタデータを使い、イベントスコープのクエリにセッションスコープのメトリクスを混ぜた場合に警告を出す。~~
+
+自動検証の実装コスト（メタデータAPI呼び出し + キャッシュ + 検証ロジック）に対してリターンが小さいため、docstring での注意喚起で対応。`slqm_analysis.py` のモジュール docstring に `userEngagementDuration` の罠と一般的なスコープ注意事項を記載。
 
 ---
 
@@ -176,15 +238,18 @@ GA4 APIのメタデータを使い、イベントスコープのクエリにセ�
 
 | # | 施策 | 状態 | 対応日 |
 |---|---|---|---|
-| ① | パラメータ化BQクエリ | ✅ 完了 | 2026-02-16 |
+| ① | パラメータ化BQクエリ + 認証解決構造化 | ✅ 完了 | 2026-02-16 |
 | ② | ReportResult.df 直接返却 | ✅ 完了 | 2026-02-16 |
-| ③ | SLQM分析ヘルパー | ✅ 完了 | 2026-02-16 |
+| ③ | SLQM分析ヘルパー + ga4_helpers 抽出 + NB修正 | ✅ 完了 | 2026-02-16 |
 | ④ | ディレクトリ分割 | 未着手 | — |
 | ⑤ | GSC認証統合 | ✅ 完了 | 2026-02-16 |
 | ⑥ | ステート管理改善 | 一部緩和 | — |
-| ⑦ | スコープ検証 | 未着手 | — |
+| ⑦ | スコープ検証 | docstring で対応 | 2026-02-16 |
+| ⑧ | 公開API入力バリデーション | ✅ 完了 | 2026-02-16 |
+| ⑨ | バッチエラーレポート構造化 | ✅ 完了 | 2026-02-16 |
+| ⑩ | テスト基盤整備（pytest マーカー） | ✅ 完了 | 2026-02-16 |
 
-全462テスト pass（うち新規追加29件: slqm_analysis 23件 + BQ関連 6件）。
+全479テスト pass。
 
 ---
 
