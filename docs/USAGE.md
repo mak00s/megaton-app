@@ -7,15 +7,106 @@
 
 ### セル構成
 
-```
-セル1: セットアップ（# %% tags=["parameters"]）
-  - パラメータ（日付、プロパティID、出力先など）
-  - from setup import init; init()
-  - import pandas, matplotlib, ...
-  - from lib.megaton_client import get_ga4, get_gsc
+Jupyter Notebook は、パラメータセルと本処理セルの2段階構成が推奨される：
 
-セル2以降: 本処理
-  - データ取得・加工・集計・可視化
+#### セル1: パラメータとセットアップ（`tags=["parameters"]`）
+
+```python
+# %% tags=["parameters"]
+# ========== パラメータ（CLI実行時に上書き可能） ==========
+PROPERTY_ID = "254800682"
+START_DATE = "2025-06-01"
+END_DATE = "2026-01-31"
+OUTPUT_DIR = "output"
+
+# ========== セットアップ ==========
+import sys; sys.path.insert(0, "..")  # noqa: E702  ← サブディレクトリ（reports/等）の場合のみ
+from setup import init; init()  # noqa: E702
+
+# ========== ライブラリ読み込み ==========
+import pandas as pd
+import matplotlib.pyplot as plt
+from lib.megaton_client import get_ga4, get_gsc
+from lib.analysis import show
+```
+
+**ポイント:**
+- `tags=["parameters"]` により、`run_notebook.py -p START_DATE=today-7d` でパラメータのみ上書き可能
+- `init()` はパス解決・環境変数・モジュールリロードを一括実行
+- `notebooks/` 直下のノートブックは `sys.path.insert` 不要
+- サブディレクトリ（`reports/` 等）のノートブックは `sys.path.insert(0, "..")` を追加
+
+#### セル2以降: 本処理
+
+```python
+# %% データ取得
+mg = get_ga4(PROPERTY_ID)
+mg.report.set.dates(START_DATE, END_DATE)
+result = mg.report.run(
+    d=["date", "sessionDefaultChannelGroup"],
+    m=["sessions", "totalUsers"],
+    show=False
+)
+df = result.df
+
+# %% データ加工
+df_organic = df[df["sessionDefaultChannelGroup"] == "Organic Search"]
+df_pivot = df_organic.pivot_table(
+    index="date",
+    values=["sessions", "totalUsers"],
+    aggfunc="sum"
+)
+
+# %% 可視化
+df_pivot.plot(kind="line", figsize=(12, 6))
+plt.title("Organic Search Traffic Trend")
+plt.savefig(f"{OUTPUT_DIR}/trend.png")
+show(df_pivot, save=f"{OUTPUT_DIR}/trend.csv")
+```
+
+**ポイント:**
+- セル分割により、部分実行・デバッグが容易
+- `show()` でコンテキストを節約（先頭20行のみ表示、必要ならCSV保存）
+- CLI実行時は `MPLBACKEND=Agg` により `plt.show()` は表示されず、`plt.savefig()` のみ動作
+
+### セルの流れ（ビジュアル）
+
+```
+┌─────────────────────────────────────────────────────┐
+│ セル1: パラメータとセットアップ                        │
+│ tags=["parameters"]                                 │
+├─────────────────────────────────────────────────────┤
+│ ✓ PROPERTY_ID, START_DATE, END_DATE を定義          │
+│ ✓ init() でパス解決・環境変数設定                     │
+│ ✓ 必要なライブラリをimport                           │
+└──────────────────┬──────────────────────────────────┘
+                   │
+                   │ CLI実行時: -p START_DATE=today-7d で上書き
+                   │ Jupyter実行時: そのまま使用
+                   ▼
+┌─────────────────────────────────────────────────────┐
+│ セル2: データ取得                                     │
+├─────────────────────────────────────────────────────┤
+│ mg = get_ga4(PROPERTY_ID)                           │
+│ mg.report.set.dates(START_DATE, END_DATE)           │
+│ result = mg.report.run(d=[...], m=[...])            │
+│ df = result.df                                      │
+└──────────────────┬──────────────────────────────────┘
+                   ▼
+┌─────────────────────────────────────────────────────┐
+│ セル3: データ加工                                     │
+├─────────────────────────────────────────────────────┤
+│ df_filtered = df[df["channel"] == "Organic"]        │
+│ df_pivot = df_filtered.pivot_table(...)             │
+└──────────────────┬──────────────────────────────────┘
+                   ▼
+┌─────────────────────────────────────────────────────┐
+│ セル4: 可視化・出力                                   │
+├─────────────────────────────────────────────────────┤
+│ df_pivot.plot(...)                                  │
+│ plt.savefig("output/chart.png")                     │
+│ show(df_pivot, save="output/result.csv")            │
+└─────────────────────────────────────────────────────┘
 ```
 
 パラメータとセットアップは 1 セルに統合する。`tags=["parameters"]` を付けておけば

@@ -64,6 +64,254 @@
 | 結果確認 | 目視 | - |
 | 分析 | 判断 | データ処理・考察 |
 
+### 実際のユースケース
+
+#### ユースケース1: 流入チャネル分析
+
+**人間の要求:**
+> 「先月のOrganic Search流入の日別推移を見たい」
+
+**AI Agentの処理:**
+```python
+# input/params.json を生成
+{
+  "schema_version": "1.0",
+  "source": "ga4",
+  "property_id": "254800682",
+  "date_range": {"start": "prev-month-start", "end": "prev-month-end"},
+  "dimensions": ["date"],
+  "metrics": ["sessions", "totalUsers"],
+  "filter_d": "sessionDefaultChannelGroup==Organic Search"
+}
+```
+
+**人間の確認（Streamlit UI）:**
+- 日付範囲を確認: 2026-01-01 〜 2026-01-31 ✓
+- フィルタ条件を確認: Organic Search のみ ✓
+- 実行ボタンクリック
+
+**結果:**
+- UIにグラフとテーブルが表示
+- CSV保存 → AI Agentが読み込んで次の分析へ
+
+#### ユースケース2: BigQueryコホート分析
+
+**人間の要求:**
+> 「2月に初訪問したユーザーの7日後定着率を調べたい」
+
+**AI Agentの処理:**
+```python
+# input/params.json を生成
+{
+  "schema_version": "1.0",
+  "source": "bigquery",
+  "project_id": "my-project",
+  "query": """
+    SELECT
+      cohort_date,
+      COUNT(DISTINCT user_pseudo_id) as cohort_size,
+      COUNT(DISTINCT CASE WHEN days_since = 7 THEN user_pseudo_id END) as day7_retained
+    FROM cohort_table
+    WHERE cohort_date >= '2026-02-01'
+    GROUP BY cohort_date
+  """,
+  "location": "asia-northeast1"
+}
+```
+
+**人間の確認:**
+- SQLを確認してWHERE句の日付を微調整
+- 実行してコホート定着率を確認
+
+#### ユースケース3: Search Console検索クエリ分析
+
+**人間の要求:**
+> 「ブログページの検索クエリTop20（クリック数順）」
+
+**AI Agentの処理:**
+```python
+{
+  "schema_version": "1.0",
+  "source": "gsc",
+  "site_url": "https://www.example.com/",
+  "date_range": {"start": "today-30d", "end": "today-3d"},
+  "dimensions": ["query", "page"],
+  "filter": "page:includingRegex:/blog/",
+  "limit": 25000,
+  "pipeline": {
+    "sort": "clicks DESC",
+    "head": 20
+  }
+}
+```
+
+**人間の確認:**
+- 日付範囲とフィルタを確認
+- Top20のクエリを確認してコンテンツ戦略を判断
+
+### データフロー図解
+
+#### パターンA: AI Agent直接実行（CLIのみ、人間の確認なし）
+
+```
+┌─────────────┐
+│ AI Agent    │ 自然言語要求を受け取り
+└──────┬──────┘
+       │
+       │ 1. params.json生成
+       ▼
+┌─────────────────────────┐
+│ input/params.json       │
+│ {source, date_range...} │
+└──────┬──────────────────┘
+       │
+       │ 2. CLI実行
+       ▼
+┌──────────────────────────┐
+│ scripts/query.py         │
+│ --params input/params.json│
+└──────┬───────────────────┘
+       │
+       │ 3. API呼び出し
+       ▼
+┌─────────────┐
+│ GA4/GSC/BQ  │ データソース
+└──────┬──────┘
+       │
+       │ 4. 結果保存
+       ▼
+┌──────────────────┐
+│ output/result.csv│
+└──────┬───────────┘
+       │
+       │ 5. 分析続行
+       ▼
+┌─────────────┐
+│ AI Agent    │ 結果を読んで考察
+└─────────────┘
+```
+
+**使いどころ:** 定期レポート、バッチ処理、探索的分析（人間の確認不要）
+
+#### パターンB: Streamlit UI連携（人間の確認あり）
+
+```
+┌─────────────┐
+│ AI Agent    │ 自然言語要求を受け取り
+└──────┬──────┘
+       │
+       │ 1. params.json生成
+       ▼
+┌─────────────────────────┐
+│ input/params.json       │
+│ {source, date_range...} │
+└──────┬──────────────────┘
+       │
+       │ 2. ファイル監視（2秒ごと）
+       ▼
+┌─────────────────────────┐
+│ Streamlit UI            │
+│ パラメータ自動反映       │
+└──────┬──────────────────┘
+       │
+       │ 3. 人間が確認・修正
+       ▼
+┌─────────────┐
+│   人間      │ UIで日付・フィルタ調整
+└──────┬──────┘
+       │
+       │ 4. 実行ボタン or 自動実行
+       ▼
+┌──────────────────────────┐
+│ Streamlit UI             │
+│ クエリ実行 → 結果表示     │
+└──────┬───────────────────┘
+       │
+       │ 5. CSV保存
+       ▼
+┌──────────────────┐
+│ output/result.csv│
+└──────┬───────────┘
+       │
+       │ 6. 結果確認 → OK/NG判断
+       ▼
+┌─────────────┐
+│   人間      │ 目視確認
+└──────┬──────┘
+       │
+       │ OK → 7. 分析続行
+       ▼
+┌─────────────┐
+│ AI Agent    │ 結果を読んで考察
+└─────────────┘
+```
+
+**使いどころ:** 探索的分析（パラメータの妥当性確認が必要）、アドホック分析
+
+### サンプルコード: Pythonでの直接実行
+
+```python
+# AI Agent が探索的分析を行う場合（Streamlit/CLI不使用）
+from megaton_lib.megaton_client import query_ga4, query_gsc, query_bq
+from megaton_lib.analysis import show, properties, sites
+
+# 1. 利用可能なプロパティ/サイトを確認
+properties()  # GA4プロパティ一覧
+sites()       # GSCサイト一覧
+
+# 2. クエリ実行（結果はDataFrame、contextに載らない）
+df_ga4 = query_ga4(
+    "254800682",
+    "2025-06-01",
+    "2026-01-31",
+    dimensions=["date", "sessionDefaultChannelGroup"],
+    metrics=["sessions", "totalUsers"],
+    filter_d="sessionDefaultChannelGroup==Organic Search"
+)
+
+df_gsc = query_gsc(
+    "https://www.example.com/",
+    "2026-01-01",
+    "2026-01-31",
+    dimensions=["query", "page"],
+    filter="page:includingRegex:/blog/",
+    limit=25000
+)
+
+# 3. Python加工（contextゼロ）
+df_ga4_pivot = df_ga4.pivot_table(
+    index="date",
+    columns="sessionDefaultChannelGroup",
+    values="sessions",
+    aggfunc="sum"
+)
+
+df_gsc_top = df_gsc.sort_values("clicks", ascending=False).head(20)
+
+# 4. 表示（行数制限付き、必要ならCSV保存）
+show(df_ga4_pivot, n=10, save="output/ga4_trend.csv")
+show(df_gsc_top, n=20, save="output/gsc_top_queries.csv")
+
+# 5. BigQueryパラメータ化クエリ
+df_cohort = query_bq(
+    project_id="my-project",
+    query="""
+        SELECT cohort_date, COUNT(DISTINCT user_pseudo_id) as cohort_size
+        FROM cohort_table
+        WHERE cohort_date >= @start_date
+        GROUP BY cohort_date
+    """,
+    params={"start_date": "2026-02-01"},
+    location="asia-northeast1"
+)
+show(df_cohort, save="output/cohort.csv")
+```
+
+**ルール:**
+- `print(df.to_string())` は禁止。常に `show()` を使う
+- 大きい結果は `save=` でCSV保存し、contextにはサマリだけ載せる
+- 加工・集計はpandas で行い、最終結果だけ `show()` する
+
 ---
 
 ## JSONパラメータスキーマ
