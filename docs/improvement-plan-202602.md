@@ -12,6 +12,67 @@ SLQM 70th コンテンツ分析（2/4公開後の流入・回遊・定着）を 
 
 ---
 
+## 課題の整理
+
+### ✅ 解決済みの課題（優先度: 高）
+
+以下の課題は2026-02-16に対応完了し、全462テストがpass。
+
+| # | 課題 | 解決内容 | 対応日 |
+|---|------|---------|-------|
+| ① | **BQパラメータ化クエリ未対応** | `query_bq()` に `params` 引数追加、`get_bq_client()` 新設 | 2026-02-16 |
+| ② | **ステートフルなmg.report.data** | `query_ga4()` と `slqm_analysis._run()` で `result.df` を直接返すように修正 | 2026-02-16 |
+| ③ | **SLQM分析ヘルパー不足** | `slqm_analysis.py` に8関数追加（日別指標、チャネル分析等） | 2026-02-16 |
+| ⑤ | **GSC認証経路分断** | MCP側の `sa_corp-1872_gsc-api.json` を symlink で統合 | 2026-02-16 |
+
+#### 解決詳細
+
+**① BQコホート分析への到達が遠い → 解決**
+- 課題: `query_bq()` はパラメータ化クエリ非対応、`init_bq_client()` は Talks 専用設計
+- 解決: `query_bq()` を拡張し `params` 引数でパラメータ化クエリ対応。`get_bq_client()` を新設して汎用化
+- 変更ファイル: `megaton_lib/megaton_client.py`, `megaton_lib/talks_retention.py`, `tests/test_megaton_execution.py`
+- テスト: 6件追加
+
+**② mg.report.data の暗黙的な状態共有 → 緩和**
+- 課題: 複数クエリ連続実行で前の結果が上書き、うっかり忘れるとデータ消失
+- 解決: megaton は既に `ReportResult` を返していた。`query_ga4()` と `slqm_analysis._run()` で `result.df` を直接使うように修正
+- 変更ファイル: `megaton_lib/megaton_client.py`, `megaton_lib/slqm_analysis.py`
+- megaton_lib 内では `mg.report.data` を参照しない設計に統一
+
+**③ アドホック分析がやりにくい → 解決**
+- 課題: 定型クエリは使えず、毎回 `mg.report.run()` を生で叩く必要
+- 解決: `slqm_analysis.py` に8つのヘルパー関数追加
+  - `fetch_daily_metrics`: 日別 UU/sessions/PV
+  - `fetch_page_metrics`: ページ別指標 + 読了率
+  - `fetch_channel_breakdown`: チャネル別流入
+  - `fetch_source_medium`: ソース/メディア別流入
+  - `fetch_landing_pages`: ランディングページ別
+  - `fetch_session_quality`: 滞在時間・ページ/セッション
+  - `fetch_new_vs_returning`: 新規 vs 既存
+  - `fetch_page_transitions`: ページ間遷移 + URL簡略化
+- 変更ファイル: `megaton_lib/slqm_analysis.py` (新規), `tests/test_slqm_analysis.py`
+- テスト: 23件追加
+
+**⑤ GSC認証の統合 → 解決**
+- 課題: megaton と MCP で認証経路が異なり使い分け必要
+- 解決: MCP側の `sa_corp-1872_gsc-api.json` を `credentials/` に symlink
+- `build_registry()` が3つ目のサービスアカウントを自動発見
+- `get_gsc('https://corp.shiseido.com/')` が megaton 経由で動作可能に
+
+---
+
+### 🔲 未着手の課題（優先度: 中〜低）
+
+以下は長期的な改善項目として今後検討。
+
+| # | 課題 | 優先度 | 内容 |
+|---|------|-------|------|
+| ④ | **megaton_lib のディレクトリ分割** | 中 | 汎用（core/）と案件固有（projects/talks, slqm, dei, with）の境界を明確化 |
+| ⑥ | **megaton PyPIのステート管理改善** | 低 | `run()` が毎回新しい Result オブジェクトを返し、内部状態を変更しない設計に（破壊的変更） |
+| ⑦ | **メトリクス/ディメンションのスコープ検証** | 低 | GA4 APIメタデータを使い、スコープ不一致を検知・警告 |
+
+---
+
 ## A. 今回の分析で実際にぶつかった課題
 
 ### 1. アドホック分析がやりにくい → ✅ 解決済み（③で対応）
