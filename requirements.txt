@@ -1,14 +1,14 @@
-# Python 3.11 以上が必要
+# Requires Python 3.11+
 
-# Megaton (GA4/GSC/BigQuery/Sheets 操作)
-git+https://github.com/mak00s/megaton.git
+# Megaton (GA4/GSC/BigQuery/Sheets)
+megaton>=1.0.0
 
 # Jupyter
 jupyter
 ipywidgets
 jupytext
 
-# データ処理・可視化
+# Data processing and visualization
 pandas
 matplotlib
 japanize-matplotlib
