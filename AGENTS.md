@@ -75,7 +75,7 @@ AI Agent と人間が協力してデータ分析を行う際、それぞれの�
 ## ディレクトリ構成
 
 ```
-example-site-analysis/
+megaton-app/
 ├── AGENTS.md               # 本ドキュメント（AI Agent が最初に読む）
 ├── docs/                   # 詳細ドキュメント
 │   ├── USAGE.md            # 使い方ガイド
@@ -85,7 +85,7 @@ example-site-analysis/
 ├── notebooks/              # Jupyter Notebook（Jupytext .py ↔ .ipynb）
 │   ├── setup.py            # ノートブック共通セットアップ（init()）
 │   └── reports/            # 分析レポート用ノートブック
-├── lib/                    # 共通モジュール
+├── megaton_lib/            # 共通モジュール
 │   ├── megaton_client.py   # megaton ラッパー（CLI/UI共通）
 │   └── notebook.py         # ノートブック初期化ヘルパー（init()）
 ├── scripts/                # CLIスクリプト（AI Agent 用）
@@ -275,11 +275,11 @@ python scripts/run_notebook.py notebooks/reports/yokohama_cv.py \
 ### AI Agent が探索的分析をする場合（Python直接実行）
 
 CLIやStreamlitを介さず、Pythonコードを直接実行して分析する場合は
-`lib/analysis` のヘルパーを使う。**context を浪費しない**設計。
+`megaton_lib/analysis` のヘルパーを使う。**context を浪費しない**設計。
 
 ```python
-from lib.megaton_client import query_ga4, query_gsc
-from lib.analysis import show, properties, sites
+from megaton_lib.megaton_client import query_ga4, query_gsc
+from megaton_lib.analysis import show, properties, sites
 
 # プロパティ/サイト一覧
 properties()
@@ -371,7 +371,7 @@ EOF
 1. **AGENTS.md で引き継ぎ**: Cursor / Claude Code / VS Code Codex が自動認識
 2. **Git 管理**: 認証情報 JSON 以外は全て Git で管理
 3. **Jupytext 運用**: AI Agent は .py を編集 → `jupytext --sync` で同期
-4. **コードの一元化**: 共通ロジックは `lib/megaton_client.py` に集約
+4. **コードの一元化**: 共通ロジックは `megaton_lib/megaton_client.py` に集約
    - CLI と Streamlit UI で同じコードを使う
    - 重複を避け、修正漏れを防ぐ
 5. **AI Agent は CLI 優先**: 人間の確認が不要な場合は Streamlit UI を介さず `scripts/` を直接実行（高速）

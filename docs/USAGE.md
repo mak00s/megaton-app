@@ -26,8 +26,8 @@ from setup import init; init()  # noqa: E702
 # ========== ライブラリ読み込み ==========
 import pandas as pd
 import matplotlib.pyplot as plt
-from lib.megaton_client import get_ga4, get_gsc
-from lib.analysis import show
+from megaton_lib.megaton_client import get_ga4, get_gsc
+from megaton_lib.analysis import show
 ```
 
 **ポイント:**
@@ -125,8 +125,8 @@ END_DATE = "2026-01-31"
 import sys; sys.path.insert(0, "..")  # noqa: E702  ← reports/ 等サブディレクトリの場合のみ
 from setup import init; init()  # noqa: E702
 
-from lib.megaton_client import get_ga4, get_gsc
-from lib.analysis import show
+from megaton_lib.megaton_client import get_ga4, get_gsc
+from megaton_lib.analysis import show
 ```
 
 `notebooks/` 直下のノートブックは `sys.path.insert` 不要（`setup.py` が同じ階層）。
@@ -201,8 +201,8 @@ AI Agent がデータを取得する際は、CLIスクリプトを使用。高�
 # source を見て自動分岐（ga4/gsc/bigquery）
 python scripts/query.py --params input/params.json
 
-# 同期実行 + 結果フィルタ（ジョブ不要）
-python scripts/query.py --params input/params.json --json --where "clicks > 10" --sort "clicks DESC" --head 20
+# 同期実行でパイプラインを使う場合は params.json の pipeline に記述
+python scripts/query.py --params input/params.json --json
 
 # 非同期ジョブとして投入
 python scripts/query.py --submit --params input/params.json
@@ -253,11 +253,11 @@ python scripts/query.py --list-bq-datasets --project my-project
 | `--result <job_id>` | ジョブ結果情報の表示 | - |
 | `--head <N>` | `--result` で先頭N行を返す | - |
 | `--summary` | `--result` で要約統計を返す | OFF |
-| `--where` | 同期実行/`--result` で行フィルタ（pandas query） | - |
-| `--sort` | 同期実行/`--result` でソート（`col DESC,col2 ASC`） | - |
-| `--columns` | 同期実行/`--result` で列選択（カンマ区切り） | - |
-| `--group-by` | 同期実行/`--result` でグループ列（カンマ区切り） | - |
-| `--aggregate` | 同期実行/`--result` で集計（`sum:clicks` 形式） | - |
+| `--where` | `--result` で行フィルタ（pandas query） | - |
+| `--sort` | `--result` でソート（`col DESC,col2 ASC`） | - |
+| `--columns` | `--result` で列選択（カンマ区切り） | - |
+| `--group-by` | `--result` でグループ列（カンマ区切り） | - |
+| `--aggregate` | `--result` で集計（`sum:clicks` 形式） | - |
 | `--list-jobs` | ジョブ一覧の表示 | OFF |
 | `--job-limit` | ジョブ一覧の件数上限 | 20 |
 | `--list-ga4-properties` | GA4プロパティ一覧 | OFF |
@@ -268,6 +268,7 @@ python scripts/query.py --list-bq-datasets --project my-project
 | `--output` | CSV出力ファイル | - |
 
 `--params` 実行時は `schema_version: "1.0"` を必須検証し、`source` とキー整合性が崩れている場合は実行前にエラー終了します。
+`--params` 同期実行時は CLI パイプライン引数（`--where` / `--sort` / `--columns` / `--group-by` / `--aggregate` / `--head`）は使用不可。`pipeline` を params.json 側で指定する。
 `--head` と `--summary` は `--result` と併用する。
 `--group-by` と `--aggregate` は同時指定が必須。
 `--summary` は `--result` 専用で、パイプラインオプションとは同時指定不可。
@@ -311,8 +312,8 @@ mg.ga['4'].property.select("PROPERTY_ID")
 
 # レポート実行（show=False で表示をスキップ）
 mg.report.set.dates(start_date, end_date)
-mg.report.run(d=[...], m=[...], show=False)
-df = mg.report.data
+result = mg.report.run(d=[...], m=[...], show=False)
+df = result.df
 ```
 
 **ポイント:**

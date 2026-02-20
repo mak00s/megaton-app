@@ -762,7 +762,7 @@ info = describe_auth_context(creds_hint="corp")
 ### 初期化（Notebook 推奨）
 
 ```python
-from lib.megaton_client import get_ga4, get_gsc
+from megaton_lib.megaton_client import get_ga4, get_gsc
 
 # クレデンシャル自動選択 + アカウント/プロパティ選択済み
 mg = get_ga4("PROPERTY_ID")
@@ -778,7 +778,7 @@ mg = get_gsc("https://example.com/")
 
 ```python
 from megaton import start
-from lib.credentials import resolve_service_account_path
+from megaton_lib.credentials import resolve_service_account_path
 mg = start.Megaton(resolve_service_account_path(), headless=True)
 ```
 
@@ -797,8 +797,8 @@ mg.ga["4"].accounts  # [{"id": "...", "name": "...", "properties": [...]}]
 mg.ga["4"].account.select("ACCOUNT_ID")
 mg.ga["4"].property.select("PROPERTY_ID")
 mg.report.set.dates("2026-01-01", "2026-01-31")
-mg.report.run(d=["date"], m=["sessions"], filter_d="...", show=False)
-df = mg.report.data
+result = mg.report.run(d=["date"], m=["sessions"], filter_d="...", show=False)
+df = result.df
 ```
 
 #### ReportResult メソッド
