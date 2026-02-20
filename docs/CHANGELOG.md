@@ -1,4 +1,4 @@
-# 進捗履歴
+# 変更履歴
 
 ## マイルストーン
 
@@ -7,7 +7,7 @@
 | 1 | 2026-02-03 | プロジェクト立ち上げ、ドキュメント・Git整備 |
 | 2 | 2026-02-04〜06 | Notebook/CLI/UI の3インターフェース構築 |
 | 3 | 2026-02-07 | CLI統合（query.py）、ジョブ管理、結果パイプライン |
-| 4 | 2026-02-16 | SLQM振り返り改善施策一括実施（[詳細](improvement-plan-202602.md)） |
+| 4 | 2026-02-16 | SLQM振り返り改善施策一括実施 |
 
 ## 変更履歴
 
@@ -21,7 +21,7 @@
 
 ### 2026-02-16
 
-- SLQM 70th 分析振り返りに基づく改善施策を一括実施（詳細: [improvement-plan-202602.md](improvement-plan-202602.md)）
+- SLQM 70th 分析振り返りに基づく改善施策を一括実施
   - `query_bq()` パラメータ化クエリ対応、`get_bq_client()` 新設
   - `query_ga4()` / `slqm_analysis._run()` で `result.df` を直接返すように修正
   - `slqm_analysis.py` に8つの分析ヘルパー関数追加
@@ -49,9 +49,15 @@
 ### 2026-02-04
 
 - Gradio UI 構築、CLIスクリプト追加
-- AGENTS.md をファイル分割（docs/USAGE.md, docs/PROGRESS.md, docs/REFERENCE.md）
+- AGENTS.md をファイル分割（docs/USAGE.md, docs/CHANGELOG.md, docs/REFERENCE.md）
 
 ### 2026-02-03
 
 - プロジェクト開始、ドキュメント・構成作成
 - Git 初期化、認証チェック機能追加
+
+## 今後検討メモ（2026-02時点）
+
+- `megaton_lib` のディレクトリ分割（汎用モジュールと案件固有モジュールの境界整理）
+- `megaton` PyPI 側のステート管理改善（`run()` の非ステートフル化）
+- GA4 メトリクス/ディメンションのスコープ不一致の自動検証（現状は docstring 注意喚起で対応）

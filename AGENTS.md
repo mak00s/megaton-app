@@ -102,4 +102,4 @@ show(df, save="output/result.csv")          # 保存＋表示
 |-------------|------|
 | [docs/USAGE.md](docs/USAGE.md) | CLI・Notebook・UI の詳細な使い方 |
 | [docs/REFERENCE.md](docs/REFERENCE.md) | JSONスキーマ、megaton API、認証、パイプライン |
-| [docs/PROGRESS.md](docs/PROGRESS.md) | 変更履歴 |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | 変更履歴 |

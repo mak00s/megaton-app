@@ -47,7 +47,7 @@ megaton-app/
 |-------------|------|
 | [docs/USAGE.md](docs/USAGE.md) | Notebook・CLI・Streamlit UI の使い方ガイド |
 | [docs/REFERENCE.md](docs/REFERENCE.md) | JSONスキーマ、megaton API、認証、パイプライン |
-| [docs/PROGRESS.md](docs/PROGRESS.md) | 変更履歴 |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | 変更履歴 |
 
 ## 関連リポジトリ
 
