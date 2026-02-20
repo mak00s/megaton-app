@@ -69,93 +69,18 @@ show(df_pivot, save=f"{OUTPUT_DIR}/trend.csv")
 - `show()` でコンテキストを節約（先頭20行のみ表示、必要ならCSV保存）
 - CLI実行時は `MPLBACKEND=Agg` により `plt.show()` は表示されず、`plt.savefig()` のみ動作
 
-### セルの流れ（ビジュアル）
-
-```
-┌─────────────────────────────────────────────────────┐
-│ セル1: パラメータとセットアップ                        │
-│ tags=["parameters"]                                 │
-├─────────────────────────────────────────────────────┤
-│ ✓ PROPERTY_ID, START_DATE, END_DATE を定義          │
-│ ✓ init() でパス解決・環境変数設定                     │
-│ ✓ 必要なライブラリをimport                           │
-└──────────────────┬──────────────────────────────────┘
-                   │
-                   │ CLI実行時: -p START_DATE=today-7d で上書き
-                   │ Jupyter実行時: そのまま使用
-                   ▼
-┌─────────────────────────────────────────────────────┐
-│ セル2: データ取得                                     │
-├─────────────────────────────────────────────────────┤
-│ mg = get_ga4(PROPERTY_ID)                           │
-│ mg.report.set.dates(START_DATE, END_DATE)           │
-│ result = mg.report.run(d=[...], m=[...])            │
-│ df = result.df                                      │
-└──────────────────┬──────────────────────────────────┘
-                   ▼
-┌─────────────────────────────────────────────────────┐
-│ セル3: データ加工                                     │
-├─────────────────────────────────────────────────────┤
-│ df_filtered = df[df["channel"] == "Organic"]        │
-│ df_pivot = df_filtered.pivot_table(...)             │
-└──────────────────┬──────────────────────────────────┘
-                   ▼
-┌─────────────────────────────────────────────────────┐
-│ セル4: 可視化・出力                                   │
-├─────────────────────────────────────────────────────┤
-│ df_pivot.plot(...)                                  │
-│ plt.savefig("output/chart.png")                     │
-│ show(df_pivot, save="output/result.csv")            │
-└─────────────────────────────────────────────────────┘
-```
-
-パラメータとセットアップは 1 セルに統合する。`tags=["parameters"]` を付けておけば
-`run_notebook.py -p KEY=VALUE` でパラメータだけ上書きできる（import 文はマッチしない）。
-
-### ノートブックの初期化
-
-`notebooks/setup.py` の `init()` がパス解決・環境変数・モジュールリロードを一括で行う。
-
-```python
-# %% tags=["parameters"]
-PROPERTY_ID = "254800682"
-START_DATE = "2025-06-01"
-END_DATE = "2026-01-31"
-
-import sys; sys.path.insert(0, "..")  # noqa: E702  ← reports/ 等サブディレクトリの場合のみ
-from setup import init; init()  # noqa: E702
-
-from megaton_lib.megaton_client import get_ga4, get_gsc
-from megaton_lib.analysis import show
-```
-
-`notebooks/` 直下のノートブックは `sys.path.insert` 不要（`setup.py` が同じ階層）。
-サブディレクトリ（`reports/` 等）のノートブックは `sys.path.insert(0, "..")` で `notebooks/` を追加する。
-
 ### megaton ネイティブ API（推奨）
 
 `get_ga4()` / `get_gsc()` はクレデンシャル自動選択・アカウント選択済みの megaton インスタンスを返す。
-megaton の ReportResult / SearchResult のメソッドチェーンで後処理が可能。
+`ReportResult` / `SearchResult` のメソッドチェーンで後処理が可能（詳細は [REFERENCE.md](REFERENCE.md#megaton-api)）。
 
 ```python
-# GA4: ReportResult チェーン
 mg = get_ga4(PROPERTY_ID)
 mg.report.set.dates(START_DATE, END_DATE)
 result = mg.report.run(d=["date", "landingPage"], m=["sessions"], show=False)
 result.clean_url("landingPage").group("date").sort("date")
 df = result.df
-
-# GSC: SearchResult チェーン
-mg = get_gsc(SITE_URL)
-mg.search.set.dates(START_DATE, END_DATE)
-result = mg.search.run(dimensions=["query", "page"], limit=25000)
-result.decode().clean_url().normalize_queries().filter_impressions(min=10)
-df = result.df
 ```
-
-**ReportResult の主なメソッド:** `clean_url`, `group`, `sort`, `fill`, `to_int`, `replace`, `normalize`, `classify`, `categorize`
-
-**SearchResult の主なメソッド:** `decode`, `clean_url`, `remove_params`, `normalize_queries`, `filter_clicks`, `filter_impressions`, `filter_ctr`, `filter_position`, `aggregate`, `classify`, `categorize`, `apply_if`
 
 ### CLI から実行
 
@@ -298,32 +223,18 @@ GSC演算子: `contains`, `notContains`, `equals`, `notEquals`, `includingRegex`
 
 ### カスタムスクリプト
 
-独自スクリプトで megaton を使う場合は、headless モードで初期化。
+独自スクリプトで megaton を使う場合は headless モードで初期化。
+認証解決ルールの詳細は [REFERENCE.md](REFERENCE.md#認証情報) を参照。
 
 ```python
 from megaton import start
 
-# headless モードで初期化（UIなし）
 mg = start.Megaton("credentials/sa-xxx.json", headless=True)
-
-# GA4 アカウント・プロパティを直接指定
 mg.ga['4'].account.select("ACCOUNT_ID")
 mg.ga['4'].property.select("PROPERTY_ID")
-
-# レポート実行（show=False で表示をスキップ）
-mg.report.set.dates(start_date, end_date)
 result = mg.report.run(d=[...], m=[...], show=False)
 df = result.df
 ```
-
-**ポイント:**
-- `headless=True`: UI（ipywidgets）を使わない
-- `show=False`: レポート実行後の自動表示をスキップ
-- アカウント・プロパティは ID を直接指定
-- 認証JSONは `MEGATON_CREDS_PATH` で指定（未指定時は `credentials/*.json` を自動探索）
-- BigQuery のパラメータ化クエリ（`query_bq(..., params=...)`）は
-  `GOOGLE_APPLICATION_CREDENTIALS` を優先して使用。未設定時は
-  `MEGATON_CREDS_PATH` / `credentials/*.json` から自動選択（`creds_hint` 優先）
 
 ---
 

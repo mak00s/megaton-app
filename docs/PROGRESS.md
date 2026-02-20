@@ -1,103 +1,57 @@
 # 進捗履歴
 
-## プロジェクトマイルストーン
+## マイルストーン
 
-### Phase 1: プロジェクト立ち上げ（2026-02-03）
-**目標**: ドキュメント整備と基本構成の確立
+| Phase | 時期 | 内容 |
+|-------|------|------|
+| 1 | 2026-02-03 | プロジェクト立ち上げ、ドキュメント・Git整備 |
+| 2 | 2026-02-04〜06 | Notebook/CLI/UI の3インターフェース構築 |
+| 3 | 2026-02-07 | CLI統合（query.py）、ジョブ管理、結果パイプライン |
+| 4 | 2026-02-16 | SLQM振り返り改善施策一括実施（[詳細](improvement-plan-202602.md)） |
 
-- ✅ プロジェクト開始、ドキュメント・構成作成
-- ✅ Jupytext 設定追加、運用ルール策定
-- ✅ Git 初期化、初回コミット完了
-- ✅ 認証チェック機能追加、env廃止、設定直書き方式に統一
+## 変更履歴
 
-### Phase 2: 基本機能実装（2026-02-04 〜 2026-02-06）
-**目標**: 3つのインターフェース（Notebook/CLI/UI）の構築
+### 2026-02-21
 
-- ✅ CLIスクリプト追加（query_ga4.py, query_gsc.py）
-- ✅ Gradio UI 構築（JSONパラメータ実行、テーブル/チャート表示）
-- ✅ UI機能強化（プロパティ選択、日付入力、JSON⇔UI同期、CSV保存）
-- ✅ AGENTS.md をファイル分割（docs/USAGE.md, docs/PROGRESS.md, docs/REFERENCE.md）
-- ✅ Gradio → Streamlit に移行
-- ✅ BigQuery対応追加（Streamlit UI）
-- ✅ 取得件数上限を10万に拡張
-- ✅ Notebook: 認証チェックセル削除、セル番号整理
-- ✅ UI改善: JSON自動反映、自動実行トグルを縦並びに
+- ドキュメント重複整理（AGENTS.md / README.md / USAGE.md / REFERENCE.md）
+  - AGENTS.md: 378行→106行（詳細は USAGE/REFERENCE に委譲）
+  - README.md: 141行→47行（Getting Started に特化）
+  - REFERENCE.md: Streamlit UI フロー図・ユースケース・CLI コマンド例を削除（USAGE に一元化）
+  - USAGE.md: Notebook ビジュアル図の重複削除、カスタムスクリプト・ネイティブAPI を簡潔化
 
-### Phase 3: CLI統合とジョブ管理（2026-02-07）
-**目標**: 統合CLIによる運用効率化
+### 2026-02-16
 
-#### CLI統合の実装
+- SLQM 70th 分析振り返りに基づく改善施策を一括実施（詳細: [improvement-plan-202602.md](improvement-plan-202602.md)）
+  - `query_bq()` パラメータ化クエリ対応、`get_bq_client()` 新設
+  - `query_ga4()` / `slqm_analysis._run()` で `result.df` を直接返すように修正
+  - `slqm_analysis.py` に8つの分析ヘルパー関数追加
+  - `ga4_helpers.py` 新設（共通GA4ヘルパー抽出）
+  - GSC認証統合（MCP側 JSON を credentials/ に symlink）
+  - 公開API入力バリデーション追加
+  - バッチエラーレポート構造化
+  - テスト基盤整備（pytest マーカー `unit`/`contract`/`integration`）
+  - 全479テスト pass
 
-```
-Before: 3つの個別スクリプト          After: 統合スクリプト
-├── query_ga4.py                  └── query.py
-├── query_gsc.py                      ├── --params で自動分岐
-└── query_bq.py                       └── 統一スキーマ対応
-```
-
-- ✅ CLIを統合し `scripts/query.py` を追加（`--params` で source 自動分岐）
-- ✅ `query_ga4.py` / `query_gsc.py` / `query_bq.py` を廃止
-- ✅ Streamlit/CLIで共通スキーマ（`schema_version: "1.0"`）運用に統一
-
-#### ジョブ管理機能の追加
-
-```
-ジョブライフサイクル:
-投入 → 待機 → 実行中 → 完了/失敗
-  │      │       │         │
-  │      │       └─キャンセル可
-  └──────┴────────────────┘
-       ジョブ一覧で確認
-```
-
-- ✅ `scripts/query.py` にジョブ管理を追加（`--submit`, `--status`, `--result`, `--list-jobs`）
-- ✅ `--result` に部分読み込みを追加（`--head N`, `--summary`）
-- ✅ `--json` 時の出力を成功/失敗ともに構造化JSONへ統一（`status`, `error_code` など）
-- ✅ ジョブキャンセルを追加（`--cancel <job_id>`）
-
-#### 結果パイプライン機能
-
-```
-クエリ実行 → フィルタ → 変換 → 集計 → ソート → 出力
-              ↓         ↓       ↓       ↓
-           --where  --transform --group-by --sort
-```
-
-- ✅ `--result` に結果パイプラインを追加（`--where`, `--sort`, `--columns`, `--group-by`, `--aggregate`）
-- ✅ 同期実行（`--params`）にも同じ結果パイプラインを適用可能に拡張
-
-## 詳細な変更履歴
-
-## 2026-02-07
+### 2026-02-07
 
 - CLIを統合し `scripts/query.py` を追加（`--params` で source 自動分岐）
 - `query_ga4.py` / `query_gsc.py` / `query_bq.py` を廃止
 - Streamlit/CLIで共通スキーマ（`schema_version: "1.0"`）運用に統一
-- `scripts/query.py` にジョブ管理を追加（`--submit`, `--status`, `--result`, `--list-jobs`）
-- `--result` に部分読み込みを追加（`--head N`, `--summary`）
-- `--json` 時の出力を成功/失敗ともに構造化JSONへ統一（`status`, `error_code` など）
-- ジョブキャンセルを追加（`--cancel <job_id>`）
-- `--result` に結果パイプラインを追加（`--where`, `--sort`, `--columns`, `--group-by`, `--aggregate`）
-- 同期実行（`--params`）にも同じ結果パイプラインを適用可能に拡張
+- ジョブ管理機能追加（`--submit`, `--status`, `--result`, `--cancel`, `--list-jobs`）
+- 結果パイプライン追加（`--where`, `--sort`, `--columns`, `--group-by`, `--aggregate`）
 
-## 2026-02-06
+### 2026-02-06
 
 - Gradio → Streamlit に移行
 - BigQuery対応追加（Streamlit UI）
 - 取得件数上限を10万に拡張
-- Notebook: 認証チェックセル削除、セル番号整理
-- UI改善: JSON自動反映、自動実行トグルを縦並びに
 
-## 2026-02-04
+### 2026-02-04
 
-- Gradio UI 構築（JSONパラメータ実行、テーブル/チャート表示）
-- CLIスクリプト追加（query_ga4.py, query_gsc.py）
-- UI機能強化（プロパティ選択、日付入力、JSON⇔UI同期、CSV保存）
+- Gradio UI 構築、CLIスクリプト追加
 - AGENTS.md をファイル分割（docs/USAGE.md, docs/PROGRESS.md, docs/REFERENCE.md）
 
-## 2026-02-03
+### 2026-02-03
 
 - プロジェクト開始、ドキュメント・構成作成
-- Jupytext 設定追加、運用ルール策定
-- Git 初期化、初回コミット完了
-- 認証チェック機能追加、env廃止、設定直書き方式に統一
+- Git 初期化、認証チェック機能追加
