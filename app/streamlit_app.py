@@ -79,15 +79,15 @@ def apply_params_to_session(params):
             st.session_state["w_ga4_property_id"] = params["property_id"]
         if "metrics" in params:
             st.session_state["w_ga4_metrics"] = params["metrics"]
-        if "filter_d" in params:
-            st.session_state["w_ga4_filter"] = params["filter_d"]
+        # Optional field: clear stale filter when filter_d is omitted.
+        st.session_state["w_ga4_filter"] = params.get("filter_d", "")
 
     # GSC固有
     if source == "gsc":
         if "site_url" in params:
             st.session_state["w_gsc_site"] = params["site_url"]
-        if "filter" in params:
-            st.session_state["w_gsc_filter"] = params["filter"]
+        # Optional field: clear stale filter when filter is omitted.
+        st.session_state["w_gsc_filter"] = params.get("filter", "")
 
     # BigQuery固有
     if source == "bigquery":
