@@ -36,10 +36,11 @@ AI エージェントが JSON を書き、人間が UI で確認・実行する�
 ### CLI
 
 ```bash
-# GA4 クエリ実行
-python scripts/query.py ga4 --property 123456789 \
-  --start today-30d --end today-1d \
-  --dimensions date --metrics sessions
+# params.json から同期実行（source=ga4/gsc/bigquery を自動判定）
+python scripts/query.py --params input/params.json
+
+# 非同期ジョブ投入
+python scripts/query.py --submit --params input/params.json
 
 # バッチ実行（configs/ 内の JSON を順次処理）
 python scripts/query.py --batch configs/
@@ -52,8 +53,8 @@ from megaton_lib.megaton_client import get_ga4
 
 mg = get_ga4("283927309")
 mg.report.set.dates("2025-01-01", "2025-12-31")
-mg.report.run(d=[...], m=[...])
-df = mg.report.data
+result = mg.report.run(d=[...], m=[...], show=False)
+df = result.df
 ```
 
 ## 構成
