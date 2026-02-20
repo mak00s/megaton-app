@@ -1,57 +1,58 @@
 # megaton-app
 
-GA4 / Search Console / BigQuery のデータ取得・分析ツールキット。
-Notebook・CLI・Streamlit UI の3つのインターフェースで使える。
+A toolkit for fetching and analyzing data from GA4, Search Console, and BigQuery.
+Use it through three interfaces: Notebook, CLI, and Streamlit UI.
 
-## セットアップ
+## Setup
 
 ```bash
 pip install -r requirements.txt
-# credentials/ にサービスアカウント JSON を配置（複数可、property_id で自動ルーティング）
+# Place service account JSON file(s) in credentials/
+# Multiple files are supported; routing is resolved by property_id
 ```
 
-## クイックスタート
+## Quick Start
 
 ```bash
 # Streamlit UI
 streamlit run app/streamlit_app.py
 
-# CLI（params.json の source で GA4/GSC/BigQuery を自動判定）
+# CLI (source in params.json is auto-routed to GA4/GSC/BigQuery)
 python scripts/query.py --params input/params.json
 
-# テスト
+# Tests
 pytest
 ```
 
-詳しい使い方は [docs/USAGE.md](docs/USAGE.md) を参照。
+See [docs/USAGE.md](docs/USAGE.md) for detailed usage.
 
-## 構成
+## Structure
 
 ```
 megaton-app/
-├── megaton_lib/        # 共有ライブラリ（pip install -e で他リポジトリから利用）
-├── scripts/            # CLI（query.py, run_notebook.py）
+├── megaton_lib/        # Shared library (reusable from other repos via pip install -e)
+├── scripts/            # CLI tools (query.py, run_notebook.py)
 ├── app/                # Streamlit UI
-├── notebooks/          # Jupyter Notebook（Jupytext .py ↔ .ipynb）
-├── credentials/        # サービスアカウント JSON（Git管理外）
-├── configs/            # バッチ実行用 JSON
-├── input/              # AI Agent → UI パラメータ受け渡し
-├── output/             # クエリ結果・ジョブ管理
-├── tests/              # pytest（CI で 90% カバレッジ必須）
-└── docs/               # 詳細ドキュメント
+├── notebooks/          # Jupyter notebooks (Jupytext .py <-> .ipynb)
+├── credentials/        # Service account JSON files (not tracked by Git)
+├── configs/            # JSON configs for batch runs
+├── input/              # AI Agent -> UI parameter handoff
+├── output/             # Query results and job artifacts
+├── tests/              # pytest (CI requires >=90% coverage)
+└── docs/               # Detailed documentation
 ```
 
-## ドキュメント
+## Documentation
 
-| ドキュメント | 内容 |
+| Document | Description |
 |-------------|------|
-| [docs/USAGE.md](docs/USAGE.md) | Notebook・CLI・Streamlit UI の使い方ガイド |
-| [docs/REFERENCE.md](docs/REFERENCE.md) | JSONスキーマ、megaton API、認証、パイプライン |
-| [docs/CHANGELOG.md](docs/CHANGELOG.md) | 変更履歴 |
+| [docs/USAGE.md](docs/USAGE.md) | Usage guide for Notebook, CLI, and Streamlit UI |
+| [docs/REFERENCE.md](docs/REFERENCE.md) | JSON schema, megaton API, auth, and pipeline reference |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Project change history |
 
-## 関連リポジトリ
+## Related Repositories
 
-| リポジトリ | 役割 |
+| Repository | Role |
 |---|---|
-| [megaton](https://github.com/mak00s/megaton) | GA4/GSC/Sheets API ラッパー（PyPI パッケージ） |
-| [megaton-notebooks](https://github.com/mak00s/megaton-notebooks) | 定期レポート用ノートブック集 |
+| [megaton](https://github.com/mak00s/megaton) | GA4/GSC/Sheets API wrapper (PyPI package) |
+| [megaton-notebooks](https://github.com/mak00s/megaton-notebooks) | Notebook collection for scheduled reporting |
