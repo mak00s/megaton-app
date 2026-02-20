@@ -18,7 +18,6 @@ def _infer_layer_from_nodeid(nodeid: str) -> str:
 
     integration_files = {
         "test_app_engines.py",
-        "test_app_main.py",
         "test_batch.py",
         "test_query_branch_coverage.py",
         "test_query_nonjson_and_main_branches.py",
