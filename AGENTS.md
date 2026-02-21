@@ -100,8 +100,8 @@ Tests use API mocks (SimpleNamespace pattern) with no external dependencies.
 
 ## Documentation
 
-| Document | Contents |
-|----------|----------|
-| [docs/USAGE.md](docs/USAGE.md) | Setup, quick start, recipes |
-| [docs/REFERENCE.md](docs/REFERENCE.md) | JSON schema, all CLI options, pipeline, megaton API, auth |
-| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Change history |
+| Document | Language | Contents |
+|----------|----------|----------|
+| [docs/USAGE.md](docs/USAGE.md) | Japanese | Setup, quick start, recipes (will be split into JA/EN later) |
+| [docs/REFERENCE.md](docs/REFERENCE.md) | English | JSON schema, all CLI options, pipeline, megaton API, auth |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | English | Change history |

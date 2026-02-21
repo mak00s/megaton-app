@@ -188,7 +188,7 @@ python scripts/query.py --params input/params.json --json
 python scripts/query.py --result <job_id> --where "clicks > 10" --sort "clicks DESC" --head 20
 ```
 
-パイプラインの詳細は [REFERENCE.md](REFERENCE.md#結果パイプラインオプション) を参照。
+パイプラインの詳細は [REFERENCE.md](REFERENCE.md#result-pipeline) を参照。
 
 ---
 
@@ -305,7 +305,7 @@ python scripts/query.py --list-gsc-sites
 python scripts/query.py --list-bq-datasets --project my-project
 ```
 
-全オプションの一覧は [REFERENCE.md](REFERENCE.md#cli-オプション一覧) を参照。
+全オプションの一覧は [REFERENCE.md](REFERENCE.md#options) を参照。
 
 ---
 
@@ -329,16 +329,52 @@ streamlit run app/streamlit_app.py
 
 ### AI Agent との連携
 
-AI Agent が `input/params.json` を書き換えると、UI が自動反映する:
+Cursor、Claude Code、GitHub Copilot 等の AI Agent と連携して分析できる。
 
-1. AI Agent が `input/params.json` を更新
-2. UI が 2 秒ごとに監視し、変更を検知して反映
-3. 「自動実行」ON なら、そのままクエリ実行
+#### 仕組み
 
-サイドバーの設定:
+```
+ユーザー: 「直近7日間のOrganic Search推移を見せて」
+  ↓
+Agent が input/params.json を書き込み（スキーマ検証済み）
+  ↓
+Streamlit UI が 2 秒ごとに監視し、変更を自動反映
+  ↓
+「自動実行」ON なら、そのままクエリ実行 → 結果表示
+  ↓
+Agent が output/result_*.csv を読んで分析続行
+```
+
+#### Agent の 2 つの経路
+
+| 経路 | 特徴 | 使い分け |
+|------|------|---------|
+| **UI 経由** | `params.json` → Streamlit が自動反映 | 人間がパラメータを確認・修正したい場合 |
+| **CLI 直接** | `scripts/query.py --params ... --json` | 確認不要で高速に結果が欲しい場合 |
+
+#### サイドバーの設定
+
 - **JSON 自動反映**: ファイル監視の ON/OFF
 - **自動実行**: パラメータ反映後に自動でクエリ実行
 - **JSON を開く**: 手動で params.json を読み込み
+
+#### Agent 向けプロジェクト設定
+
+- **AGENTS.md**: プロジェクトルートに配置。Cursor / Claude Code / Codex が自動認識し、ディレクトリ構成・コマンド・ルールを把握する
+- **params.json スキーマ**: `schemas/query-params.schema.json` で定義。Agent が不正な JSON を書いても実行前にエラーで弾かれる
+
+#### MCP との違い
+
+MCP（Model Context Protocol）は Agent が API tool を直接呼び出すプロトコル。megaton-app はファイルベースのアプローチを採用している。
+
+| | megaton-app | MCP |
+|---|---|---|
+| **連携方式** | Agent が JSON ファイルを書く | Agent が MCP サーバーの tool を呼ぶ |
+| **コンテキスト消費** | AGENTS.md のみ（数百トークン） | tool 定義 + リクエスト + レスポンスが毎回載る |
+| **セットアップ** | 不要（ファイルを書くだけ） | MCP サーバーの起動・設定が必要 |
+| **人間の介入** | UI でパラメータを確認・修正できる | Agent が直接実行（介入しにくい） |
+| **Agent 依存** | なし（ファイルを書ければ何でも可） | MCP クライアント対応が必要 |
+| **結果の扱い** | CSV ファイル（必要な部分だけ読める） | レスポンス全体がコンテキストに載る |
 
 ---
 
