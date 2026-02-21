@@ -5,6 +5,7 @@ correct credential based on property_id / site_url.
 """
 import logging
 import os
+import importlib
 from collections.abc import Mapping, Sequence
 from megaton import start
 import pandas as pd
@@ -388,6 +389,11 @@ _bq_clients = {}
 _bq_native_clients = {}
 
 
+def _bigquery_module():
+    """Load google.cloud.bigquery module in a patch-friendly way."""
+    return importlib.import_module("google.cloud.bigquery")
+
+
 def get_bigquery(project_id: str):
     """Get BigQuery client via Megaton (legacy path)."""
     if project_id not in _bq_clients:
@@ -472,10 +478,8 @@ def get_bq_client(project_id: str, *, creds_hint: str = "corp"):
     # Different creds_hint values for same project are not expected.
     # If needed, switch key to (project_id, resolved_path).
     if project_id not in _bq_native_clients:
-        from google.cloud import bigquery
-
+        bigquery = _bigquery_module()
         ensure_bq_credentials(creds_hint=creds_hint)
-
         _bq_native_clients[project_id] = bigquery.Client(project=project_id)
     return _bq_native_clients[project_id]
 
@@ -513,8 +517,7 @@ def query_bq(
         bq = get_bigquery(project_id)
         return bq.run(sql, to_dataframe=True)
 
-    from google.cloud import bigquery
-
+    bigquery = _bigquery_module()
     client = get_bq_client(project_id)
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
@@ -547,7 +550,7 @@ def save_to_bq(
     Returns:
         dict with table reference and row count
     """
-    from google.cloud import bigquery as bq_lib
+    bq_lib = _bigquery_module()
 
     bq = get_bigquery(project_id)
 
