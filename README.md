@@ -33,7 +33,6 @@ megaton-app/
 ├── megaton_lib/        # Shared library (reusable from other repos via pip install -e)
 ├── scripts/            # CLI tools (query.py, run_notebook.py)
 ├── app/                # Streamlit UI
-├── notebooks/          # Jupyter notebooks (Jupytext .py <-> .ipynb)
 ├── credentials/        # Service account JSON files (not tracked by Git)
 ├── configs/            # JSON configs for batch runs
 ├── input/              # AI Agent -> UI parameter handoff
