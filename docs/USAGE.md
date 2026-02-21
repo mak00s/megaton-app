@@ -1,40 +1,223 @@
 # 使い方ガイド
 
-## 1. Jupyter Notebook
+GA4 / Search Console / BigQuery のデータを取得・加工・可視化するためのツールキット。
+3つのインターフェースから同じデータにアクセスできる。
 
-対話的な探索分析、可視化、レポートに最適。
-開発したノートブックは CLI / GitHub Actions でそのまま定期実行できる。
+```
+              GA4 / GSC / BigQuery
+                     |
+              megaton ライブラリ
+                     |
+    +----------------+----------------+
+    v                v                v
+ Notebook          CLI            Streamlit
+ 対話的分析      バッチ/自動化     ブラウザUI
+```
 
-### セル構成
+| インターフェース | 向いている用途 |
+|-----------------|--------------|
+| **Notebook** | 探索的な分析、可視化、レポート開発 |
+| **CLI** | 定期実行、バッチ処理、AI Agent からの利用 |
+| **Streamlit UI** | パラメータを調整しながらの対話的分析 |
 
-Jupyter Notebook は、パラメータセルと本処理セルの2段階構成が推奨される：
+---
 
-#### セル1: パラメータとセットアップ（`tags=["parameters"]`）
+## セットアップ
+
+### 必要なもの
+
+- Python 3.10+
+- GCP サービスアカウント JSON（GA4 / GSC / BQ の API アクセス権限付き）
+
+### インストール
+
+```bash
+pip install -r requirements.txt
+
+# credentials/ にサービスアカウント JSON を配置
+# 複数ファイル可（property_id / site_url で自動ルーティング）
+```
+
+### 動作確認
+
+```bash
+# テストが通れば OK
+python -m pytest -q
+
+# GA4 プロパティ一覧が取れれば認証も OK
+python scripts/query.py --list-ga4-properties
+```
+
+---
+
+## クイックスタート
+
+### Streamlit UI で試す
+
+```bash
+streamlit run app/streamlit_app.py
+# → http://localhost:8501
+```
+
+ブラウザでデータソース（GA4 / GSC / BQ）を選び、プロパティと日付を指定して「実行」。
+
+### CLI で GA4 データを取得する
+
+1. パラメータ JSON を用意:
+
+```json
+{
+  "schema_version": "1.0",
+  "source": "ga4",
+  "property_id": "123456789",
+  "date_range": { "start": "today-7d", "end": "today" },
+  "dimensions": ["date"],
+  "metrics": ["sessions", "activeUsers"]
+}
+```
+
+2. 実行:
+
+```bash
+python scripts/query.py --params input/params.json
+```
+
+### Notebook で分析する
 
 ```python
 # %% tags=["parameters"]
-# ========== パラメータ（CLI実行時に上書き可能） ==========
-PROPERTY_ID = "254800682"
-START_DATE = "2025-06-01"
+PROPERTY_ID = "123456789"
+START_DATE = "2026-01-01"
+END_DATE = "2026-01-31"
+
+from megaton_lib.notebook import init; init()  # noqa: E702
+from megaton_lib.megaton_client import get_ga4
+from megaton_lib.analysis import show
+
+# %% データ取得
+mg = get_ga4(PROPERTY_ID)
+mg.report.set.dates(START_DATE, END_DATE)
+result = mg.report.run(
+    d=["date", "sessionDefaultChannelGroup"],
+    m=["sessions", "activeUsers"],
+    show=False
+)
+show(result.df)
+```
+
+---
+
+## やりたいこと別レシピ
+
+### GA4 のトラフィック推移を見る
+
+```python
+mg = get_ga4("PROPERTY_ID")
+mg.report.set.dates("2026-01-01", "2026-01-31")
+result = mg.report.run(
+    d=["date"], m=["sessions", "activeUsers"], show=False
+)
+result.sort("date")
+show(result.df)
+```
+
+### チャネル別に絞り込む
+
+```python
+result = mg.report.run(
+    d=["date"], m=["sessions"],
+    filter_d="sessionDefaultChannelGroup==Organic Search",
+    show=False
+)
+```
+
+### GSC の検索クエリを分析する
+
+```python
+mg = get_gsc("https://example.com/")
+mg.search.set.dates("2026-01-01", "2026-01-31")
+result = mg.search.run(dimensions=["query", "page"], limit=25000)
+result.decode().clean_url().filter_impressions(min=10)
+show(result.df)
+```
+
+### 結果を CSV に保存する
+
+CLI の場合:
+```bash
+python scripts/query.py --params input/params.json --output output/result.csv
+```
+
+Notebook の場合:
+```python
+show(result.df, save="output/result.csv")
+```
+
+### 結果を Google Sheets に保存する
+
+```python
+mg.open.sheet("https://docs.google.com/spreadsheets/d/xxxxx")
+mg.save.to.sheet("シート名", result.df, sort_by="date")
+```
+
+### BigQuery で SQL を実行する
+
+CLI の場合（params.json）:
+```json
+{
+  "schema_version": "1.0",
+  "source": "bigquery",
+  "project_id": "my-gcp-project",
+  "sql": "SELECT event_date, COUNT(*) as cnt FROM `project.dataset.events_*` GROUP BY 1"
+}
+```
+
+Notebook の場合:
+```python
+from megaton_lib.megaton_client import query_bq
+df = query_bq("my-gcp-project", "SELECT ...", location="asia-northeast1")
+```
+
+### CLI で結果をフィルタ・集計する
+
+```bash
+# 同期実行 → params.json の pipeline で指定
+python scripts/query.py --params input/params.json --json
+
+# ジョブ結果に対して → CLI 引数で指定
+python scripts/query.py --result <job_id> --where "clicks > 10" --sort "clicks DESC" --head 20
+```
+
+パイプラインの詳細は [REFERENCE.md](REFERENCE.md#結果パイプラインオプション) を参照。
+
+---
+
+## Notebook の詳しい使い方
+
+### セル構成
+
+パラメータセルと本処理セルの2段階構成を推奨:
+
+#### セル1: パラメータとセットアップ
+
+```python
+# %% tags=["parameters"]
+PROPERTY_ID = "123456789"
+START_DATE = "2026-01-01"
 END_DATE = "2026-01-31"
 OUTPUT_DIR = "output"
 
-# ========== セットアップ ==========
-import sys; sys.path.insert(0, "..")  # noqa: E702  ← サブディレクトリ（reports/等）の場合のみ
-from setup import init; init()  # noqa: E702
+import sys; sys.path.insert(0, "..")  # noqa: E702  ← reports/ 等サブディレクトリ時のみ
+from megaton_lib.notebook import init; init()  # noqa: E702
 
-# ========== ライブラリ読み込み ==========
 import pandas as pd
-import matplotlib.pyplot as plt
 from megaton_lib.megaton_client import get_ga4, get_gsc
 from megaton_lib.analysis import show
 ```
 
-**ポイント:**
-- `tags=["parameters"]` により、`run_notebook.py -p START_DATE=today-7d` でパラメータのみ上書き可能
-- `init()` はパス解決・環境変数・モジュールリロードを一括実行
-- `notebooks/` 直下のノートブックは `sys.path.insert` 不要
-- サブディレクトリ（`reports/` 等）のノートブックは `sys.path.insert(0, "..")` を追加
+- `tags=["parameters"]` により、CLI 実行時に `-p START_DATE=today-7d` でパラメータを上書き可能
+- `init()` がパス解決・環境変数設定・モジュールリロードを一括実行
+- `notebooks/` 直下なら `sys.path.insert` は不要
 
 #### セル2以降: 本処理
 
@@ -49,280 +232,135 @@ result = mg.report.run(
 )
 df = result.df
 
-# %% データ加工
-df_organic = df[df["sessionDefaultChannelGroup"] == "Organic Search"]
-df_pivot = df_organic.pivot_table(
-    index="date",
-    values=["sessions", "totalUsers"],
-    aggfunc="sum"
-)
-
 # %% 可視化
-df_pivot.plot(kind="line", figsize=(12, 6))
-plt.title("Organic Search Traffic Trend")
+import matplotlib.pyplot as plt
+df.pivot_table(index="date", columns="sessionDefaultChannelGroup",
+               values="sessions", aggfunc="sum").plot(figsize=(12, 6))
 plt.savefig(f"{OUTPUT_DIR}/trend.png")
-show(df_pivot, save=f"{OUTPUT_DIR}/trend.csv")
+show(df, save=f"{OUTPUT_DIR}/trend.csv")
 ```
 
-**ポイント:**
-- セル分割により、部分実行・デバッグが容易
-- `show()` でコンテキストを節約（先頭20行のみ表示、必要ならCSV保存）
-- CLI実行時は `MPLBACKEND=Agg` により `plt.show()` は表示されず、`plt.savefig()` のみ動作
+### CLI からノートブックを実行
 
-### megaton ネイティブ API（推奨）
-
-`get_ga4()` / `get_gsc()` はクレデンシャル自動選択・アカウント選択済みの megaton インスタンスを返す。
-`ReportResult` / `SearchResult` のメソッドチェーンで後処理が可能（詳細は [REFERENCE.md](REFERENCE.md#megaton-api)）。
-
-```python
-mg = get_ga4(PROPERTY_ID)
-mg.report.set.dates(START_DATE, END_DATE)
-result = mg.report.run(d=["date", "landingPage"], m=["sessions"], show=False)
-result.clean_url("landingPage").group("date").sort("date")
-df = result.df
-```
-
-### CLI から実行
-
-Jupyter で開発したノートブックを、そのまま CLI で実行できる。
+Jupyter で開発したノートブックをそのままバッチ実行:
 
 ```bash
-# デフォルトパラメータで実行
-python scripts/run_notebook.py notebooks/reports/yokohama_cv.py
+python scripts/run_notebook.py notebooks/reports/my_report.py
 
 # パラメータ上書き（日付テンプレート対応）
-python scripts/run_notebook.py notebooks/reports/yokohama_cv.py \
+python scripts/run_notebook.py notebooks/reports/my_report.py \
   -p START_DATE=today-30d -p END_DATE=today
 ```
 
-`MPLBACKEND=Agg` で実行するため、`plt.show()` は呼ばれてもGUI表示されない。CSV保存などの出力はそのまま動作する。
+### Jupytext（.ipynb と .py の同期）
 
-### Jupytext（.ipynb ↔ .py 同期）
+AI Agent がノートブックを直接編集すると壊れやすいため、Jupytext で `.py` ファイルを正とする:
 
-AI Agent が Notebook を直接編集すると壊れることがあるため、Jupytext で同期して運用。
-
-**編集フロー:**
-1. AI Agent は `.py` ファイルを編集
-2. 編集後に同期:
-   ```bash
-   jupytext --sync notebooks/**/*.ipynb
-   ```
+1. `.py` ファイルを編集
+2. `jupytext --sync notebooks/**/*.ipynb` で同期
 3. Jupyter で `.ipynb` を開いて実行
-
-**手動で .ipynb を編集した場合:**
-```bash
-jupytext --sync notebooks/**/*.ipynb
-```
 
 ---
 
-## 2. CLIスクリプト（AI Agent推奨）
+## CLI の詳しい使い方
 
-AI Agent がデータを取得する際は、CLIスクリプトを使用。高速で確実。
+`scripts/query.py` がデータソースを自動判別して GA4 / GSC / BigQuery を実行する。
 
-### 統合CLI実行（推奨）
+### 基本コマンド
 
 ```bash
-# source を見て自動分岐（ga4/gsc/bigquery）
+# params.json で同期実行
 python scripts/query.py --params input/params.json
 
-# 同期実行でパイプラインを使う場合は params.json の pipeline に記述
+# JSON 出力（AI Agent 向け）
 python scripts/query.py --params input/params.json --json
 
-# 非同期ジョブとして投入
-python scripts/query.py --submit --params input/params.json
-
-# ジョブ状態確認
-python scripts/query.py --status <job_id>
-
-# ジョブキャンセル
-python scripts/query.py --cancel <job_id>
-
-# ジョブ結果確認
-python scripts/query.py --result <job_id>
-
-# ジョブ結果の先頭N行のみ取得
-python scripts/query.py --result <job_id> --head 20
-
-# ジョブ結果の要約統計のみ取得
-python scripts/query.py --result <job_id> --summary
-
-# ジョブ結果をフィルタ/集計して取得
-python scripts/query.py --result <job_id> --json --where "clicks > 10" --sort "clicks DESC" --head 20
-python scripts/query.py --result <job_id> --json --group-by "page" --aggregate "sum:clicks,mean:ctr" --sort "sum_clicks DESC"
-python scripts/query.py --result <job_id> --json --columns "query,clicks,impressions"
-
-# ジョブ一覧
-python scripts/query.py --list-jobs
-
-# JSON出力
-python scripts/query.py --params input/params.json --json
-
-# CSV保存
+# CSV 保存
 python scripts/query.py --params input/params.json --output output/result.csv
+```
 
-# 一覧取得
+### 非同期ジョブ
+
+大量データの取得はジョブとして非同期実行できる:
+
+```bash
+python scripts/query.py --submit --params input/params.json
+python scripts/query.py --status <job_id>
+python scripts/query.py --result <job_id> --head 20
+```
+
+### バッチ実行
+
+```bash
+python scripts/query.py --batch configs/weekly/ --json
+```
+
+ディレクトリ内の JSON をファイル名順に一括実行。1つが失敗しても残りは続行。
+
+### 一覧取得
+
+```bash
 python scripts/query.py --list-ga4-properties
 python scripts/query.py --list-gsc-sites
 python scripts/query.py --list-bq-datasets --project my-project
 ```
 
-### オプション一覧
-
-| オプション | 説明 | デフォルト |
-|-----------|------|-----------|
-| `--params` | スキーマ検証済みJSON入力 | `input/params.json` |
-| `--submit` | ジョブを非同期投入 | OFF |
-| `--status <job_id>` | ジョブ状態の表示 | - |
-| `--cancel <job_id>` | 実行中/待機中ジョブのキャンセル | - |
-| `--result <job_id>` | ジョブ結果情報の表示 | - |
-| `--head <N>` | `--result` で先頭N行を返す | - |
-| `--summary` | `--result` で要約統計を返す | OFF |
-| `--where` | `--result` で行フィルタ（pandas query） | - |
-| `--sort` | `--result` でソート（`col DESC,col2 ASC`） | - |
-| `--columns` | `--result` で列選択（カンマ区切り） | - |
-| `--group-by` | `--result` でグループ列（カンマ区切り） | - |
-| `--aggregate` | `--result` で集計（`sum:clicks` 形式） | - |
-| `--list-jobs` | ジョブ一覧の表示 | OFF |
-| `--job-limit` | ジョブ一覧の件数上限 | 20 |
-| `--list-ga4-properties` | GA4プロパティ一覧 | OFF |
-| `--list-gsc-sites` | GSCサイト一覧 | OFF |
-| `--list-bq-datasets` | BigQueryデータセット一覧 | OFF |
-| `--project` | データセット一覧取得対象プロジェクト | - |
-| `--json` | JSON出力 | テーブル出力 |
-| `--output` | CSV出力ファイル | - |
-
-`--params` 実行時は `schema_version: "1.0"` を必須検証し、`source` とキー整合性が崩れている場合は実行前にエラー終了します。
-`--params` 同期実行時は CLI パイプライン引数（`--where` / `--sort` / `--columns` / `--group-by` / `--aggregate` / `--head`）は使用不可。`pipeline` を params.json 側で指定する。
-`--head` と `--summary` は `--result` と併用する。
-`--group-by` と `--aggregate` は同時指定が必須。
-`--summary` は `--result` 専用で、パイプラインオプションとは同時指定不可。
-`--json` 指定時は成功・失敗ともに構造化JSONを返す（成功: `status=ok`、失敗: `status=error`）。
-
-### ジョブ管理の保存先
-
-- ジョブレコード: `output/jobs/records/*.json`
-- 実行ログ: `output/jobs/logs/*.log`
-- 結果CSV: `output/jobs/artifacts/*.csv`
-
-### フィルタ書式
-
-`input/params.json` 内で指定する。
-
-**GA4:** `filter_d` に `field==value` 形式（複数はセミコロン区切り）
-```json
-"filter_d": "sessionDefaultChannelGroup==Organic Search;country==Japan"
-```
-
-**GSC:** `filter` に `dimension:operator:expression` 形式（複数はセミコロン区切り）
-```json
-"filter": "query:contains:渋谷;page:includingRegex:/blog/"
-```
-
-GSC演算子: `contains`, `notContains`, `equals`, `notEquals`, `includingRegex`, `excludingRegex`
-
-### カスタムスクリプト
-
-独自スクリプトで megaton を使う場合は headless モードで初期化。
-認証解決ルールの詳細は [REFERENCE.md](REFERENCE.md#認証情報) を参照。
-
-```python
-from megaton import start
-
-mg = start.Megaton("credentials/sa-xxx.json", headless=True)
-mg.ga['4'].account.select("ACCOUNT_ID")
-mg.ga['4'].property.select("PROPERTY_ID")
-result = mg.report.run(d=[...], m=[...], show=False)
-df = result.df
-```
+全オプションの一覧は [REFERENCE.md](REFERENCE.md#cli-オプション一覧) を参照。
 
 ---
 
-## 3. Streamlit UI（対話型分析）
+## Streamlit UI の詳しい使い方
 
-AI Agent と人間が対話しながらデータ分析を行うためのWeb UI。
-
-### 起動方法
+### 起動
 
 ```bash
 streamlit run app/streamlit_app.py
-# → http://localhost:8501 でアクセス
+# → http://localhost:8501
 ```
 
-### UI機能
+### 主な機能
 
 - データソース選択（GA4 / GSC / BigQuery）
-- プロパティ/サイト選択ドロップダウン（動的取得）
-- 日付範囲入力
-- BigQuery: SQL入力エリア、データセット一覧表示
-- テーブル/チャート表示（折れ線/棒グラフ）
-- CSV保存/ダウンロード
+- プロパティ / サイトの動的取得・選択
+- 日付範囲、フィルタ、集計の設定
+- テーブル / チャート表示（折れ線 / 棒グラフ）
+- CSV 保存 / ダウンロード
+- 日英切り替え
 
-### AI Agent 連携
+### AI Agent との連携
 
-**自動反映機能:**
-1. AI Agent が `input/params.json` にパラメータを書き込む
-2. Streamlit UIが2秒ごとにファイルを監視（更新時刻 + 実質差分）
-3. JSONスキーマを検証（不正なら反映しない）
-4. 変更を検知して自動でUIに反映（空白/インデント/キー順のみの差分は反映しない）
-5. 「自動実行」ONなら、そのままクエリ実行
+AI Agent が `input/params.json` を書き換えると、UI が自動反映する:
 
-**必須項目（完全移行）:**
-- `schema_version: "1.0"`
-- `source` に応じた必須項目（詳細は `docs/REFERENCE.md` と `schemas/query-params.schema.json`）
+1. AI Agent が `input/params.json` を更新
+2. UI が 2 秒ごとに監視し、変更を検知して反映
+3. 「自動実行」ON なら、そのままクエリ実行
 
-**UIの設定（サイドバー）:**
-- 「JSON自動反映」: ON/OFFでファイル監視を切り替え
-- 「自動実行」: ONにするとパラメータ反映後に自動でクエリ実行
-- 「JSONを開く」: 手動でparams.jsonを読み込み
-
-### フロー
-
-1. 人間が自然言語で要求（例: 「直近7日間のOrganic Search推移」）
-2. AI Agent が解釈して `input/params.json` を更新
-3. Streamlit UIに自動反映
-4. 人間がUIで日付などを確認・修正
-5. 「実行」ボタン押下 → 結果表示
-6. 「CSV保存」→ AI Agent が `output/result_*.csv` を読んで分析続行
-
----
-
-## 設定管理（Google Sheets）
-
-分析ごとに可変の設定（対象サイト一覧、フィルタ条件、閾値など）は Google Sheets から読み込む。
-
-**設定シートの例:**
-| site_name | ga4_property_id | gsc_site_url | min_impressions |
-|-----------|-----------------|--------------|-----------------|
-| サイトA   | 123456789       | https://...  | 100             |
-
-**読み込み方法:**
-```python
-mg.open.sheet("https://docs.google.com/spreadsheets/d/xxxxx")
-config_df = mg.sheet.df()
-sites = config_df.to_dict('records')
-```
+サイドバーの設定:
+- **JSON 自動反映**: ファイル監視の ON/OFF
+- **自動実行**: パラメータ反映後に自動でクエリ実行
+- **JSON を開く**: 手動で params.json を読み込み
 
 ---
 
 ## テスト
 
-### 実行方法
-
 ```bash
 # 全テスト
 python -m pytest -q
 
-# レイヤ別（unit / contract / integration）
+# レイヤ別
 python -m pytest -q -m unit
-python -m pytest -q -m contract
 python -m pytest -q -m integration
 
-# query.py のカバレッジ（CIと同じ閾値）
+# query.py のカバレッジ
 python -m pytest -q --cov=scripts.query --cov-report=term-missing --cov-fail-under=90
 ```
 
-### 現在の目安（2026-02-07時点）
+---
 
-- `python -m pytest -q`: `276 passed`
-- `scripts/query.py` coverage: `98%`
+## 詳細リファレンス
+
+| ドキュメント | 内容 |
+|------------|------|
+| [REFERENCE.md](REFERENCE.md) | JSON スキーマ、CLI 全オプション、パイプライン、megaton API、認証 |
+| [CHANGELOG.md](CHANGELOG.md) | 変更履歴 |

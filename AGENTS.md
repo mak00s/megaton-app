@@ -1,105 +1,107 @@
-# AI分析アプリ
+# megaton-app
 
-GA4 / Search Console / BigQuery のデータを API で取得し、加工・集計・保存・可視化・分析するプロジェクト。
+Toolkit for fetching, processing, and visualizing data from GA4, Search Console, and BigQuery.
 
-## アーキテクチャ
-
-| パターン | 用途 | 実行者 | 特徴 |
-|----------|------|--------|------|
-| **1. Jupyter Notebook** | 探索的分析、可視化、レポート | 人間 / CLI定期実行 | 対話的開発 → そのまま自動化 |
-| **2. CLIスクリプト** | データ抽出、バッチ処理 | AI Agent / 人間 | 高速、自動化向き |
-| **3. Streamlit UI** | 対話型分析 | 人間 + AI Agent | パラメータ確認・修正 |
-
-```
-                 GA4 / GSC / BQ
-                       │
-                megaton ライブラリ
-                       │
-      ┌────────────────┼────────────────┐
-      ▼                ▼                ▼
-  Notebook          CLI              Streamlit
-  .py(jupytext)   query.py           :8501
-  分析/レポート    バッチ/Agent        対話型
-```
-
-## ディレクトリ構成
+## Directory Structure
 
 ```
 megaton-app/
-├── megaton_lib/        # 共有ライブラリ（pip install -e で他リポジトリから利用）
-│   ├── megaton_client.py   # GA4/GSC/BQ 初期化・クエリ実行
-│   ├── credentials.py      # サービスアカウント自動検出
-│   ├── ga4_helpers.py      # GA4共通ヘルパー
-│   └── ...                 # 案件固有モジュール（slqm_*, talks_*, dei_*, with_*）
-├── scripts/            # CLIスクリプト
-│   ├── query.py            # 統合クエリ実行（GA4/GSC/BigQuery）
-│   └── run_notebook.py     # パラメータ付きノートブック実行
-├── app/                # Streamlit UI
-├── notebooks/          # Jupyter Notebook（Jupytext .py ↔ .ipynb）
-├── credentials/        # サービスアカウント JSON（Git管理外）
-├── input/              # AI Agent → UI パラメータ受け渡し
-├── output/             # クエリ結果・ジョブ管理
-├── configs/            # バッチ実行用 JSON
-└── tests/              # pytest テスト
+├── megaton_lib/           # Shared library (used by other repos via pip install -e)
+│   ├── megaton_client.py  #   GA4/GSC/BQ init & query execution (core module)
+│   ├── credentials.py     #   Service account auto-detection
+│   ├── ga4_helpers.py     #   GA4 API helpers
+│   ├── sheets.py          #   Google Sheets read/write
+│   ├── analysis.py        #   show() and analysis utilities
+│   ├── params_validator.py#   JSON parameter schema validation
+│   ├── job_manager.py     #   Async job management
+│   ├── batch_runner.py    #   Batch execution
+│   ├── result_inspector.py#   Pipeline processing (where/sort/group etc.)
+│   ├── date_template.py   #   Date template resolution (today-7d etc.)
+│   ├── periods.py         #   Period utilities
+│   ├── date_utils.py      #   Monthly range generation
+│   ├── params_diff.py     #   params.json diff detection
+│   └── notebook.py        #   Notebook initialization helper
+├── scripts/
+│   ├── query.py           # Unified CLI (auto-routes GA4/GSC/BQ by source)
+│   └── run_notebook.py    # Run notebooks from CLI with parameter override
+├── app/
+│   ├── streamlit_app.py   # Streamlit UI main
+│   ├── i18n.py            # JA/EN translation (t() function)
+│   └── ui/                # UI components
+│       ├── params_utils.py    # Filter row DataFrame operations
+│       ├── query_builders.py  # params.json builder
+│       └── ga4_fields.py      # GA4 dimension/metric definitions
+├── schemas/               # JSON schema
+├── credentials/           # Service account JSON (.gitignore)
+├── input/                 # params.json (UI <-> Agent handoff)
+├── output/                # Query results & job artifacts
+├── configs/               # Batch execution JSON configs
+├── tests/                 # pytest (337 tests)
+└── docs/                  # USAGE.md, REFERENCE.md, CHANGELOG.md
 ```
 
-## AI Agent の基本操作
+## How to Fetch Data
 
-### CLI（推奨）
+### CLI (recommended)
 
 ```bash
-# params.json で同期実行
+# Sync execution (auto-routes by source field)
 python scripts/query.py --params input/params.json
 
-# 非同期ジョブ
+# JSON output
+python scripts/query.py --params input/params.json --json
+
+# Async jobs
 python scripts/query.py --submit --params input/params.json
-python scripts/query.py --status <job_id>
 python scripts/query.py --result <job_id> --head 20
 
-# バッチ実行
-python scripts/query.py --batch configs/weekly/
-
-# 一覧取得
+# List available properties/sites
 python scripts/query.py --list-ga4-properties
 python scripts/query.py --list-gsc-sites
 ```
 
-### Python 直接実行（探索的分析）
+### Direct Python
 
 ```python
 from megaton_lib.megaton_client import query_ga4, query_gsc
-from megaton_lib.analysis import show, properties, sites
+from megaton_lib.analysis import show
 
-df = query_ga4("254800682", "2025-06-01", "2026-01-31",
-               dimensions=["month", "year", "sessionDefaultChannelGroup"],
-               metrics=["eventCount"],
-               filter_d="eventName==purchase")
-
-show(df)                                    # 先頭20行
-show(df, save="output/result.csv")          # 保存＋表示
+df = query_ga4("PROPERTY_ID", "2026-01-01", "2026-01-31",
+               dimensions=["date", "sessionDefaultChannelGroup"],
+               metrics=["sessions"],
+               filter_d="sessionDefaultChannelGroup==Organic Search")
+show(df)                              # Display first 20 rows
+show(df, save="output/result.csv")    # Save to CSV + display
 ```
 
-**ルール:**
-- `print(df.to_string())` は禁止。常に `show()` を使う
-- 大きい結果は `save=` でCSV保存し、contextにはサマリだけ載せる
+### Streamlit UI Integration
 
-### Streamlit UI 連携
+Write to `input/params.json` -> UI auto-syncs every 2 seconds.
+`schema_version: "1.0"` required. Only fields defined for the `source` are allowed.
 
-`input/params.json` に書き込む → UIが自動反映（2秒ごと監視）。
-`schema_version` は必須（`"1.0"` 固定）。`source` ごとに定義フィールドのみ許可。
+## Rules
 
-## 設計原則
+1. **Use `show()`**: Never `print(df.to_string())`. For large results, use `save=` to write CSV
+2. **Prefer CLI**: Use `scripts/query.py` directly when human confirmation is not needed
+3. **Jupytext**: Edit `.py` files -> `jupytext --sync notebooks/**/*.ipynb`
+4. **Run tests**: After changing `megaton_lib/` or `app/`, run `python -m pytest -q`
+5. **BQ location**: Always pass `query_bq(..., location="asia-northeast1")`
+6. **Keep megaton_lib/ generic**: `app/` is for UI-specific code only
 
-1. **AGENTS.md で引き継ぎ**: Cursor / Claude Code / VS Code Codex が自動認識
-2. **Git 管理**: 認証情報 JSON 以外は全て Git で管理
-3. **Jupytext 運用**: AI Agent は .py を編集 → `jupytext --sync` で同期
-4. **コードの一元化**: 共通ロジックは `megaton_lib/megaton_client.py` に集約
-5. **AI Agent は CLI 優先**: 人間の確認が不要なら Streamlit UI を介さず `scripts/` を直接実行
+## Tests
 
-## 詳細ドキュメント
+```bash
+python -m pytest -q                    # All tests (337 passed)
+python -m pytest -q -m unit           # Unit only
+python -m pytest -q --cov=scripts.query --cov-report=term-missing  # Coverage
+```
 
-| ドキュメント | 内容 |
-|-------------|------|
-| [docs/USAGE.md](docs/USAGE.md) | CLI・Notebook・UI の詳細な使い方 |
-| [docs/REFERENCE.md](docs/REFERENCE.md) | JSONスキーマ、megaton API、認証、パイプライン |
-| [docs/CHANGELOG.md](docs/CHANGELOG.md) | 変更履歴 |
+Tests use API mocks (SimpleNamespace pattern) with no external dependencies.
+
+## Documentation
+
+| Document | Contents |
+|----------|----------|
+| [docs/USAGE.md](docs/USAGE.md) | Setup, quick start, recipes |
+| [docs/REFERENCE.md](docs/REFERENCE.md) | JSON schema, all CLI options, pipeline, megaton API, auth |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Change history |

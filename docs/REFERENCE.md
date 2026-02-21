@@ -9,9 +9,60 @@
 - `source` ごとに許可されるキー以外はエラー（`additionalProperties: false`）
 - Streamlit と CLI（`scripts/query.py --params ...`）で同じスキーマを共通利用
 
-## CLI Job管理
+## CLI オプション一覧
 
-コマンド例は [USAGE.md](USAGE.md#統合cli実行推奨) を参照。
+`scripts/query.py` の全オプション。基本的な使い方は [USAGE.md](USAGE.md#cli-の詳しい使い方) を参照。
+
+| オプション | 説明 | デフォルト |
+|-----------|------|-----------|
+| `--params` | スキーマ検証済みJSON入力 | `input/params.json` |
+| `--submit` | ジョブを非同期投入 | OFF |
+| `--status <job_id>` | ジョブ状態の表示 | - |
+| `--cancel <job_id>` | 実行中/待機中ジョブのキャンセル | - |
+| `--result <job_id>` | ジョブ結果情報の表示 | - |
+| `--head <N>` | `--result` で先頭N行を返す | - |
+| `--summary` | `--result` で要約統計を返す | OFF |
+| `--transform` | `--result` で列変換（`col:func` 形式） | - |
+| `--where` | `--result` で行フィルタ（pandas query） | - |
+| `--sort` | `--result` でソート（`col DESC,col2 ASC`） | - |
+| `--columns` | `--result` で列選択（カンマ区切り） | - |
+| `--group-by` | `--result` でグループ列（カンマ区切り） | - |
+| `--aggregate` | `--result` で集計（`sum:clicks` 形式） | - |
+| `--batch <dir>` | ディレクトリ内JSONを一括実行 | - |
+| `--list-jobs` | ジョブ一覧の表示 | OFF |
+| `--job-limit` | ジョブ一覧の件数上限 | 20 |
+| `--list-ga4-properties` | GA4プロパティ一覧 | OFF |
+| `--list-gsc-sites` | GSCサイト一覧 | OFF |
+| `--list-bq-datasets` | BigQueryデータセット一覧 | OFF |
+| `--project` | データセット一覧取得対象プロジェクト | - |
+| `--json` | JSON出力 | テーブル出力 |
+| `--output` | CSV出力ファイル | - |
+
+**制約:**
+- `--params` 実行時は `schema_version: "1.0"` を必須検証。`source` とキー整合性が崩れている場合は実行前にエラー
+- `--params` 同期実行時のパイプライン → params.json の `pipeline` で指定（CLI 引数は不可）
+- `--head` と `--summary` は `--result` と併用
+- `--group-by` と `--aggregate` は同時指定必須
+- `--summary` は `--result` 専用で、パイプラインオプションとは排他
+- `--json` 指定時は成功・失敗ともに構造化JSONを返す
+
+### フィルタ書式
+
+`input/params.json` 内で指定する。
+
+**GA4:** `filter_d` に `field==value` 形式（複数はセミコロン区切り）
+```json
+"filter_d": "sessionDefaultChannelGroup==Organic Search;country==Japan"
+```
+
+**GSC:** `filter` に `dimension:operator:expression` 形式（複数はセミコロン区切り）
+```json
+"filter": "query:contains:渋谷;page:includingRegex:/blog/"
+```
+
+GSC演算子: `contains`, `notContains`, `equals`, `notEquals`, `includingRegex`, `excludingRegex`
+
+## CLI Job管理
 
 ### `--json` レスポンス形式
 
@@ -342,18 +393,16 @@ JSON出力例:
 補足:
 - `get_bq_client` の native client キャッシュキーは現在 `project_id` 単位
   （同一プロジェクトで複数認証を切り替える用途は想定外）
-- `talks_retention.init_bq_client()` は deprecated ラッパーで、
-  実体は `megaton_client.get_bq_client()` に委譲
 
 ### Notebook での指定
 
 ```python
 # セットアップセルで init() を呼ぶだけ（パス解決・環境変数・モジュールを一括初期化）
-from setup import init; init()
+from megaton_lib.notebook import init; init()
 ```
 
-`notebooks/setup.py` の `init()` がプロジェクトルートを `__file__` から解決し、
-`MEGATON_CREDS_PATH` を `credentials/` に自動設定する。
+`init()` が CWD から上方向に `credentials/` ディレクトリを探してプロジェクトルートを解決し、
+`MEGATON_CREDS_PATH` を自動設定する。
 
 ### スクリプトでの指定
 
