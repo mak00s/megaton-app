@@ -1,10 +1,11 @@
-"""Notebook 初期化ヘルパー
+"""Notebook initialization helpers.
 
-notebooks/ 配下から lib を使うための共通セットアップ。
-セットアップセルで `from megaton_lib.notebook import init` → `init()` するだけで:
-- sys.path にプロジェクトルートを追加
-- MEGATON_CREDS_PATH を設定
-- lib モジュールを最新版にリロード
+Common setup for using project libs from under ``notebooks/``.
+In your setup cell, just run ``from megaton_lib.notebook import init`` then
+``init()`` to:
+- add project root to ``sys.path``
+- set ``MEGATON_CREDS_PATH``
+- reload project modules
 """
 
 from __future__ import annotations
@@ -16,10 +17,10 @@ from pathlib import Path
 
 
 def init() -> Path:
-    """プロジェクトルートを検出し、パス・環境変数・モジュールを初期化する。
+    """Detect project root and initialize paths/env/modules.
 
     Returns:
-        プロジェクトルートの Path
+        Project root path.
     """
     root = _find_project_root()
     if str(root) not in sys.path:
@@ -33,7 +34,7 @@ def init() -> Path:
 
 
 def _find_project_root() -> Path:
-    """CWD から上方向に credentials/ ディレクトリを探してプロジェクトルートを返す。"""
+    """Find project root by searching upward for a ``credentials/`` directory."""
     d = Path.cwd()
     while d != d.parent:
         if (d / "credentials").exists():
@@ -43,14 +44,13 @@ def _find_project_root() -> Path:
 
 
 def _reload_lib() -> None:
-    """lib 配下のモジュールを依存順にリロードする。"""
+    """Reload project modules in dependency order."""
     import megaton_lib.date_template
     import megaton_lib.credentials
     import megaton_lib.megaton_client
     import megaton_lib.analysis
     import megaton_lib.sheets
     import megaton_lib.periods
-    import megaton_lib.articles
 
     importlib.reload(megaton_lib.date_template)
     importlib.reload(megaton_lib.credentials)
@@ -58,7 +58,6 @@ def _reload_lib() -> None:
     importlib.reload(megaton_lib.analysis)
     importlib.reload(megaton_lib.sheets)
     importlib.reload(megaton_lib.periods)
-    importlib.reload(megaton_lib.articles)
 
     from megaton_lib.megaton_client import reset_registry
     reset_registry()

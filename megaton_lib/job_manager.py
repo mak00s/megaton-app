@@ -1,4 +1,4 @@
-"""ファイルベースのジョブ管理"""
+"""File-based job management."""
 from __future__ import annotations
 
 import json
@@ -13,7 +13,7 @@ def now_iso() -> str:
 
 
 class JobStore:
-    """output/jobs 配下でジョブ状態を管理する"""
+    """Manage job state under ``output/jobs``."""
 
     def __init__(self, base_dir: str | Path = "output/jobs"):
         self.base_dir = Path(base_dir)
@@ -92,6 +92,6 @@ class JobStore:
             try:
                 jobs.append(json.loads(path.read_text(encoding="utf-8")))
             except json.JSONDecodeError:
-                # 破損レコードはスキップ
+                # Skip corrupted records.
                 continue
         return jobs

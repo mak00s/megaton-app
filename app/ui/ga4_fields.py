@@ -1,25 +1,25 @@
-"""GA4 ディメンション・メトリクス定義
+"""GA4 dimension and metric definitions.
 
-使い方:
-  - 不要な項目は cmd+/ でコメントアウト
-  - 追加したい項目はGA4 API名をそのまま追記
-  - multiselect には accept_new_options=True があるので
-    ここに無い項目もUI上で手入力可能
+Usage:
+  - Comment out unnecessary items with cmd+/.
+  - Add missing items using their GA4 API names.
+  - The multiselect uses ``accept_new_options=True``, so values not listed
+    here can still be entered manually in the UI.
 
-除外済みカテゴリ（必要なら手入力で追加可能）:
-  - CM360系 (cm360*)
-  - DV360系 (dv360*)
-  - SA360系 (sa360*)
-  - Cohort系 (cohort*)
-  - Publisher/Ad系 (adFormat, adSourceName, adUnitName, publisherAd*)
-  - ゲーム系 (achievementId, character, level, groupId, virtualCurrencyName)
-  - Crash系 (crashAffectedUsers, crashFreeUsersRate)
+Excluded categories (can still be entered manually if needed):
+  - CM360 family (cm360*)
+  - DV360 family (dv360*)
+  - SA360 family (sa360*)
+  - Cohort family (cohort*)
+  - Publisher/Ad family (adFormat, adSourceName, adUnitName, publisherAd*)
+  - Game-related (achievementId, character, level, groupId, virtualCurrencyName)
+  - Crash-related (crashAffectedUsers, crashFreeUsersRate)
 """
 
 # fmt: off
 
 ALL_DIMENSIONS = [
-    # 時間 -------------------------------------------------
+    # Time -------------------------------------------------
     "date",
     "dateHour",
     # "dateHourMinute",
@@ -43,7 +43,7 @@ ALL_DIMENSIONS = [
     # "yearMonth",
     # "yearWeek",
 
-    # トラフィックソース（セッション） ----------------------
+    # Traffic source (session) -----------------------------
     "sessionDefaultChannelGroup",
     "sessionSource",
     "sessionMedium",
@@ -74,7 +74,7 @@ ALL_DIMENSIONS = [
     # "sessionGoogleAdsKeyword",
     # "sessionGoogleAdsQuery",
 
-    # トラフィックソース（初回ユーザー） --------------------
+    # Traffic source (first user) --------------------------
     "firstUserSource",
     "firstUserMedium",
     "firstUserSourceMedium",
@@ -105,7 +105,7 @@ ALL_DIMENSIONS = [
     # "firstUserGoogleAdsKeyword",
     # "firstUserGoogleAdsQuery",
 
-    # トラフィックソース（キーイベント帰属） ----------------
+    # Traffic source (key-event attribution) ---------------
     # "defaultChannelGroup",
     # "source",
     # "medium",
@@ -136,7 +136,7 @@ ALL_DIMENSIONS = [
     # "googleAdsKeyword",
     # "googleAdsQuery",
 
-    # ページ / コンテンツ -----------------------------------
+    # Page / Content ---------------------------------------
     "pagePath",
     "pageTitle",
     "landingPage",
@@ -154,7 +154,7 @@ ALL_DIMENSIONS = [
     # "unifiedScreenClass",
     # "unifiedScreenName",
 
-    # ユーザー / デモグラ -----------------------------------
+    # User / Demographics ----------------------------------
     "newVsReturning",
     "userAgeBracket",
     "userGender",
@@ -165,7 +165,7 @@ ALL_DIMENSIONS = [
     # "firstSessionDate",
     # "signedInWithUserId",
 
-    # デバイス / プラットフォーム ----------------------------
+    # Device / Platform ------------------------------------
     "deviceCategory",
     "operatingSystem",
     "browser",
@@ -184,7 +184,7 @@ ALL_DIMENSIONS = [
     # "streamId",
     # "streamName",
 
-    # 地域 --------------------------------------------------
+    # Geography ---------------------------------------------
     "country",
     "region",
     "city",
@@ -194,7 +194,7 @@ ALL_DIMENSIONS = [
     # "continent",
     # "continentId",
 
-    # イベント / コンバージョン -----------------------------
+    # Event / Conversion -----------------------------------
     "eventName",
     "isKeyEvent",
     # "searchTerm",
@@ -213,7 +213,7 @@ ALL_DIMENSIONS = [
     # "visible",
     # "method",
 
-    # eコマース ---------------------------------------------
+    # Ecommerce ---------------------------------------------
     # "currencyCode",
     # "itemAffiliation",
     # "itemBrand",
@@ -237,14 +237,14 @@ ALL_DIMENSIONS = [
     # "shippingTier",
     # "transactionId",
 
-    # その他 ------------------------------------------------
+    # Other ------------------------------------------------
     # "comparison",
     # "testDataFilterId",
     # "testDataFilterName",
 ]
 
 ALL_METRICS = [
-    # セッション --------------------------------------------
+    # Session -----------------------------------------------
     "sessions",
     "engagedSessions",
     "engagementRate",
@@ -253,7 +253,7 @@ ALL_METRICS = [
     "sessionsPerUser",
     # "sessionKeyEventRate",
 
-    # ユーザー ----------------------------------------------
+    # User --------------------------------------------------
     "activeUsers",
     "newUsers",
     "totalUsers",
@@ -264,12 +264,12 @@ ALL_METRICS = [
     # "dauPerWau",
     # "wauPerMau",
 
-    # ページビュー ------------------------------------------
+    # Pageview ----------------------------------------------
     "screenPageViews",
     "screenPageViewsPerSession",
     # "screenPageViewsPerUser",
 
-    # エンゲージメント --------------------------------------
+    # Engagement --------------------------------------------
     "userEngagementDuration",
     "eventCount",
     "eventsPerSession",
@@ -277,12 +277,12 @@ ALL_METRICS = [
     # "eventValue",
     # "scrolledUsers",
 
-    # コンバージョン ----------------------------------------
+    # Conversion --------------------------------------------
     "keyEvents",
     "conversions",
     # "userKeyEventRate",
 
-    # eコマース（購入） -------------------------------------
+    # Ecommerce (purchase) ----------------------------------
     "ecommercePurchases",
     "purchaseRevenue",
     "addToCarts",
@@ -302,7 +302,7 @@ ALL_METRICS = [
     # "transactionsPerPurchaser",
     # "purchaseToViewRate",
 
-    # eコマース（アイテム） ---------------------------------
+    # Ecommerce (item) --------------------------------------
     # "itemRevenue",
     # "grossItemRevenue",
     # "itemRefundAmount",
@@ -327,7 +327,7 @@ ALL_METRICS = [
     # "shippingAmount",
     # "taxAmount",
 
-    # 広告 --------------------------------------------------
+    # Ads ---------------------------------------------------
     # "advertiserAdClicks",
     # "advertiserAdCost",
     # "advertiserAdCostPerClick",
@@ -336,7 +336,7 @@ ALL_METRICS = [
     # "returnOnAdSpend",
     # "totalAdRevenue",
 
-    # Search Console連携 ------------------------------------
+    # Search Console integration ----------------------------
     # "organicGoogleSearchClicks",
     # "organicGoogleSearchImpressions",
     # "organicGoogleSearchClickThroughRate",

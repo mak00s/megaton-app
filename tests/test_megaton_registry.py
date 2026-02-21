@@ -1,4 +1,4 @@
-"""megaton_client のレジストリパターン（複数クレデンシャル自動ルーティング）のテスト"""
+"""Tests for megaton_client registry pattern (auto-routing across credentials)."""
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -6,7 +6,7 @@ import megaton_lib.megaton_client as mc
 
 
 def _reset_registry():
-    """テスト間でモジュール状態をリセット"""
+    """Reset module state between tests."""
     mc._instances.clear()
     mc._property_map.clear()
     mc._site_map.clear()
@@ -15,7 +15,7 @@ def _reset_registry():
 
 
 def _make_mock_megaton(accounts=None, sites=None):
-    """モック Megaton インスタンスを生成"""
+    """Create a mock Megaton instance."""
     mg = MagicMock()
     # GA4
     ga4 = MagicMock()
@@ -98,17 +98,17 @@ class TestBuildRegistry(unittest.TestCase):
     @patch("megaton_lib.megaton_client.list_service_account_paths")
     @patch("megaton_lib.megaton_client.start.Megaton")
     def test_skips_no_access_credential(self, mock_megaton_cls, mock_list):
-        """GA4アクセスのないクレデンシャルはスキップ"""
+        """Credentials without GA4 access are skipped."""
         mock_list.return_value = ["/creds/a.json", "/creds/b.json"]
 
-        # a.json: GA4のみ（GSCアクセスなし）
+        # a.json: GA4 only (no GSC access)
         mg_a = MagicMock()
         ga4_a = MagicMock()
         ga4_a.accounts = [{"id": "acc1", "properties": [{"id": "P1", "name": "Prop1"}]}]
         mg_a.ga = {"4": ga4_a}
         mg_a.search.get.sites.side_effect = Exception("No GSC access")
 
-        # b.json: GSCのみ（GA4アクセスなし）
+        # b.json: GSC only (no GA4 access)
         mg_b = MagicMock()
         mg_b.ga = {"4": MagicMock()}
         mg_b.ga["4"].accounts.__iter__ = MagicMock(side_effect=Exception("No GA4 access"))
@@ -127,7 +127,7 @@ class TestBuildRegistry(unittest.TestCase):
     @patch("megaton_lib.megaton_client.list_service_account_paths")
     @patch("megaton_lib.megaton_client.start.Megaton")
     def test_registry_built_once(self, mock_megaton_cls, mock_list):
-        """build_registry は一度だけ実行"""
+        """build_registry runs only once."""
         mock_list.return_value = ["/creds/a.json"]
         mock_megaton_cls.return_value = _make_mock_megaton(
             accounts=[{"id": "acc1", "properties": [{"id": "P1", "name": "Prop1"}]}],
@@ -135,7 +135,7 @@ class TestBuildRegistry(unittest.TestCase):
         )
 
         mc.build_registry()
-        mc.build_registry()  # 2回目は何もしない
+        mc.build_registry()  # second call is a no-op
 
         mock_megaton_cls.assert_called_once()
 
@@ -220,7 +220,7 @@ class TestRoutingFunctions(unittest.TestCase):
 
 
 class TestGetGA4(unittest.TestCase):
-    """get_ga4(): クレデンシャル自動選択 + アカウント/プロパティ選択"""
+    """get_ga4(): auto credential selection + account/property selection."""
 
     def setUp(self):
         _reset_registry()
@@ -246,7 +246,7 @@ class TestGetGA4(unittest.TestCase):
     @patch("megaton_lib.megaton_client.list_service_account_paths")
     @patch("megaton_lib.megaton_client.start.Megaton")
     def test_multiple_accounts_finds_correct(self, mock_megaton_cls, mock_list):
-        """複数アカウントから正しいプロパティを持つアカウントを選択"""
+        """Select the account that owns the requested property."""
         mock_list.return_value = ["/creds/a.json"]
         mg_a = _make_mock_megaton(
             accounts=[
@@ -264,7 +264,7 @@ class TestGetGA4(unittest.TestCase):
     @patch("megaton_lib.megaton_client.list_service_account_paths")
     @patch("megaton_lib.megaton_client.start.Megaton")
     def test_integer_property_id(self, mock_megaton_cls, mock_list):
-        """整数の property_id も正規化して動作"""
+        """Integer property_id is normalized and works."""
         mock_list.return_value = ["/creds/a.json"]
         mg_a = _make_mock_megaton(
             accounts=[{"id": "acc1", "properties": [{"id": "254800682", "name": "Prop"}]}],
@@ -278,13 +278,13 @@ class TestGetGA4(unittest.TestCase):
 
     @patch("megaton_lib.megaton_client.list_service_account_paths", return_value=[])
     def test_credential_not_found_raises(self, mock_list):
-        """レジストリにないプロパティはValueError"""
+        """Property not in registry raises ValueError."""
         with self.assertRaises(ValueError):
             mc.get_ga4("UNKNOWN")
 
 
 class TestGetGSC(unittest.TestCase):
-    """get_gsc(): クレデンシャル自動選択 + サイト選択"""
+    """get_gsc(): auto credential selection + site selection."""
 
     def setUp(self):
         _reset_registry()
@@ -308,13 +308,13 @@ class TestGetGSC(unittest.TestCase):
 
     @patch("megaton_lib.megaton_client.list_service_account_paths", return_value=[])
     def test_credential_not_found_raises(self, mock_list):
-        """レジストリにないサイトはValueError"""
+        """Site not in registry raises ValueError."""
         with self.assertRaises(ValueError):
             mc.get_gsc("https://unknown.example.com/")
 
 
 class TestQueryRefactored(unittest.TestCase):
-    """query_ga4/query_gsc がリファクタ後も正しく動作"""
+    """query_ga4/query_gsc still work correctly after refactor."""
 
     def setUp(self):
         _reset_registry()
@@ -335,10 +335,10 @@ class TestQueryRefactored(unittest.TestCase):
         mock_megaton_cls.return_value = mg_a
 
         df = mc.query_ga4("P1", "2025-01-01", "2025-01-31", ["date"], ["sessions"])
-        # account/property 選択が行われた
+        # account/property selection was performed
         mg_a.ga["4"].account.select.assert_called_once_with("acc1")
         mg_a.ga["4"].property.select.assert_called_once_with("P1")
-        # report.run が呼ばれた
+        # report.run was called
         mg_a.report.run.assert_called_once()
         self.assertEqual(len(df), 1)
 
@@ -361,9 +361,9 @@ class TestQueryRefactored(unittest.TestCase):
         df = mc.query_gsc(
             "https://example.com/", "2025-01-01", "2025-01-31", ["query"]
         )
-        # site 選択が行われた
+        # site selection was performed
         mg_b.search.use.assert_called_once_with("https://example.com/")
-        # search.run が呼ばれた
+        # search.run was called
         mg_b.search.run.assert_called_once()
         self.assertEqual(len(df), 1)
 
@@ -399,7 +399,7 @@ class TestMergedLists(unittest.TestCase):
     @patch("megaton_lib.megaton_client.list_service_account_paths")
     @patch("megaton_lib.megaton_client.start.Megaton")
     def test_get_ga4_properties_deduplicates(self, mock_megaton_cls, mock_list):
-        """同じプロパティIDが複数クレデンシャルにある場合、重複除去"""
+        """Deduplicate when same property ID exists in multiple credentials."""
         mock_list.return_value = ["/creds/a.json", "/creds/b.json"]
 
         mg_a = _make_mock_megaton(
@@ -434,7 +434,7 @@ class TestMergedLists(unittest.TestCase):
         self.assertIn("https://a.example.com/", sites)
         self.assertIn("https://b.example.com/", sites)
         self.assertIn("https://shared.example.com/", sites)
-        # shared は1回だけ
+        # shared appears only once
         self.assertEqual(sites.count("https://shared.example.com/"), 1)
 
 

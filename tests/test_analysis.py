@@ -12,7 +12,7 @@ from megaton_lib.analysis import show
 
 @pytest.fixture
 def sample_df():
-    """30行のサンプルDataFrame."""
+    """Sample DataFrame with 30 rows."""
     return pd.DataFrame({
         "month": [f"2025-{i:02d}" for i in range(1, 31)],
         "sessions": list(range(100, 130)),
@@ -21,7 +21,7 @@ def sample_df():
 
 @pytest.fixture
 def small_df():
-    """5行のサンプルDataFrame."""
+    """Sample DataFrame with 5 rows."""
     return pd.DataFrame({
         "date": ["2025-01-01", "2025-01-02", "2025-01-03", "2025-01-04", "2025-01-05"],
         "clicks": [10, 20, 30, 40, 50],
@@ -29,24 +29,24 @@ def small_df():
 
 
 class TestShow:
-    """show() のテスト."""
+    """Tests for show()."""
 
     def test_limits_rows(self, sample_df, capsys):
-        """デフォルトn=20で30行のDFは20行+省略表示."""
+        """With default n=20, a 30-row DF shows 20 rows + truncation note."""
         show(sample_df)
         captured = capsys.readouterr().out
         assert "... (10 more rows)" in captured
         assert "[30 rows x 2 cols]" in captured
 
     def test_custom_n(self, sample_df, capsys):
-        """n=5で30行のDFは5行+省略表示."""
+        """With n=5, a 30-row DF shows 5 rows + truncation note."""
         show(sample_df, n=5)
         captured = capsys.readouterr().out
         assert "... (25 more rows)" in captured
         assert "[30 rows x 2 cols]" in captured
 
     def test_full_when_small(self, small_df, capsys):
-        """行数がn以下なら全行表示、省略なし."""
+        """If row count <= n, all rows are shown with no truncation."""
         show(small_df)
         captured = capsys.readouterr().out
         assert "more rows" not in captured
@@ -54,7 +54,7 @@ class TestShow:
         assert "2025-01-05" in captured
 
     def test_exact_n(self, capsys):
-        """行数がちょうどnなら全行表示."""
+        """If row count equals n, all rows are shown."""
         df = pd.DataFrame({"a": range(20)})
         show(df, n=20)
         captured = capsys.readouterr().out
@@ -62,7 +62,7 @@ class TestShow:
         assert "[20 rows x 1 cols]" in captured
 
     def test_saves_csv(self, sample_df, capsys):
-        """save指定時にCSVファイルが作成される."""
+        """CSV file is created when save is specified."""
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
             path = f.name
         try:
@@ -77,30 +77,30 @@ class TestShow:
             os.unlink(path)
 
     def test_saves_csv_all_rows(self, sample_df):
-        """save時はn制限に関係なく全行保存."""
+        """Saving persists all rows regardless of n."""
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
             path = f.name
         try:
             show(sample_df, n=5, save=path)
             saved = pd.read_csv(path)
-            assert len(saved) == 30  # 表示は5行だが保存は全行
+            assert len(saved) == 30  # display is 5 rows, saved data is full
         finally:
             os.unlink(path)
 
     def test_empty_df(self, capsys):
-        """空のDataFrameでもエラーにならない."""
+        """Empty DataFrame does not raise."""
         df = pd.DataFrame(columns=["a", "b"])
         show(df)
         captured = capsys.readouterr().out
         assert "[0 rows x 2 cols]" in captured
 
     def test_invalid_n_raises(self, sample_df):
-        """n<=0 は ValueError."""
+        """n<=0 raises ValueError."""
         with pytest.raises(ValueError):
             show(sample_df, n=0)
 
     def test_save_creates_parent_dir(self, sample_df):
-        """save先の親ディレクトリがなければ自動作成する."""
+        """Parent directory is created automatically when missing."""
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "nested", "result.csv")
             show(sample_df, save=path)
@@ -108,7 +108,7 @@ class TestShow:
 
 
 class TestListHelpers:
-    """properties()/sites() のテスト."""
+    """Tests for properties()/sites()."""
 
     def test_properties_prints_list(self, capsys, monkeypatch):
         monkeypatch.setattr(

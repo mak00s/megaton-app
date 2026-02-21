@@ -1,7 +1,7 @@
-"""megaton共通クライアント - Streamlit/CLI両方から使用
+"""Shared megaton client used by both Streamlit and CLI.
 
-複数のサービスアカウントJSONを自動検出し、
-property_id / site_url に応じて正しいクレデンシャルに自動ルーティングする。
+Automatically discovers multiple service-account JSON files and routes to the
+correct credential based on property_id / site_url.
 """
 import logging
 import os
@@ -33,7 +33,7 @@ class AuthContext(TypedDict):
     resolved_bq_creds_path: str | None
     resolved_bq_source: str | None
 
-# === レジストリ（複数クレデンシャル管理） ===
+# === Registry (multi-credential management) ===
 
 _instances: dict[str, object] = {}     # creds_path → Megaton instance
 _property_map: dict[str, str] = {}     # property_id → creds_path
@@ -42,7 +42,7 @@ _registry_built = False
 
 
 def _normalize_key(value: object) -> str:
-    """マップ検索用キーを正規化する。"""
+    """Normalize a key for map lookups."""
     return str(value).strip()
 
 
@@ -51,7 +51,7 @@ def _normalize_fields(
     *,
     name: str,
 ) -> list[FieldSpec]:
-    """Field list を検証し、Megaton に渡せる list へ正規化する。"""
+    """Validate and normalize field list into Megaton-compatible form."""
     if not isinstance(fields, Sequence) or isinstance(fields, (str, bytes)):
         raise TypeError(f"{name} must be a sequence of field specs.")
     normalized: list[FieldSpec] = []
@@ -78,7 +78,7 @@ def _normalize_fields(
 def _normalize_gsc_dimension_filter(
     filters: Sequence[GscDimensionFilter] | None,
 ) -> list[GscDimensionFilter] | None:
-    """GSC dimension_filter の境界検証。"""
+    """Boundary validation for GSC dimension_filter."""
     if filters is None:
         return None
     if not isinstance(filters, Sequence) or isinstance(filters, (str, bytes)):
@@ -104,7 +104,7 @@ def _normalize_gsc_dimension_filter(
 def _normalize_bq_params(
     params: Mapping[str, object] | None,
 ) -> dict[str, str | None] | None:
-    """BQ query params を string dict に正規化する。"""
+    """Normalize BQ query params to a string dict."""
     if params is None:
         return None
     if not isinstance(params, Mapping):
@@ -119,7 +119,7 @@ def _normalize_bq_params(
 
 
 def reset_registry() -> None:
-    """レジストリをリセット（環境変数変更後やNotebookでの再実行時に使用）"""
+    """Reset registry (used after env var changes or notebook re-runs)."""
     global _registry_built
     _property_map.clear()
     _site_map.clear()
@@ -128,9 +128,9 @@ def reset_registry() -> None:
 
 
 def get_megaton(creds_path: str | None = None):
-    """Megatonインスタンスを取得（creds_path別にシングルトン）
+    """Get Megaton instance (singleton per creds_path).
 
-    creds_path=None の場合、最初に見つかったクレデンシャルを使用。
+    When creds_path=None, uses the first discovered credential file.
     """
     if creds_path is None:
         paths = list_service_account_paths()
@@ -146,7 +146,7 @@ def get_megaton(creds_path: str | None = None):
 
 
 def build_registry() -> None:
-    """全クレデンシャルからGA4プロパティ・GSCサイトのマッピングを構築（初回のみ）"""
+    """Build GA4 property/GSC site mappings across all credentials (once)."""
     global _registry_built
     if _registry_built:
         return
@@ -174,12 +174,12 @@ def build_registry() -> None:
 
 
 def get_megaton_for_property(property_id: str):
-    """指定GA4プロパティに対応するMegatonインスタンスを返す"""
+    """Return Megaton instance for the specified GA4 property."""
     key = _normalize_key(property_id)
     build_registry()
     creds_path = _property_map.get(key)
     if creds_path is None:
-        # Notebook長時間実行時など、キャッシュが古い可能性があるため1回だけ再構築
+        # Rebuild once in case of stale cache (e.g., long notebook sessions).
         _property_map.clear()
         _site_map.clear()
         global _registry_built
@@ -200,7 +200,7 @@ def get_megaton_for_property(property_id: str):
 
 
 def get_megaton_for_site(site_url: str):
-    """指定GSCサイトに対応するMegatonインスタンスを返す"""
+    """Return Megaton instance for the specified GSC site."""
     key = _normalize_key(site_url)
     build_registry()
     creds_path = _site_map.get(key)
@@ -216,14 +216,14 @@ def get_megaton_for_site(site_url: str):
     return get_megaton(creds_path)
 
 
-# === 初期化済みインスタンス取得（Notebook向け） ===
+# === Initialized instance helpers (for notebooks) ===
 
 
 def get_ga4(property_id: str):
-    """GA4用の初期化済みMegatonインスタンスを返す。
+    """Return an initialized Megaton instance for GA4.
 
-    クレデンシャル自動選択 + アカウント/プロパティ選択済み。
-    mg.report.run() の戻り値 ReportResult でメソッドチェーンが可能。
+    Credential is auto-selected and account/property are pre-selected.
+    The ``mg.report.run()`` result supports method chaining.
 
     Usage::
 
@@ -247,10 +247,10 @@ def get_ga4(property_id: str):
 
 
 def get_gsc(site_url: str):
-    """GSC用の初期化済みMegatonインスタンスを返す。
+    """Return an initialized Megaton instance for GSC.
 
-    クレデンシャル自動選択 + サイト選択済み。
-    mg.search.run() の戻り値 SearchResult でメソッドチェーンが可能。
+    Credential is auto-selected and site is pre-selected.
+    The ``mg.search.run()`` result supports method chaining.
 
     Usage::
 
@@ -269,7 +269,7 @@ def get_gsc(site_url: str):
 # === GA4 ===
 
 def get_ga4_properties() -> list:
-    """全クレデンシャルのGA4プロパティを統合して返す"""
+    """Return merged GA4 properties from all credentials."""
     build_registry()
     result = []
     seen_ids: set[str] = set()
@@ -297,18 +297,18 @@ def query_ga4(
     filter_d: Optional[str] = None,
     limit: int = 10000,
 ) -> pd.DataFrame:
-    """GA4クエリを実行（自動ルーティング）
+    """Execute GA4 query (auto-routed).
 
     Args:
-        property_id: GA4プロパティID
-        start_date: 開始日（YYYY-MM-DD）
-        end_date: 終了日（YYYY-MM-DD）
-        dimensions: ディメンション。str or (APIフィールド名, エイリアス) のタプル
-            例: ["date", ("sessionDefaultChannelGroup", "channel")]
-        metrics: メトリクス。str or (APIフィールド名, エイリアス) のタプル
-            例: ["sessions", ("eventCount", "cv")]
-        filter_d: フィルタ式（"field==value;field!=value" 形式）
-        limit: 取得行数上限
+        property_id: GA4 property ID.
+        start_date: Start date (YYYY-MM-DD).
+        end_date: End date (YYYY-MM-DD).
+        dimensions: Dimensions as str or tuple(API field, alias).
+            Example: ["date", ("sessionDefaultChannelGroup", "channel")]
+        metrics: Metrics as str or tuple(API field, alias).
+            Example: ["sessions", ("eventCount", "cv")]
+        filter_d: Filter expression in "field==value;field!=value" form.
+        limit: Max number of rows.
     """
     dimensions_l = _normalize_fields(dimensions, name="dimensions")
     metrics_l = _normalize_fields(metrics, name="metrics")
@@ -327,7 +327,7 @@ def query_ga4(
 # === GSC ===
 
 def get_gsc_sites() -> list:
-    """全クレデンシャルのGSCサイトを統合して返す"""
+    """Return merged GSC sites from all credentials."""
     build_registry()
     seen: set[str] = set()
     result = []
@@ -349,21 +349,21 @@ def query_gsc(
     dimension_filter: Sequence[GscDimensionFilter] | None = None,
     page_to_path: bool = True,
 ) -> pd.DataFrame:
-    """GSCクエリを実行（自動ルーティング）
+    """Execute GSC query (auto-routed).
 
     Args:
-        site_url: Search ConsoleサイトURL
-        start_date: 開始日（YYYY-MM-DD）
-        end_date: 終了日（YYYY-MM-DD）
-        dimensions: ディメンション。str or (APIフィールド名, エイリアス) のタプル
-            例: ["query", ("page", "url")]
-        limit: 取得行数上限
-        dimension_filter: フィルタ条件のリスト
-            例: [{"dimension": "query", "operator": "contains", "expression": "seo"}]
-            演算子: contains, notContains, equals, notEquals, includingRegex, excludingRegex
-        page_to_path: page列をパスのみに変換する（デフォルト: True）
-            フルURL "https://example.com/path?q=1" → "/path"
-            フィルタはフルURLで評価された後に変換される
+        site_url: Search Console site URL.
+        start_date: Start date (YYYY-MM-DD).
+        end_date: End date (YYYY-MM-DD).
+        dimensions: Dimensions as str or tuple(API field, alias).
+            Example: ["query", ("page", "url")]
+        limit: Max number of rows.
+        dimension_filter: List of filter objects.
+            Example: [{"dimension": "query", "operator": "contains", "expression": "seo"}]
+            Operators: contains, notContains, equals, notEquals, includingRegex, excludingRegex
+        page_to_path: Convert page column to path-only (default: True).
+            Full URL "https://example.com/path?q=1" -> "/path"
+            Conversion happens after filter evaluation on full URL.
     """
     dimensions_l = _normalize_fields(dimensions, name="dimensions")
     dimension_filter_l = _normalize_gsc_dimension_filter(dimension_filter)
@@ -389,7 +389,7 @@ _bq_native_clients = {}
 
 
 def get_bigquery(project_id: str):
-    """Megaton経由のBigQueryクライアントを取得（レガシー）"""
+    """Get BigQuery client via Megaton (legacy path)."""
     if project_id not in _bq_clients:
         mg = get_megaton()
         _bq_clients[project_id] = mg.launch_bigquery(project_id)
@@ -397,7 +397,7 @@ def get_bigquery(project_id: str):
 
 
 def _select_credential_path(*, creds_hint: str = "") -> str | None:
-    """候補JSON一覧から、hint一致を優先して1件選ぶ。"""
+    """Pick one credential path, preferring filename match by hint."""
     paths = list_service_account_paths()
     if not paths:
         return None
@@ -410,16 +410,16 @@ def _select_credential_path(*, creds_hint: str = "") -> str | None:
 
 
 def resolve_bq_creds_path(*, creds_hint: str = "corp") -> str | None:
-    """BigQuery(native)で使用する認証JSONパスを解決する。
+    """Resolve credential JSON path for native BigQuery client.
 
     Resolution order:
-    1) ``GOOGLE_APPLICATION_CREDENTIALS`` が設定済みならその値
-    2) ``MEGATON_CREDS_PATH`` / ``credentials/*.json`` から選択
-       - ``creds_hint`` を含むファイル名を優先
-       - 見つからなければ先頭ファイル
+    1) Use ``GOOGLE_APPLICATION_CREDENTIALS`` if set.
+    2) Otherwise select from ``MEGATON_CREDS_PATH`` / ``credentials/*.json``:
+       - Prefer filenames containing ``creds_hint``
+       - Fallback to first file
 
     Returns:
-        解決済みパス。候補がなければ ``None``。
+        Resolved path, or ``None`` if no candidate exists.
     """
     gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
     if gac:
@@ -428,7 +428,7 @@ def resolve_bq_creds_path(*, creds_hint: str = "corp") -> str | None:
 
 
 def ensure_bq_credentials(*, creds_hint: str = "corp") -> str | None:
-    """必要に応じて ``GOOGLE_APPLICATION_CREDENTIALS`` を設定して返す。"""
+    """Set ``GOOGLE_APPLICATION_CREDENTIALS`` if needed and return path."""
     resolved = resolve_bq_creds_path(creds_hint=creds_hint)
     if resolved and not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = resolved
@@ -436,7 +436,7 @@ def ensure_bq_credentials(*, creds_hint: str = "corp") -> str | None:
 
 
 def describe_auth_context(*, creds_hint: str = "corp") -> AuthContext:
-    """現在の認証解決コンテキストを返す（デバッグ/運用確認用）。"""
+    """Return current auth-resolution context (for debug/ops checks)."""
     megaton_paths = list_service_account_paths()
     gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
     resolved_bq = resolve_bq_creds_path(creds_hint=creds_hint)
@@ -455,22 +455,22 @@ def describe_auth_context(*, creds_hint: str = "corp") -> AuthContext:
 
 
 def get_bq_client(project_id: str, *, creds_hint: str = "corp"):
-    """google.cloud.bigquery.Client を直接取得する。
+    """Get ``google.cloud.bigquery.Client`` directly.
 
-    Megaton の BQ ラッパーを経由せず、パラメータ化クエリなど
-    ネイティブ API をフルに使える軽量クライアント。
+    Lightweight client that bypasses Megaton's BQ wrapper and supports full
+    native APIs such as parameterized queries.
 
     Args:
-        project_id: GCP プロジェクト ID。
-        creds_hint: credentials/ 内のファイル名に含まれるキーワード。
-            複数ファイルがある場合のマッチングに使用。
+        project_id: GCP project ID.
+        creds_hint: Keyword matched against filenames under credentials/.
+            Used when multiple credential files exist.
 
     Returns:
         google.cloud.bigquery.Client
     """
-    # NOTE: キャッシュは project_id のみで管理。同一プロジェクトに対して
-    # 異なる creds_hint で呼び分けるケースは現状想定外。
-    # 将来必要になった場合はキーを (project_id, resolved_path) にする。
+    # NOTE: cache key currently uses only project_id.
+    # Different creds_hint values for same project are not expected.
+    # If needed, switch key to (project_id, resolved_path).
     if project_id not in _bq_native_clients:
         from google.cloud import bigquery
 
@@ -481,7 +481,7 @@ def get_bq_client(project_id: str, *, creds_hint: str = "corp"):
 
 
 def get_bq_datasets(project_id: str) -> list:
-    """BigQueryデータセット一覧を取得"""
+    """Get list of BigQuery datasets."""
     bq = get_bigquery(project_id)
     return bq.datasets
 
@@ -493,21 +493,20 @@ def query_bq(
     *,
     location: Optional[str] = None,
 ) -> pd.DataFrame:
-    """BigQueryクエリを実行しDataFrameで返す。
+    """Run a BigQuery query and return a DataFrame.
 
-    パラメータなしの場合は Megaton BQ ラッパー経由（後方互換）。
-    パラメータ付きの場合は google.cloud.bigquery.Client を直接使用。
+    Without params, uses Megaton BQ wrapper for backward compatibility.
+    With params, uses ``google.cloud.bigquery.Client`` directly.
 
     Args:
-        project_id: GCP プロジェクト ID。
-        sql: SQL クエリ文字列。パラメータは ``@name`` で参照。
-        params: ``{"name": "value"}`` 形式のクエリパラメータ。
-            現在は全て STRING 型として扱う。
-        location: BQ ジョブの実行リージョン。None の場合は
-            BigQuery クライアントのデフォルトに従う。
+        project_id: GCP project ID.
+        sql: SQL query string. Parameters are referenced as ``@name``.
+        params: Query params in ``{"name": "value"}`` form.
+            Currently treated as STRING type.
+        location: BQ job location. If None, client default is used.
 
     Returns:
-        クエリ結果の DataFrame。
+        Query result DataFrame.
     """
     normalized_params = _normalize_bq_params(params)
     if normalized_params is None:
@@ -536,13 +535,13 @@ def save_to_bq(
     df: pd.DataFrame,
     mode: str = "overwrite",
 ) -> dict:
-    """BigQueryテーブルに保存
+    """Save data to BigQuery table.
 
     Args:
-        project_id: GCPプロジェクトID
-        dataset_id: データセットID
-        table_id: テーブルID
-        df: 保存するDataFrame
+        project_id: GCP project ID.
+        dataset_id: Dataset ID.
+        table_id: Table ID.
+        df: DataFrame to save.
         mode: "overwrite" or "append"
 
     Returns:
@@ -567,7 +566,7 @@ def save_to_bq(
     )
 
     job = bq.client.load_table_from_dataframe(df, table_ref, job_config=job_config)
-    job.result()  # 完了まで待つ
+    job.result()  # Wait for completion.
 
     table = bq.client.get_table(table_ref)
     return {
@@ -585,14 +584,14 @@ def save_to_sheet(
     mode: str = "overwrite",
     keys: Optional[list] = None
 ):
-    """Google Sheetsに保存
+    """Save data to Google Sheets.
 
     Args:
-        sheet_url: スプレッドシートURL
-        sheet_name: シート名
-        df: 保存するDataFrame
+        sheet_url: Spreadsheet URL.
+        sheet_name: Sheet name.
+        df: DataFrame to save.
         mode: "overwrite", "append", "upsert"
-        keys: アップサート時のキー列
+        keys: Key columns for upsert mode.
     """
     mg = get_megaton()
     mg.open.sheet(sheet_url)
@@ -603,5 +602,5 @@ def save_to_sheet(
         mg.append.to.sheet(sheet_name, df)
     elif mode == "upsert":
         if not keys:
-            raise ValueError("upsertモードではkeys引数が必要です")
+            raise ValueError("keys is required for upsert mode")
         mg.upsert.to.sheet(sheet_name, df, keys=keys)

@@ -1,4 +1,4 @@
-"""GA4 から Organic Search のセッション数を日別で取得"""
+"""Fetch daily Organic Search sessions from GA4."""
 from datetime import datetime, timedelta
 from google.analytics.data_v1beta import BetaAnalyticsDataClient
 from google.analytics.data_v1beta.types import (
@@ -13,47 +13,47 @@ from google.analytics.data_v1beta.types import (
 from google.oauth2 import service_account
 from megaton_lib.credentials import resolve_service_account_path
 
-# 認証情報
+# Credentials
 CREDS_PATH = resolve_service_account_path()
 
-# GA4 プロパティ ID（Notebookで確認した値を指定）
-# 未設定の場合はアカウント一覧を表示して終了
-PROPERTY_ID = ""  # 例: "123456789"
+# GA4 property ID (use a value confirmed in your notebook)
+# If unset, this script prints account/property candidates and exits.
+PROPERTY_ID = ""  # e.g. "123456789"
 
-# サービスアカウントで認証
+# Authenticate with service account
 credentials = service_account.Credentials.from_service_account_file(
     CREDS_PATH,
     scopes=["https://www.googleapis.com/auth/analytics.readonly"]
 )
 
-# プロパティIDが未設定の場合、アカウント一覧を表示
+# If PROPERTY_ID is unset, show available accounts/properties.
 if not PROPERTY_ID:
     from google.analytics.admin_v1alpha import AnalyticsAdminServiceClient
     admin_client = AnalyticsAdminServiceClient(credentials=credentials)
     
-    print("=== GA4 アカウント・プロパティ一覧 ===")
-    print("（PROPERTY_ID を設定してください）\n")
+    print("=== GA4 Accounts and Properties ===")
+    print("(Set PROPERTY_ID and re-run)\n")
     
-    # list_account_summaries を使用
+    # Use list_account_summaries
     for summary in admin_client.list_account_summaries():
         print(f"{summary.display_name} (Account: {summary.account.split('/')[-1]})")
         for prop in summary.property_summaries:
             prop_id = prop.property.split('/')[-1]
             print(f"  - {prop.display_name} (Property ID: {prop_id})")
     
-    print("\n上記から PROPERTY_ID を選んでスクリプトに設定してください")
+    print("\nPick a PROPERTY_ID from the list above and set it in the script.")
     exit(0)
 
-# GA4 Data API クライアント
+# GA4 Data API client
 client = BetaAnalyticsDataClient(credentials=credentials)
 
-# 期間設定（直近7日）
+# Date range (last 7 days)
 end_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
 start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
 print(f"Property ID: {PROPERTY_ID}")
-print(f"期間: {start_date} 〜 {end_date}\n")
+print(f"Period: {start_date} - {end_date}\n")
 
-# レポートリクエスト
+# Report request
 request = RunReportRequest(
     property=f"properties/{PROPERTY_ID}",
     date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
@@ -73,9 +73,9 @@ request = RunReportRequest(
 
 response = client.run_report(request)
 
-# 結果表示
-print("=== Organic Search 日別セッション数 ===")
-print(f"{'日付':<12} {'セッション':>10}")
+# Print results
+print("=== Organic Search Sessions by Date ===")
+print(f"{'Date':<12} {'Sessions':>10}")
 print("-" * 24)
 
 total = 0
@@ -83,9 +83,9 @@ for row in response.rows:
     date = row.dimension_values[0].value
     sessions = int(row.metric_values[0].value)
     total += sessions
-    # 日付フォーマット
+    # Date formatting
     date_fmt = f"{date[:4]}-{date[4:6]}-{date[6:]}"
     print(f"{date_fmt:<12} {sessions:>10,}")
 
 print("-" * 24)
-print(f"{'合計':<12} {total:>10,}")
+print(f"{'Total':<12} {total:>10,}")

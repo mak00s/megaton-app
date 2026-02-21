@@ -1,17 +1,17 @@
-"""Jupytext percent format ノートブックを CLI から実行する。
+"""Run a Jupytext percent-format notebook from the CLI.
 
-パラメータセル（tags=["parameters"]）の変数を外から上書きでき、
-GitHub Actions での定期実行に対応。matplotlib は Agg バックエンドで
-plt.show() を無効化する。
+Variables in the parameters cell (``tags=["parameters"]``) can be overridden
+from the command line. This supports scheduled execution in GitHub Actions.
+matplotlib uses the Agg backend so ``plt.show()`` has no GUI effect.
 
 Usage:
     python scripts/run_notebook.py <notebook.py> [-p KEY=VALUE ...]
 
 Examples:
-    # デフォルトパラメータで実行
+    # Run with default parameters
     python scripts/run_notebook.py notebooks/reports/yokohama_cv.py
 
-    # 日付テンプレートで上書き
+    # Override with date templates
     python scripts/run_notebook.py notebooks/reports/yokohama_cv.py \\
       -p START_DATE=today-30d -p END_DATE=today
 """
@@ -24,7 +24,7 @@ import re
 import sys
 from pathlib import Path
 
-# --- セルパース ----------------------------------------------------------
+# --- Cell parsing --------------------------------------------------------
 
 _CELL_MARKER = re.compile(r"^# %%(.*)$")
 _PARAMS_TAG = re.compile(r'tags\s*=\s*\[.*"parameters".*\]')
@@ -32,16 +32,16 @@ _HEADER_END = re.compile(r"^# ---\s*$")
 
 
 def extract_cells(source: str) -> list[dict]:
-    """Jupytext percent format の .py をセルのリストに分割する。
+    """Split a Jupytext percent-format ``.py`` into a list of cells.
 
     Returns:
         list of {"marker": str, "source": str, "is_params": bool}
-        先頭の YAML ヘッダー（# --- で囲まれた部分）は除外する。
+        Excludes the leading YAML header section (bounded by ``# ---``).
     """
     lines = source.splitlines(keepends=True)
     cells: list[dict] = []
 
-    # --- YAML ヘッダーをスキップ ---
+    # --- Skip YAML header ---
     i = 0
     if lines and lines[0].strip() == "# ---":
         i = 1
@@ -51,14 +51,14 @@ def extract_cells(source: str) -> list[dict]:
                 break
             i += 1
 
-    # --- セルに分割 ---
+    # --- Split into cells ---
     current_marker = ""
     current_lines: list[str] = []
 
     while i < len(lines):
         m = _CELL_MARKER.match(lines[i].rstrip())
         if m:
-            # 前のセルを保存
+            # Flush previous cell
             if current_marker or current_lines:
                 cells.append(_make_cell(current_marker, current_lines))
             current_marker = lines[i].rstrip()
@@ -67,7 +67,7 @@ def extract_cells(source: str) -> list[dict]:
             current_lines.append(lines[i])
         i += 1
 
-    # 最後のセル
+    # Last cell
     if current_marker or current_lines:
         cells.append(_make_cell(current_marker, current_lines))
 
@@ -80,13 +80,13 @@ def _make_cell(marker: str, lines: list[str]) -> dict:
     return {"marker": marker, "source": source, "is_params": is_params}
 
 
-# --- パラメータ注入 ------------------------------------------------------
+# --- Parameter injection -------------------------------------------------
 
 _ASSIGN_RE = re.compile(r"^([A-Z_][A-Z0-9_]*)\s*=\s*(.+)$", re.MULTILINE)
 
 
 def _resolve_value(raw: str) -> str:
-    """値が日付テンプレートなら解決し、そうでなければそのまま返す。"""
+    """Resolve date template values; return raw value on failure."""
     try:
         from megaton_lib.date_template import resolve_date
         return resolve_date(raw)
@@ -95,11 +95,11 @@ def _resolve_value(raw: str) -> str:
 
 
 def _format_value(value: str) -> str:
-    """Python リテラルとしてフォーマットする。
+    """Format a value as a Python literal.
 
-    数値はそのまま、それ以外は文字列として引用符で囲む。
+    Numeric values are kept as-is; everything else is safely quoted.
     """
-    # int / float 判定
+    # int / float detection
     try:
         int(value)
         return value
@@ -110,15 +110,15 @@ def _format_value(value: str) -> str:
         return value
     except ValueError:
         pass
-    # 文字列（安全にエスケープ）
+    # String (safely escaped)
     return repr(value)
 
 
 def inject_params(cells: list[dict], overrides: dict[str, str]) -> list[dict]:
-    """parameters セルの変数を overrides で上書きする。
+    """Override variables in the parameters cell with ``overrides``.
 
-    日付テンプレート（today-7d 等）は自動的に解決される。
-    overrides に含まれるがセルに存在しないキーは無視する。
+    Date templates (e.g. ``today-7d``) are resolved automatically.
+    Keys not present in the cell are ignored.
     """
     if not overrides:
         return cells
@@ -133,7 +133,7 @@ def inject_params(cells: list[dict], overrides: dict[str, str]) -> list[dict]:
         for key, raw_value in overrides.items():
             resolved = _resolve_value(raw_value)
             formatted = _format_value(resolved)
-            # KEY = ... の行を置換
+            # Replace `KEY = ...` line
             pattern = re.compile(
                 rf"^({re.escape(key)}\s*=\s*)(.+)$", re.MULTILINE
             )
@@ -143,11 +143,11 @@ def inject_params(cells: list[dict], overrides: dict[str, str]) -> list[dict]:
     return result
 
 
-# --- 実行 ----------------------------------------------------------------
+# --- Execution -----------------------------------------------------------
 
 
 def run(notebook_path: str, overrides: dict[str, str]) -> None:
-    """ノートブックをスクリプトとして実行する。"""
+    """Execute the notebook as a script."""
     os.environ.setdefault("MPLBACKEND", "Agg")
 
     nb = Path(notebook_path).resolve()
@@ -158,7 +158,7 @@ def run(notebook_path: str, overrides: dict[str, str]) -> None:
     cells = extract_cells(source)
     cells = inject_params(cells, overrides)
 
-    # markdown セルを除外してスクリプトを組み立て
+    # Build script by excluding markdown cells
     code_parts = []
     for cell in cells:
         if "# %% [markdown]" in cell["marker"]:
@@ -167,7 +167,7 @@ def run(notebook_path: str, overrides: dict[str, str]) -> None:
 
     script = "\n".join(code_parts)
 
-    # CWD をノートブックのディレクトリに設定
+    # Set CWD to the notebook directory
     original_cwd = os.getcwd()
     os.chdir(nb.parent)
     try:
@@ -197,7 +197,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def _parse_param_pairs(params: list[str]) -> dict[str, str]:
-    """['-p', 'K=V', ...] 形式のリストを dict に変換する。"""
+    """Convert a list like ``['-p', 'K=V', ...]`` into a dict."""
     result = {}
     for p in params:
         if "=" not in p:

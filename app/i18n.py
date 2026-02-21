@@ -290,7 +290,7 @@ def t(key: str, **kwargs) -> str:
     """Look up a translated string by key.
 
     >>> t("msg.rows_fetched", count="1,234")
-    '✓ 1,234 行のデータを取得しました'  # when lang=ja
+    '✓ Fetched 1,234 rows'  # when lang=en
     """
     lang = _get_lang()
     table = TRANSLATIONS.get(lang, TRANSLATIONS["ja"])

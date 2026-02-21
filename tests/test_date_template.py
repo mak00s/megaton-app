@@ -11,9 +11,9 @@ from megaton_lib.date_template import resolve_date, resolve_dates_in_params
 
 
 class TestResolveDate:
-    """resolve_date() のテスト。"""
+    """Tests for resolve_date()."""
 
-    # 基準日を固定: 2026-02-07 (土曜)
+    # Fixed reference date: 2026-02-07 (Saturday)
     REF = date(2026, 2, 7)
 
     def test_absolute_date_passthrough(self):
@@ -57,18 +57,18 @@ class TestResolveDate:
         assert resolve_date("prev-month-end", reference=self.REF) == "2026-01-31"
 
     def test_prev_month_january(self):
-        """1月の場合 → 前月は12月。"""
+        """For January, previous month is December."""
         ref = date(2026, 1, 15)
         assert resolve_date("prev-month-start", reference=ref) == "2025-12-01"
         assert resolve_date("prev-month-end", reference=ref) == "2025-12-31"
 
     def test_week_start(self):
-        """2026-02-07 は土曜 → 週の月曜は 2026-02-02。"""
+        """2026-02-07 is Saturday -> week-start is 2026-02-02."""
         assert resolve_date("week-start", reference=self.REF) == "2026-02-02"
 
     def test_week_start_on_monday(self):
-        """月曜日 → そのまま月曜日。"""
-        ref = date(2026, 2, 2)  # 月曜
+        """Monday -> remains Monday."""
+        ref = date(2026, 2, 2)  # Monday
         assert resolve_date("week-start", reference=ref) == "2026-02-02"
 
     def test_whitespace_trimmed(self):
@@ -98,7 +98,7 @@ class TestResolveDate:
         class FakeDatetime:
             @classmethod
             def now(cls, tz=None):
-                # UTC日付は 2026-02-06、JST日付は 2026-02-07 になる境界時刻
+                # Boundary time where UTC date is 2026-02-06 and JST date is 2026-02-07.
                 base = real_datetime(2026, 2, 6, 15, 30, tzinfo=ZoneInfo("UTC"))
                 return base.astimezone(tz) if tz else base
 
@@ -132,7 +132,7 @@ class TestResolveDate:
 
 
 class TestResolveDatesInParams:
-    """resolve_dates_in_params() のテスト。"""
+    """Tests for resolve_dates_in_params()."""
 
     REF = date(2026, 2, 7)
 
@@ -142,13 +142,13 @@ class TestResolveDatesInParams:
             "date_range": {"start": "today-7d", "end": "today-3d"},
             "dimensions": ["query"],
         }
-        # resolve_date はグローバル reference を使うのでここでは直接テストせず
-        # resolve_dates_in_params はモジュール内で date.today() を使う
-        # → resolve_date を個別にテスト済みなので、ここでは構造変換だけ確認
+        # resolve_date uses global reference/date handling; no direct check here.
+        # resolve_dates_in_params internally uses module date logic.
+        # resolve_date itself is already tested, so this checks structure transformation only.
         result = resolve_dates_in_params(params)
         assert result["date_range"]["start"] != "today-7d"
         assert result["date_range"]["end"] != "today-3d"
-        # 元の dict は変更されない
+        # Original dict remains unchanged
         assert params["date_range"]["start"] == "today-7d"
 
     def test_absolute_dates_unchanged(self):
@@ -157,10 +157,10 @@ class TestResolveDatesInParams:
             "date_range": {"start": "2026-01-01", "end": "2026-01-31"},
         }
         result = resolve_dates_in_params(params)
-        assert result is params  # 変更なしなら同じオブジェクト
+        assert result is params  # same object when unchanged
 
     def test_no_date_range(self):
-        """bigquery等 date_range がない場合はそのまま。"""
+        """When date_range is absent (e.g. bigquery), params are unchanged."""
         params = {"source": "bigquery", "sql": "SELECT 1"}
         result = resolve_dates_in_params(params)
         assert result is params
@@ -176,7 +176,7 @@ class TestResolveDatesInParams:
 
 
 class TestValidatorIntegration:
-    """validate_params() が日付テンプレートを受理するか。"""
+    """Whether validate_params() accepts date templates."""
 
     def test_template_dates_pass_validation(self):
         from megaton_lib.params_validator import validate_params
@@ -190,7 +190,7 @@ class TestValidatorIntegration:
         }
         normalized, errors = validate_params(data)
         assert errors == []
-        # テンプレートが解決されて YYYY-MM-DD になっている
+        # Templates are resolved to YYYY-MM-DD
         assert normalized["date_range"]["start"] != "today-30d"
         assert len(normalized["date_range"]["start"]) == 10  # YYYY-MM-DD
 
@@ -234,7 +234,7 @@ class TestValidatorIntegration:
         }
         normalized, errors = validate_params(data)
         assert errors == []
-        # 解決された日付が正しい形式
+        # Resolved dates are in expected format
         start = normalized["date_range"]["start"]
         end = normalized["date_range"]["end"]
         assert start < end  # start < end

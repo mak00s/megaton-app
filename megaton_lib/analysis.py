@@ -1,16 +1,16 @@
-"""AI Agent 用の分析ユーティリティ
+"""Analysis utilities for AI agents.
 
-context を浪費しないための表示ヘルパー。
-- show(): 行数制限付き表示 + 任意でCSV保存
-- properties() / sites(): 一覧表示
+Display helpers designed to reduce context usage.
+- show(): row-limited display + optional CSV save
+- properties() / sites(): list available resources
 
-使い方:
+Usage:
     from megaton_lib.megaton_client import query_ga4
     from megaton_lib.analysis import show
 
-    df = query_ga4(...)          # contextに載らない
-    df = df[df["col"] != "X"]   # contextに載らない
-    show(df, n=10, save="output/result.csv")  # ここだけ制限付き出力
+    df = query_ga4(...)          # not added to context
+    df = df[df["col"] != "X"]    # not added to context
+    show(df, n=10, save="output/result.csv")  # only this output is shown
 """
 
 import pandas as pd
@@ -24,12 +24,12 @@ def show(
     n: int = 20,
     save: str | None = None,
 ) -> None:
-    """DataFrameを行数制限付きで表示。
+    """Display a DataFrame with a row limit.
 
     Args:
-        df: 表示するDataFrame
-        n: 表示する最大行数（デフォルト20）
-        save: CSVパス（指定時はファイル保存し、表示は先頭n行のみ）
+        df: DataFrame to display.
+        n: Maximum number of rows to show (default: 20).
+        save: CSV path. If set, saves full data and prints only top n rows.
     """
     if n <= 0:
         raise ValueError("n must be >= 1")
@@ -52,7 +52,7 @@ def show(
 
 
 def properties() -> None:
-    """GA4プロパティ一覧を表示。"""
+    """Display GA4 properties."""
     props = get_ga4_properties()
     for p in props:
         print(f"  {p['id']:>12}  {p['name']}")
@@ -60,7 +60,7 @@ def properties() -> None:
 
 
 def sites() -> None:
-    """GSCサイト一覧を表示。"""
+    """Display GSC sites."""
     site_list = get_gsc_sites()
     for s in site_list:
         print(f"  {s}")

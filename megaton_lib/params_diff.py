@@ -1,4 +1,4 @@
-"""params.json の実質差分判定ユーティリティ"""
+"""Utility for effective-diff checks on params.json."""
 from __future__ import annotations
 
 import json
@@ -6,9 +6,9 @@ from typing import Any
 
 
 def canonicalize_json(data: Any) -> str:
-    """JSON互換オブジェクトを正規化文字列に変換する。
+    """Convert a JSON-compatible object into a canonical string.
 
-    インデント・空白・キー順の差分を吸収する。
+    Absorbs differences in indentation, whitespace, and key order.
     """
     return json.dumps(
         data,

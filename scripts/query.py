@@ -1,26 +1,26 @@
 #!/usr/bin/env python
-"""統合クエリ実行CLI（GA4 / GSC / BigQuery + Job管理）
+"""Unified query CLI (GA4 / GSC / BigQuery + job management).
 
-使用例:
-    # params.json から同期実行
+Examples:
+    # Synchronous execution from params.json
     python scripts/query.py --params input/params.json
 
-    # ジョブ投入（非同期）
+    # Submit job (async)
     python scripts/query.py --submit --params input/params.json
 
-    # ジョブ状態確認
+    # Check job status
     python scripts/query.py --status <job_id>
 
-    # ジョブをキャンセル
+    # Cancel a job
     python scripts/query.py --cancel <job_id>
 
-    # ジョブ結果確認
+    # Show job result
     python scripts/query.py --result <job_id>
 
-    # ジョブ結果の先頭N行だけ取得
+    # Show only first N result rows
     python scripts/query.py --result <job_id> --head 20
 
-    # ジョブ結果の要約統計だけ取得
+    # Show only summary stats
     python scripts/query.py --result <job_id> --summary
 """
 import argparse
@@ -35,7 +35,7 @@ from pathlib import Path
 
 import pandas as pd
 
-# libをパスに追加
+# Add project root to import path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from megaton_lib.megaton_client import (
@@ -55,7 +55,7 @@ from megaton_lib.result_inspector import read_head, build_summary, apply_pipelin
 
 
 def emit_success(args, data, **meta) -> None:
-    """--json時は構造化JSON、通常時は何もしない"""
+    """Emit structured JSON when --json is enabled; otherwise no-op."""
     if not args.json:
         return
     payload = {"status": "ok", "data": data}
@@ -65,7 +65,7 @@ def emit_success(args, data, **meta) -> None:
 
 
 def emit_error(args, error_code: str, message: str, hint: str | None = None, details=None) -> int:
-    """--json時は構造化JSONエラー、通常時はstderr出力"""
+    """Emit structured JSON error for --json, otherwise print to stderr."""
     if args.json:
         payload = {
             "status": "error",
@@ -91,12 +91,12 @@ def emit_error(args, error_code: str, message: str, hint: str | None = None, det
 
 
 def has_pipeline_opts(args) -> bool:
-    """結果パイプライン系オプションが指定されているか"""
+    """Return True if any result-pipeline option is specified."""
     return any([args.transform, args.where, args.sort, args.columns, args.group_by, args.aggregate])
 
 
 def map_pipeline_error(message: str) -> tuple[str, str]:
-    """apply_pipelineのValueErrorメッセージをerror_code/hintに変換"""
+    """Map apply_pipeline ValueError message to error_code/hint."""
     if message.startswith("Invalid transform"):
         return "INVALID_TRANSFORM", "Use format: 'column:func'. Supported: date_format, url_decode, path_only, strip_qs."
     if message.startswith("Invalid where expression"):
@@ -113,7 +113,7 @@ def map_pipeline_error(message: str) -> tuple[str, str]:
 
 
 def parse_gsc_filter(filter_str: str) -> list | None:
-    """GSCフィルタ文字列をパース"""
+    """Parse GSC filter expression string."""
     if not filter_str:
         return None
 
@@ -135,7 +135,7 @@ def parse_gsc_filter(filter_str: str) -> list | None:
 
 
 def load_params(params_path: str) -> tuple[dict | None, dict | None]:
-    """params.jsonを読み込み・検証"""
+    """Load and validate params.json."""
     try:
         with open(params_path, "r", encoding="utf-8") as f:
             raw = json.load(f)
@@ -165,7 +165,7 @@ def load_params(params_path: str) -> tuple[dict | None, dict | None]:
 
 
 def execute_query_from_params(params: dict) -> tuple[object, list[str]]:
-    """sourceに応じてクエリを実行し、DataFrameとヘッダ行を返す"""
+    """Execute source-specific query and return DataFrame with header lines."""
     source = params["source"]
     if source == "ga4":
         start_date = params["date_range"]["start"]
@@ -212,11 +212,11 @@ def execute_query_from_params(params: dict) -> tuple[object, list[str]]:
         header_lines = [f"プロジェクト: {params['project_id']}"]
         return df, header_lines
 
-    raise ValueError(f"不明なsourceです: {source}")
+    raise ValueError(f"Unknown source: {source}")
 
 
 def output_result(df, args, pipeline: dict | None = None, save: dict | None = None):
-    """結果出力"""
+    """Output query results."""
     if args.output:
         Path(args.output).parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(args.output, index=False, encoding="utf-8-sig")
@@ -257,7 +257,7 @@ def output_result(df, args, pipeline: dict | None = None, save: dict | None = No
 
 
 def execute_save(df: pd.DataFrame, save_conf: dict) -> dict:
-    """params.json の save 設定に従いデータを保存。成功時にメタ情報を返す。"""
+    """Save data based on params.json save config and return save metadata."""
     target = save_conf["to"]
     mode = save_conf.get("mode", "overwrite")
 
@@ -368,7 +368,7 @@ def cancel_job(job_id: str, args, store: JobStore) -> int:
     terminate_status = "not_required"
     if pid:
         try:
-            # submit時にstart_new_session=Trueのため、プロセスグループごと停止
+            # Since submit uses start_new_session=True, terminate by process group.
             os.killpg(pid, signal.SIGTERM)
             deadline = time.time() + 3.0
             while time.time() < deadline:
@@ -378,7 +378,7 @@ def cancel_job(job_id: str, args, store: JobStore) -> int:
                 except ProcessLookupError:
                     break
             else:
-                # SIGTERMで止まらない場合は強制終了
+                # Force kill if SIGTERM does not stop the process.
                 os.killpg(pid, signal.SIGKILL)
             terminate_status = "terminated"
         except ProcessLookupError:
@@ -420,7 +420,7 @@ def run_job(job_id: str, store: JobStore) -> int:
         return 1
 
     if job.get("status") == "canceled":
-        # 実行開始前にキャンセル済みなら何もしない
+        # If already canceled before execution starts, do nothing.
         return 0
 
     store.update_job(
@@ -434,11 +434,11 @@ def run_job(job_id: str, store: JobStore) -> int:
         params = job["params"]
         df, header_lines = execute_query_from_params(params)
         if df is None:
-            raise RuntimeError("クエリ結果が取得できませんでした")
+            raise RuntimeError("No query result was returned.")
 
         latest = store.load_job(job_id)
         if latest and latest.get("status") == "canceled":
-            # 実行中にキャンセルされた場合、成功で上書きしない
+            # If canceled during execution, do not overwrite with success.
             return 1
 
         artifact_path = store.artifact_path(job_id)
@@ -516,7 +516,7 @@ def show_job_result(job_id: str, args, store: JobStore) -> int:
             "Re-run the job.",
         )
 
-    # パイプライン系オプションあり: DataFrame全体を読み込み -> apply_pipeline
+    # Pipeline options used: load full DataFrame and apply pipeline.
     if has_pipeline_opts(args):
         try:
             df = pd.read_csv(artifact_path)
@@ -582,7 +582,7 @@ def show_job_result(job_id: str, args, store: JobStore) -> int:
                 print(f"saved_to: {args.output}")
         return 0
 
-    # 既存動作: head/summary/metadata
+    # Legacy behavior: head/summary/metadata
     if args.output:
         Path(args.output).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(artifact_path, args.output)
@@ -627,7 +627,7 @@ def show_job_result(job_id: str, args, store: JobStore) -> int:
         if args.head is not None:
             print(f"\nhead: first {args.head} rows")
             if payload["head"]:
-                # to_string表示用にDataFrameとして再読込
+                # Re-load as DataFrame for to_string preview
                 preview_df = read_head(artifact_path, args.head)
                 print(preview_df.to_string(index=False))
             else:
@@ -661,7 +661,7 @@ def show_jobs(args, store: JobStore) -> int:
 
 
 def run_list_mode(args) -> tuple[bool, int]:
-    """一覧表示モード"""
+    """Handle list-mode commands."""
     if args.list_ga4_properties:
         try:
             props = get_ga4_properties()
@@ -731,7 +731,7 @@ def run_list_mode(args) -> tuple[bool, int]:
 
 
 def _execute_single_config(params: dict, config_path: Path) -> dict:
-    """バッチ内の1configを実行。run_batch の execute_fn として使う。"""
+    """Execute one config in a batch (used as run_batch execute_fn)."""
     try:
         df, header_lines = execute_query_from_params(params)
     except Exception as e:
@@ -804,7 +804,7 @@ def _execute_single_config(params: dict, config_path: Path) -> dict:
 
 
 def run_batch_mode(args) -> int:
-    """--batch モード: configsディレクトリ内のJSONを順番に実行。"""
+    """Run --batch mode: execute JSON configs in order."""
     def on_progress(config_name, index, total, result):
         if not args.json:
             status = result["status"]
@@ -883,7 +883,8 @@ def main():
         )
 
     pipeline_opts_used = has_pipeline_opts(args)
-    # --params 同期実行時（action_modeなし）はCLIパイプライン引数を禁止（params.json の pipeline を使う）
+    # For synchronous --params runs, disallow CLI pipeline args.
+    # Use the pipeline field in params.json instead.
     is_sync_query = not action_mode_used and not args.submit
     if is_sync_query and (pipeline_opts_used or args.head is not None):
         return emit_error(
@@ -964,7 +965,7 @@ def main():
             )
 
         pipeline_info = None
-        # params.json の pipeline フィールドからパイプライン適用
+        # Apply pipeline from params.json pipeline field.
         pipeline_conf = params.get("pipeline") or {}
         if pipeline_conf:
             try:
@@ -994,7 +995,7 @@ def main():
                 code, hint = map_pipeline_error(str(e))
                 return emit_error(args, code, str(e), hint)
 
-        # save 実行
+        # Execute save operation.
         save_conf = params.get("save")
         save_result = None
         if save_conf:

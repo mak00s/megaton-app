@@ -10,7 +10,7 @@ from megaton_lib.batch_runner import collect_configs, run_batch
 
 
 class TestCollectConfigs:
-    """collect_configs() のテスト。"""
+    """Tests for collect_configs()."""
 
     def test_directory_with_json_files(self, tmp_path):
         (tmp_path / "02_second.json").write_text("{}")
@@ -45,7 +45,7 @@ class TestCollectConfigs:
 
 
 class TestRunBatch:
-    """run_batch() のテスト。"""
+    """Tests for run_batch()."""
 
     def _make_config(self, tmp_path, name, data):
         f = tmp_path / name
@@ -107,7 +107,7 @@ class TestRunBatch:
         assert result["skipped"] == 1
 
     def test_invalid_params_skipped(self, tmp_path):
-        # schema_version がない → validation failure
+        # Missing schema_version -> validation failure
         self._make_config(tmp_path, "01.json", {"source": "gsc"})
         self._make_config(tmp_path, "02.json", self._valid_gsc_params())
 
@@ -147,7 +147,7 @@ class TestRunBatch:
         assert isinstance(result["elapsed_sec"], float)
 
     def test_date_template_resolved(self, tmp_path):
-        """バッチ内のconfigで日付テンプレートが解決される。"""
+        """Date templates are resolved in batch config files."""
         config = self._valid_gsc_params()
         config["date_range"] = {"start": "today-30d", "end": "today-3d"}
         self._make_config(tmp_path, "01.json", config)
@@ -160,12 +160,12 @@ class TestRunBatch:
 
         result = run_batch(str(tmp_path), execute_fn=mock_execute)
         assert result["succeeded"] == 1
-        # テンプレートが解決されている
+        # Template values are resolved
         assert received_params["date_range"]["start"] != "today-30d"
         assert len(received_params["date_range"]["start"]) == 10  # YYYY-MM-DD
 
     def test_execution_order(self, tmp_path):
-        """ファイル名のアルファベット順に実行される。"""
+        """Files are executed in filename sort order."""
         self._make_config(tmp_path, "03_c.json", self._valid_gsc_params())
         self._make_config(tmp_path, "01_a.json", self._valid_gsc_params())
         self._make_config(tmp_path, "02_b.json", self._valid_gsc_params())

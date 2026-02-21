@@ -34,7 +34,7 @@ class TestQueryJsonErrors(unittest.TestCase):
         self.assertEqual(payload["error_code"], "INVALID_ARGUMENT")
 
     def test_cli_pipeline_args_rejected_with_params(self):
-        """--params + --where はエラー（pipeline は params.json で指定する）"""
+        """--params + --where should fail (pipeline must be in params.json)."""
         proc = self.run_cli(["--json", "--params", "input/params.json", "--where", "clicks > 10"])
         self.assertNotEqual(proc.returncode, 0)
         payload = json.loads(proc.stdout)
