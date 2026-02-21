@@ -82,16 +82,19 @@ class JobStore:
         return job
 
     def list_jobs(self, limit: int = 20) -> list[dict[str, Any]]:
-        files = sorted(
-            self.records_dir.glob("*.json"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
         jobs = []
-        for path in files[: max(1, limit)]:
+        for path in self.records_dir.glob("*.json"):
             try:
                 jobs.append(json.loads(path.read_text(encoding="utf-8")))
             except json.JSONDecodeError:
                 # Skip corrupted records.
                 continue
-        return jobs
+        jobs.sort(
+            key=lambda j: (
+                str(j.get("created_at") or ""),
+                str(j.get("updated_at") or ""),
+                str(j.get("job_id") or ""),
+            ),
+            reverse=True,
+        )
+        return jobs[: max(1, limit)]
