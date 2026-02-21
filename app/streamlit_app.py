@@ -1,4 +1,11 @@
-"""Streamlit UI メインアプリ"""
+"""Streamlit UI main app"""
+import sys
+from pathlib import Path
+
+# Ensure project root is on sys.path so `app.*` / `megaton_lib.*` resolve
+# when invoked as `streamlit run app/streamlit_app.py`.
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 import pandas as pd
@@ -6,20 +13,31 @@ import json
 import os
 import re
 from datetime import datetime, timedelta
-from pathlib import Path
+
+from app.i18n import (
+    t,
+    t_option_map,
+    t_options,
+    init_language,
+    language_selector,
+    translated_select_model,
+)
+
+# Language must be initialised before set_page_config
+init_language()
 
 st.set_page_config(
-    page_title="AI分析アプリ",
+    page_title=t("page.title"),
     page_icon="📊",
     layout="wide",
 )
 
-# === パラメータファイル監視 ===
+# === Parameter file watching ===
 
 PARAMS_FILE = Path("input/params.json")
 
 def load_params_from_file():
-    """外部JSONファイルからパラメータを読み込む"""
+    """Load parameters from external JSON file"""
     if not PARAMS_FILE.exists():
         return None, None, [], None
     try:
@@ -45,58 +63,55 @@ def load_params_from_file():
         }], None
 
 def apply_params_to_session(params):
-    """読み込んだパラメータをセッションに反映（ウィジェットのkeyも更新）"""
+    """Apply loaded parameters to session state (including widget keys)"""
     if params is None:
         return False
 
     st.session_state["loaded_params"] = params
     st.session_state["params_applied"] = True
 
-    # ウィジェットのkeyを直接更新（これでUIに即座に反映される）
     source = params.get("source", "ga4").lower()
 
-    # 日付
+    # Dates
     date_range = params.get("date_range", {})
     if date_range.get("start"):
         st.session_state["w_start_date"] = datetime.strptime(date_range["start"], "%Y-%m-%d").date()
     if date_range.get("end"):
         st.session_state["w_end_date"] = datetime.strptime(date_range["end"], "%Y-%m-%d").date()
 
-    # 取得件数
+    # Row limit
     if "limit" in params:
         st.session_state["w_limit"] = params["limit"]
 
-    # ディメンション
+    # Dimensions
     if "dimensions" in params:
         if source == "gsc":
             st.session_state["w_gsc_dimensions"] = params["dimensions"]
         else:
             st.session_state["w_ga4_dimensions"] = params["dimensions"]
 
-    # GA4固有
+    # GA4 specific
     if source == "ga4":
         if "property_id" in params:
             st.session_state["w_ga4_property_id"] = params["property_id"]
         if "metrics" in params:
             st.session_state["w_ga4_metrics"] = params["metrics"]
-        # Optional field: clear stale filter when filter_d is omitted.
         st.session_state["w_ga4_filter"] = params.get("filter_d", "")
 
-    # GSC固有
+    # GSC specific
     if source == "gsc":
         if "site_url" in params:
             st.session_state["w_gsc_site"] = params["site_url"]
-        # Optional field: clear stale filter when filter is omitted.
         st.session_state["w_gsc_filter"] = params.get("filter", "")
 
-    # BigQuery固有
+    # BigQuery specific
     if source == "bigquery":
         if "project_id" in params:
             st.session_state["w_bq_project"] = params["project_id"]
         if "sql" in params:
             st.session_state["w_bq_sql"] = params["sql"]
 
-    # パイプライン（未指定項目を残さないよう毎回初期化してから反映）
+    # Pipeline (reset all before applying)
     pipeline = params.get("pipeline") or {}
     st.session_state["w_tf_date"] = False
     st.session_state["w_tf_url_decode"] = False
@@ -150,18 +165,19 @@ def apply_params_to_session(params):
 
     # save
     save = params.get("save") or {}
-    # 初期化
     st.session_state["w_sheet_url"] = ""
     st.session_state["w_sheet_name"] = "data"
-    st.session_state["w_save_mode"] = "上書き"
+    st.session_state["w_save_mode"] = "overwrite"
     st.session_state["w_save_bq_project"] = ""
     st.session_state["w_save_bq_dataset"] = ""
     st.session_state["w_save_bq_table"] = ""
-    st.session_state["w_save_bq_mode"] = "上書き"
+    st.session_state["w_save_bq_mode"] = "overwrite"
     st.session_state["w_save_filename"] = ""
+    # Clear selectbox widget keys so they pick up the new internal value
+    st.session_state.pop("w_save_mode_select", None)
+    st.session_state.pop("w_save_bq_mode_select", None)
 
     if save:
-        mode_rmap = {"overwrite": "上書き", "append": "追記", "upsert": "アップサート"}
         target = save.get("to")
 
         if target == "csv":
@@ -172,7 +188,7 @@ def apply_params_to_session(params):
         elif target == "sheets":
             st.session_state["w_sheet_url"] = save.get("sheet_url", "")
             st.session_state["w_sheet_name"] = save.get("sheet_name", "data")
-            st.session_state["w_save_mode"] = mode_rmap.get(save.get("mode", "overwrite"), "上書き")
+            st.session_state["w_save_mode"] = save.get("mode", "overwrite")
             if save.get("keys"):
                 st.session_state["w_upsert_keys"] = save["keys"]
 
@@ -180,12 +196,12 @@ def apply_params_to_session(params):
             st.session_state["w_save_bq_project"] = save.get("project_id", "")
             st.session_state["w_save_bq_dataset"] = save.get("dataset", "")
             st.session_state["w_save_bq_table"] = save.get("table", "")
-            st.session_state["w_save_bq_mode"] = mode_rmap.get(save.get("mode", "overwrite"), "上書き")
+            st.session_state["w_save_bq_mode"] = save.get("mode", "overwrite")
 
     return True
 
 def check_file_updated():
-    """ファイル更新をチェック（mtime + 実質差分）"""
+    """Check for file updates (mtime + content diff)"""
     if not PARAMS_FILE.exists():
         return False, None, None, []
 
@@ -205,10 +221,7 @@ def check_file_updated():
     st.session_state["last_params_canonical"] = canonical
     return True, params, mtime, errors
 
-# === 共通モジュールからインポート ===
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
+# === Imports ===
 from megaton_lib.megaton_client import (
     get_megaton,
     get_ga4_properties as _get_ga4_properties,
@@ -226,6 +239,9 @@ from megaton_lib.result_inspector import apply_pipeline, SUPPORTED_AGG_FUNCS, pa
 from app.ui.params_utils import (
     GA4_OPERATORS,
     GSC_OPERATORS,
+    COL_FIELD,
+    COL_OPERATOR,
+    COL_VALUE,
     parse_ga4_filter_to_df,
     serialize_ga4_filter_from_df,
     parse_gsc_filter_to_df,
@@ -233,6 +249,7 @@ from app.ui.params_utils import (
     has_effective_params_update,
 )
 from app.ui.query_builders import (
+    AGG_NONE,
     parse_gsc_filter,
     detect_url_columns,
     build_transform_expression,
@@ -241,7 +258,7 @@ from app.ui.query_builders import (
 )
 from app.ui.ga4_fields import ALL_DIMENSIONS, ALL_METRICS
 
-# Streamlit用キャッシュラッパー
+# Streamlit cached wrappers
 @st.cache_data(ttl=300)
 def get_ga4_properties():
     return _get_ga4_properties()
@@ -268,11 +285,11 @@ def execute_bq_query(project_id, sql):
 
 # === UI ===
 
-st.title("📊 AI分析アプリ")
+st.title(t("page.heading"))
 
-# === ファイル監視セクション ===
+# === File watching section ===
 
-# セッション初期化
+# Session initialisation
 if "auto_watch" not in st.session_state:
     st.session_state["auto_watch"] = True
 if "auto_execute" not in st.session_state:
@@ -282,57 +299,67 @@ if "params_validation_errors" not in st.session_state:
 if "last_params_canonical" not in st.session_state:
     st.session_state["last_params_canonical"] = None
 
-# 自動リフレッシュ（ファイル監視用：2秒ごと）
+# Auto-refresh (file watching: every 2s)
 if st.session_state.get("auto_watch", True):
     st_autorefresh(interval=2000, limit=None, key="file_watcher_refresh")
 
-# ファイル変更チェック用フラグ
+# File change check flag
 file_just_updated = False
 
-# ファイル変更チェック（メインスクリプト内で実行）
+# File change check
 if st.session_state.get("auto_watch", True):
     updated, params, _, errors = check_file_updated()
     if updated:
         if params:
             apply_params_to_session(params)
             st.session_state["params_validation_errors"] = []
-            st.toast("🔄 パラメータファイルが更新されました", icon="📄")
+            st.toast(t("msg.params_file_updated"), icon="📄")
             file_just_updated = True
             if st.session_state.get("auto_execute", False):
                 st.session_state["auto_execute_pending"] = True
         elif errors:
             st.session_state["params_validation_errors"] = errors
-            st.toast("❌ params.json の検証に失敗しました", icon="⚠️")
+            st.toast(t("msg.params_validation_failed"), icon="⚠️")
 
-# サイドバー
+# Save mode option maps (internal values)
+SAVE_MODE_KEYS = {
+    "save.mode_overwrite": "overwrite",
+    "save.mode_append": "append",
+    "save.mode_upsert": "upsert",
+}
+SAVE_BQ_MODE_KEYS = {
+    "save.mode_overwrite": "overwrite",
+    "save.mode_append": "append",
+}
+
+# Sidebar
 with st.sidebar:
-    st.header("設定")
+    st.header(t("sidebar.settings"))
 
     validation_errors = st.session_state.get("params_validation_errors", [])
     if validation_errors:
-        st.error("params.json がスキーマ不一致です")
+        st.error(t("msg.params_schema_mismatch"))
         for err in validation_errors:
             st.caption(f"`{err['error_code']}` {err['path']} - {err['message']}")
 
-    # 読み込み済みパラメータを取得
+    # Loaded params
     lp = st.session_state.get("loaded_params", {})
 
-    # パラメータ反映時の通知
+    # Notification after params applied
     if st.session_state.get("params_applied"):
-        st.info("📥 ファイルからパラメータを反映しました")
+        st.info(t("msg.params_applied"))
         st.session_state["params_applied"] = False
 
-    # データソース選択
+    # Data source selection
     source_map = {"ga4": "GA4", "gsc": "GSC", "bigquery": "BigQuery"}
     default_source = source_map.get(lp.get("source", "ga4").lower(), "GA4")
-    source = st.radio("データソース", ["GA4", "GSC", "BigQuery"], horizontal=True,
+    source = st.radio(t("sidebar.source"), ["GA4", "GSC", "BigQuery"], horizontal=True,
                       index=["GA4", "GSC", "BigQuery"].index(default_source))
 
     st.divider()
 
-    # BigQuery以外は日付範囲を表示
+    # Date range (not for BigQuery)
     if source != "BigQuery":
-        # 日付範囲（セッション状態があればそれを使用、なければデフォルト）
         if "w_start_date" not in st.session_state:
             date_range = lp.get("date_range", {})
             st.session_state["w_start_date"] = datetime.strptime(date_range["start"], "%Y-%m-%d").date() if date_range.get("start") else (datetime.now() - timedelta(days=14)).date()
@@ -340,22 +367,22 @@ with st.sidebar:
 
         col1, col2 = st.columns(2)
         with col1:
-            start_date = st.date_input("開始日", key="w_start_date")
+            start_date = st.date_input(t("sidebar.start_date"), key="w_start_date")
         with col2:
-            end_date = st.date_input("終了日", key="w_end_date")
+            end_date = st.date_input(t("sidebar.end_date"), key="w_end_date")
 
         st.divider()
 
     if source == "GA4":
-        # GA4設定
+        # GA4 settings
         try:
             properties = get_ga4_properties()
         except (RuntimeError, FileNotFoundError, ValueError) as e:
-            st.error(f"⚠️ 認証エラー: {e}")
+            st.error(t("msg.auth_error", error=str(e)))
             st.stop()
         property_options = {p["display"]: p["id"] for p in properties}
 
-        # プロパティIDからdisplay名を逆引き（セッションステートまたはloaded_paramsから）
+        # Reverse lookup property ID to display name
         default_prop_idx = 0
         loaded_prop_id = st.session_state.get("w_ga4_property_id") or lp.get("property_id", "")
         for i, (display, pid) in enumerate(property_options.items()):
@@ -363,67 +390,64 @@ with st.sidebar:
                 default_prop_idx = i
                 break
 
-        selected_property = st.selectbox("プロパティ", list(property_options.keys()), index=default_prop_idx)
+        selected_property = st.selectbox(t("ga4.property"), list(property_options.keys()), index=default_prop_idx)
         property_id = property_options[selected_property]
 
-        # ディメンション（初期化）
+        # Dimensions
         all_dimensions = ALL_DIMENSIONS
         if "w_ga4_dimensions" not in st.session_state:
             st.session_state["w_ga4_dimensions"] = lp.get("dimensions", ["date"]) if lp.get("source", "").lower() == "ga4" else ["date"]
-        dimensions = st.multiselect("ディメンション", all_dimensions, key="w_ga4_dimensions",
+        dimensions = st.multiselect(t("ga4.dimensions"), all_dimensions, key="w_ga4_dimensions",
                                     accept_new_options=True, max_selections=9)
 
-        # メトリクス（初期化）
+        # Metrics
         all_metrics = ALL_METRICS
         if "w_ga4_metrics" not in st.session_state:
             st.session_state["w_ga4_metrics"] = lp.get("metrics", ["sessions", "activeUsers"]) if lp.get("source", "").lower() == "ga4" else ["sessions", "activeUsers"]
-        metrics = st.multiselect("メトリクス", all_metrics, key="w_ga4_metrics",
+        metrics = st.multiselect(t("ga4.metrics"), all_metrics, key="w_ga4_metrics",
                                  accept_new_options=True, max_selections=10)
 
-        # フィルタ（初期化）
+        # Filter
         if "w_ga4_filter" not in st.session_state:
             st.session_state["w_ga4_filter"] = lp.get("filter_d", "") if lp.get("source", "").lower() == "ga4" else ""
-        
-        # フィルタをDataFrameにパース
+
         filter_df = parse_ga4_filter_to_df(st.session_state.get("w_ga4_filter", ""))
-        
-        with st.expander("フィルタ条件", expanded=bool(len(filter_df))):
+
+        with st.expander(t("ga4.filter"), expanded=bool(len(filter_df))):
             edited_filter_df = st.data_editor(
                 filter_df,
                 column_config={
-                    "対象": st.column_config.SelectboxColumn(
-                        "対象",
+                    COL_FIELD: st.column_config.SelectboxColumn(
+                        t("filter.field"),
                         options=list(dict.fromkeys(all_dimensions + dimensions)),
                         required=True,
                     ),
-                    "演算子": st.column_config.SelectboxColumn(
-                        "演算子",
+                    COL_OPERATOR: st.column_config.SelectboxColumn(
+                        t("filter.operator"),
                         options=GA4_OPERATORS,
                         required=True,
                     ),
-                    "値": st.column_config.TextColumn("値", required=True),
+                    COL_VALUE: st.column_config.TextColumn(t("filter.value"), required=True),
                 },
                 num_rows="dynamic",
                 width="stretch",
                 key="ga4_filter_editor"
             )
-            
-            # DataFrameから文字列に変換
+
             filter_d = serialize_ga4_filter_from_df(edited_filter_df)
             st.session_state["w_ga4_filter"] = filter_d
-            
+
             if filter_d:
                 st.caption(f"📝 `{filter_d}`")
 
     elif source == "GSC":
-        # GSC設定
+        # GSC settings
         try:
             sites = get_gsc_sites()
         except (RuntimeError, FileNotFoundError, ValueError) as e:
-            st.error(f"⚠️ 認証エラー: {e}")
+            st.error(t("msg.auth_error", error=str(e)))
             st.stop()
 
-        # サイトURLの初期選択（keyを使って制御）
         if "w_gsc_site" not in st.session_state:
             loaded_site_url = lp.get("site_url", "")
             if loaded_site_url in sites:
@@ -431,72 +455,68 @@ with st.sidebar:
             elif sites:
                 st.session_state["w_gsc_site"] = sites[0]
 
-        site_url = st.selectbox("サイト", sites, key="w_gsc_site")
+        site_url = st.selectbox(t("gsc.site"), sites, key="w_gsc_site")
 
-        # ディメンション（初期化）
+        # Dimensions
         all_gsc_dims = ["query", "page", "country", "device", "date"]
         if "w_gsc_dimensions" not in st.session_state:
             st.session_state["w_gsc_dimensions"] = lp.get("dimensions", ["query"]) if lp.get("source", "").lower() == "gsc" else ["query"]
-        dimensions = st.multiselect("ディメンション", all_gsc_dims, key="w_gsc_dimensions")
-        
-        # フィルタ（初期化）
+        dimensions = st.multiselect(t("gsc.dimensions"), all_gsc_dims, key="w_gsc_dimensions")
+
+        # Filter
         if "w_gsc_filter" not in st.session_state:
             st.session_state["w_gsc_filter"] = lp.get("filter", "") if lp.get("source", "").lower() == "gsc" else ""
-        
-        # フィルタをDataFrameにパース
+
         gsc_filter_df = parse_gsc_filter_to_df(st.session_state.get("w_gsc_filter", ""))
-        
-        with st.expander("フィルタ条件", expanded=bool(len(gsc_filter_df))):
+
+        with st.expander(t("gsc.filter"), expanded=bool(len(gsc_filter_df))):
             gsc_filter_dims = ["query", "page", "country", "device", "date"]
-            
+
             edited_gsc_filter_df = st.data_editor(
                 gsc_filter_df,
                 column_config={
-                    "対象": st.column_config.SelectboxColumn(
-                        "対象",
+                    COL_FIELD: st.column_config.SelectboxColumn(
+                        t("filter.field"),
                         options=gsc_filter_dims,
                         required=True,
                     ),
-                    "演算子": st.column_config.SelectboxColumn(
-                        "演算子",
+                    COL_OPERATOR: st.column_config.SelectboxColumn(
+                        t("filter.operator"),
                         options=GSC_OPERATORS,
                         required=True,
                     ),
-                    "値": st.column_config.TextColumn("値", required=True),
+                    COL_VALUE: st.column_config.TextColumn(t("filter.value"), required=True),
                 },
                 num_rows="dynamic",
                 width="stretch",
                 key="gsc_filter_editor"
             )
-            
-            # DataFrameから文字列に変換
+
             gsc_filter = serialize_gsc_filter_from_df(edited_gsc_filter_df)
             st.session_state["w_gsc_filter"] = gsc_filter
-            
+
             if gsc_filter:
                 st.caption(f"📝 `{gsc_filter}`")
 
     else:
-        # BigQuery設定
+        # BigQuery settings
         if "w_bq_project" not in st.session_state:
             st.session_state["w_bq_project"] = lp.get("project_id", "")
-        bq_project = st.text_input("プロジェクトID", key="w_bq_project")
+        bq_project = st.text_input(t("bq.project_id"), key="w_bq_project")
 
-    # 取得件数（BigQuery以外）
+    # Row limit (not for BigQuery)
     if source != "BigQuery":
         if "w_limit" not in st.session_state:
             st.session_state["w_limit"] = lp.get("limit", 1000)
-        # カンマ形式で選択肢を表示
         limit_options = [100, 500, 1000, 5000, 10000, 25000, 50000, 100000]
         limit_labels = {v: f"{v:,}" for v in limit_options}
-        
-        # 現在値が選択肢にない場合は最も近い値を選択
+
         current_limit = st.session_state.get("w_limit", 1000)
         if current_limit not in limit_options:
             current_limit = min(limit_options, key=lambda x: abs(x - current_limit))
-        
+
         limit = st.select_slider(
-            "取得件数",
+            t("sidebar.limit"),
             options=limit_options,
             value=current_limit,
             format_func=lambda x: limit_labels[x],
@@ -505,38 +525,40 @@ with st.sidebar:
 
     st.divider()
 
-    execute_btn = st.button("🚀 実行", type="primary", width="stretch")
+    execute_btn = st.button(t("sidebar.execute"), type="primary", width="stretch")
 
     st.divider()
 
-    with st.expander("🤖 AI Agent 連携", expanded=False):
+    language_selector()
+
+    with st.expander(t("agent.header"), expanded=False):
         st.session_state["auto_watch"] = st.toggle(
-            "JSON自動反映",
+            t("agent.auto_watch"),
             value=st.session_state.get("auto_watch", True),
-            help="input/params.json の変更を2秒ごとに検知"
+            help=t("agent.auto_watch_help")
         )
         st.session_state["auto_execute"] = st.toggle(
-            "自動実行",
+            t("agent.auto_execute"),
             value=st.session_state.get("auto_execute", False),
-            help="パラメータ読み込み後に自動でクエリ実行"
+            help=t("agent.auto_execute_help")
         )
 
-        # ファイル状態表示
+        # File status display
         if PARAMS_FILE.exists():
             mtime = datetime.fromtimestamp(PARAMS_FILE.stat().st_mtime)
-            st.caption(f"📄 params.json: {mtime.strftime('%H:%M:%S')} 更新")
+            st.caption(t("agent.params_updated", time=mtime.strftime('%H:%M:%S')))
         else:
-            st.caption("📄 params.json: なし")
+            st.caption(t("agent.params_none"))
 
-        # 手動読み込みボタン
-        if st.button("📥 JSONを開く", width="stretch"):
+        # Manual load button
+        if st.button(t("agent.load_json"), width="stretch"):
             params, mtime, errors, canonical = load_params_from_file()
             if params:
                 apply_params_to_session(params)
                 st.session_state["last_params_mtime"] = mtime
                 st.session_state["last_params_canonical"] = canonical
                 st.session_state["params_validation_errors"] = []
-                st.success("✓ パラメータを読み込みました")
+                st.success(t("msg.params_loaded"))
                 st.rerun()
             elif errors:
                 if canonical is not None:
@@ -544,48 +566,47 @@ with st.sidebar:
                 if mtime is not None:
                     st.session_state["last_params_mtime"] = mtime
                 st.session_state["params_validation_errors"] = errors
-                st.error("params.json の検証に失敗しました")
+                st.error(t("msg.params_validation_error"))
             else:
-                st.warning("params.json が見つかりません")
+                st.warning(t("msg.params_not_found"))
 
-# 自動実行チェック
+# Auto-execute check
 auto_execute_pending = st.session_state.get("auto_execute_pending", False)
 if auto_execute_pending:
-    st.session_state["auto_execute_pending"] = False  # フラグをクリア
+    st.session_state["auto_execute_pending"] = False
 
-# BigQuery SQL入力エリア（メインエリアに表示）
+# BigQuery SQL input area (main area)
 if source == "BigQuery":
-    st.subheader("SQL クエリ")
-    
-    # サンプルSQL
-    sample_sql = """SELECT 
+    st.subheader(t("bq.sql_header"))
+
+    sample_sql = """SELECT
     event_date,
     COUNT(*) as event_count
 FROM `project.analytics_123456789.events_*`
 WHERE _TABLE_SUFFIX BETWEEN '20260101' AND '20260131'
 GROUP BY event_date
 ORDER BY event_date"""
-    
+
     if "w_bq_sql" not in st.session_state:
         st.session_state["w_bq_sql"] = lp.get("sql", sample_sql) if lp.get("source", "").lower() == "bigquery" else sample_sql
-    
-    sql = st.text_area("SQL", height=200, key="w_bq_sql")
-    
-    # データセット一覧表示
+
+    sql = st.text_area(t("bq.sql"), height=200, key="w_bq_sql")
+
+    # Dataset list
     if bq_project:
-        with st.expander("📁 データセット一覧"):
+        with st.expander(t("bq.datasets")):
             try:
                 datasets = get_bq_datasets(bq_project)
                 if datasets:
                     st.write(", ".join(datasets))
                 else:
-                    st.info("データセットが見つかりません")
+                    st.info(t("bq.no_datasets"))
             except Exception as e:
-                st.warning(f"データセット取得エラー: {e}")
+                st.warning(t("bq.dataset_error", error=str(e)))
 
-# メインエリア
+# Main area
 if execute_btn or auto_execute_pending or (file_just_updated and st.session_state.get("auto_execute", False)):
-    with st.spinner("データを取得中..."):
+    with st.spinner(t("msg.fetching")):
         try:
             if source == "GA4":
                 df = execute_ga4_query(
@@ -610,31 +631,31 @@ if execute_btn or auto_execute_pending or (file_just_updated and st.session_stat
             else:
                 # BigQuery
                 if not bq_project:
-                    st.error("プロジェクトIDを入力してください")
+                    st.error(t("msg.enter_project_id"))
                     df = None
                 elif not sql.strip():
-                    st.error("SQLを入力してください")
+                    st.error(t("msg.enter_sql"))
                     df = None
                 else:
                     df = execute_bq_query(bq_project, sql)
-            
+
             if df is not None and not df.empty:
-                st.success(f"✓ {len(df):,} 行のデータを取得しました")
+                st.success(t("msg.rows_fetched", count=f"{len(df):,}"))
                 st.session_state["df"] = df
             elif df is not None:
-                st.warning("データが取得できませんでした")
-                
-        except Exception as e:
-            st.error(f"エラー: {e}")
+                st.warning(t("msg.no_data"))
 
-# 結果表示
+        except Exception as e:
+            st.error(t("msg.error", error=str(e)))
+
+# Results display
 if "df" in st.session_state:
     raw_df = st.session_state["df"]
 
-    # === パイプラインUI ===
-    with st.expander("🔧 結果の絞り込み・集計", expanded=False):
-        # --- 変換 ---
-        st.markdown("**変換**")
+    # === Pipeline UI ===
+    with st.expander(t("pipeline.header"), expanded=False):
+        # --- Transform ---
+        st.markdown(t("pipeline.transform"))
         has_date_col = "date" in raw_df.columns
         url_cols = detect_url_columns(raw_df)
         has_url_col = len(url_cols) > 0
@@ -643,32 +664,32 @@ if "df" in st.session_state:
         keep_params = ""
         with pcol1:
             tf_date = st.checkbox(
-                "日付を YYYY-MM-DD に変換",
+                t("pipeline.tf_date"),
                 disabled=not has_date_col,
                 key="w_tf_date",
             )
 
             tf_url_decode = st.checkbox(
-                "URLデコード",
+                t("pipeline.tf_url_decode"),
                 disabled=not has_url_col,
                 key="w_tf_url_decode",
             )
 
         with pcol2:
             tf_strip_qs = st.checkbox(
-                "クエリ文字列を除去",
+                t("pipeline.tf_strip_qs"),
                 disabled=not has_url_col,
                 key="w_tf_strip_qs",
             )
             if tf_strip_qs and url_cols:
                 keep_params = st.text_input(
-                    "残すパラメータ（カンマ区切り、空=全除去）",
+                    t("pipeline.tf_keep_params"),
                     key="w_tf_keep_params",
                     placeholder="id,ref",
                 )
 
             tf_path_only = st.checkbox(
-                "パスのみ（ドメイン除去）",
+                t("pipeline.tf_path_only"),
                 disabled=not has_url_col,
                 key="w_tf_path_only",
             )
@@ -684,55 +705,53 @@ if "df" in st.session_state:
 
         st.divider()
 
-        # --- フィルタ ---
-        st.markdown("**フィルタ**")
+        # --- Filter ---
+        st.markdown(t("pipeline.filter"))
         where_expr = st.text_input(
-            "条件式（pandas query構文）",
+            t("pipeline.where"),
             key="w_pipeline_where",
             placeholder='clicks > 100 and page.str.contains("/blog/")',
         )
-        if where_expr.strip():
-            pipeline_kwargs["where"] = where_expr.strip()
 
         st.divider()
 
-        # --- 表示列 ---
-        st.markdown("**表示列**")
+        # --- Columns ---
+        st.markdown(t("pipeline.columns_header"))
         selected_cols = st.multiselect(
-            "列を選択（空=全列）",
+            t("pipeline.columns"),
             list(raw_df.columns),
             key="w_pipeline_columns",
         )
-        if selected_cols:
-            pipeline_kwargs["columns"] = ",".join(selected_cols)
 
         st.divider()
 
-        # --- グループ集計 ---
-        st.markdown("**グループ集計**")
+        # --- Group & Aggregate ---
+        st.markdown(t("pipeline.group_header"))
         group_cols = st.multiselect(
-            "グループ列",
+            t("pipeline.group_cols"),
             list(raw_df.columns),
             key="w_pipeline_group_by",
         )
         numeric_cols = list(raw_df.select_dtypes(include="number").columns)
         agg_map = {}
         if group_cols and numeric_cols:
-            st.caption("集計関数を設定")
+            st.caption(t("pipeline.agg_caption"))
+            agg_funcs = [AGG_NONE, "sum", "mean", "count", "min", "max", "median"]
             for nc in numeric_cols:
                 agg_func = st.selectbox(
                     f"{nc}",
-                    ["（なし）", "sum", "mean", "count", "min", "max", "median"],
+                    agg_funcs,
+                    format_func=lambda x: t("agg.none") if x == AGG_NONE else x,
                     key=f"w_agg_{nc}",
                 )
                 agg_map[nc] = agg_func
 
         st.divider()
 
-        # --- 表示行数 ---
-        st.markdown("**表示行数**")
+        # --- Row limit ---
+        st.markdown(t("pipeline.head_header"))
         head_val = st.slider(
-            "先頭N行（0=全行）",
+            t("pipeline.head"),
             min_value=0,
             max_value=min(len(raw_df), 10000),
             value=0,
@@ -750,10 +769,9 @@ if "df" in st.session_state:
         )
 
         if "group_by" in pipeline_kwargs and "aggregate" in pipeline_kwargs:
-            # グループ集計後はソート列名が変わるため更新案内
-            st.caption(f"集計後の列: {', '.join(group_cols + derived_cols)}")
+            st.caption(t("pipeline.derived_cols", cols=", ".join(group_cols + derived_cols)))
 
-    # === パイプライン適用 ===
+    # === Pipeline apply ===
     pipeline_error = None
     if pipeline_kwargs:
         try:
@@ -765,131 +783,151 @@ if "df" in st.session_state:
         display_df = raw_df
 
     if pipeline_error:
-        st.error(f"パイプラインエラー: {pipeline_error}")
+        st.error(t("msg.pipeline_error", error=pipeline_error))
 
-    # 行数キャプション
+    # Row count caption
     if len(display_df) != len(raw_df):
-        st.caption(f"📊 {len(raw_df):,} 行 → {len(display_df):,} 行")
+        st.caption(t("msg.rows_filtered", total=f"{len(raw_df):,}", filtered=f"{len(display_df):,}"))
     else:
-        st.caption(f"📊 {len(display_df):,} 行")
+        st.caption(t("msg.rows_summary", total=f"{len(display_df):,}"))
 
-    # タブ
-    tab1, tab2, tab3 = st.tabs(["📋 テーブル", "📈 チャート", "💾 保存"])
+    # Tabs
+    tab1, tab2, tab3 = st.tabs(t_options(["tab.table", "tab.chart", "tab.save"]))
 
     with tab1:
         st.dataframe(display_df, width="stretch", height=400)
 
-        # 統計情報
-        with st.expander("統計情報"):
+        # Statistics
+        with st.expander(t("table.stats")):
             st.write(display_df.describe())
 
     with tab2:
         if len(display_df.columns) >= 2:
             col1, col2 = st.columns(2)
             with col1:
-                x_col = st.selectbox("X軸", display_df.columns)
+                x_col = st.selectbox(t("chart.x_axis"), display_df.columns)
             with col2:
-                y_col = st.selectbox("Y軸", [c for c in display_df.columns if c != x_col])
+                y_col = st.selectbox(t("chart.y_axis"), [c for c in display_df.columns if c != x_col])
 
-            chart_type = st.radio("チャートタイプ", ["折れ線", "棒グラフ"], horizontal=True)
+            chart_opts = t_option_map({
+                "chart.line": "line",
+                "chart.bar": "bar",
+            })
+            chart_label = st.radio(t("chart.type"), list(chart_opts.keys()), horizontal=True)
+            chart_type = chart_opts[chart_label]
 
-            if chart_type == "折れ線":
+            if chart_type == "line":
                 st.line_chart(display_df.set_index(x_col)[y_col])
             else:
                 st.bar_chart(display_df.set_index(x_col)[y_col])
 
     with tab3:
-        st.subheader("ローカル保存")
+        st.subheader(t("save.local_header"))
         save_filename = st.text_input(
-            "ファイル名",
+            t("save.filename"),
             value=f"result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             key="w_save_filename",
         )
         col1, col2 = st.columns(2)
         with col1:
-            # CSV ダウンロード
             csv = display_df.to_csv(index=False).encode('utf-8-sig')
             st.download_button(
-                "📥 CSV ダウンロード",
+                t("save.csv_download"),
                 csv,
                 save_filename,
                 "text/csv",
                 width="stretch"
             )
         with col2:
-            # ファイル保存
-            if st.button("💾 output/ に保存", width="stretch"):
+            if st.button(t("save.save_to_output"), width="stretch"):
                 os.makedirs("output", exist_ok=True)
                 filepath = f"output/{save_filename}"
                 display_df.to_csv(filepath, index=False, encoding='utf-8-sig')
-                st.success(f"保存しました: {filepath}")
+                st.success(t("save.saved", path=filepath))
 
         st.divider()
-        st.subheader("Google Sheets に保存")
+        st.subheader(t("save.sheets_header"))
 
-        # スプレッドシートURL
         sheet_url = st.text_input(
-            "スプレッドシートURL",
+            t("save.sheet_url"),
             placeholder="https://docs.google.com/spreadsheets/d/xxxxx",
             key="w_sheet_url"
         )
 
         col1, col2 = st.columns(2)
         with col1:
-            sheet_name = st.text_input("シート名", value="data", key="w_sheet_name")
+            sheet_name = st.text_input(t("save.sheet_name"), value="data", key="w_sheet_name")
         with col2:
-            save_mode = st.selectbox("保存モード", ["上書き", "追記", "アップサート"], key="w_save_mode")
+            save_mode_labels, save_mode_default_idx, save_mode_opts = translated_select_model(
+                SAVE_MODE_KEYS,
+                current_value=st.session_state.get("w_save_mode", "overwrite"),
+            )
+            save_mode_label = st.selectbox(
+                t("save.mode"),
+                save_mode_labels,
+                index=save_mode_default_idx,
+                key="w_save_mode_select",
+            )
+            save_mode = save_mode_opts[save_mode_label]
+            st.session_state["w_save_mode"] = save_mode
 
-        # アップサート時のキー列
-        if save_mode == "アップサート":
-            key_cols = st.multiselect("キー列", display_df.columns.tolist(), key="w_upsert_keys")
+        # Upsert key columns
+        if save_mode == "upsert":
+            key_cols = st.multiselect(t("save.upsert_keys"), display_df.columns.tolist(), key="w_upsert_keys")
 
-        if st.button("📤 Google Sheets に保存", width="stretch", type="primary"):
+        if st.button(t("save.sheets_button"), width="stretch", type="primary"):
             if not sheet_url:
-                st.error("スプレッドシートURLを入力してください")
+                st.error(t("save.enter_sheet_url"))
             else:
                 try:
-                    mode_map = {"上書き": "overwrite", "追記": "append", "アップサート": "upsert"}
-                    mode = mode_map[save_mode]
-
-                    if mode == "upsert" and not key_cols:
-                        st.error("キー列を選択してください")
+                    if save_mode == "upsert" and not key_cols:
+                        st.error(t("save.select_keys"))
                     else:
-                        save_to_sheet(sheet_url, sheet_name, display_df, mode=mode, keys=key_cols if mode == "upsert" else None)
-                        st.success(f"✓ シート「{sheet_name}」に保存しました")
+                        save_to_sheet(sheet_url, sheet_name, display_df, mode=save_mode, keys=key_cols if save_mode == "upsert" else None)
+                        st.success(t("save.sheets_saved", name=sheet_name))
                 except Exception as e:
-                    st.error(f"エラー: {e}")
+                    st.error(t("msg.error", error=str(e)))
 
         st.divider()
-        st.subheader("BigQuery に保存")
+        st.subheader(t("save.bq_header"))
 
         bq_project = st.text_input(
-            "GCPプロジェクトID",
+            t("save.bq_project"),
             key="w_save_bq_project",
             placeholder="my-project-id",
         )
         col1, col2 = st.columns(2)
         with col1:
-            bq_dataset = st.text_input("データセット", key="w_save_bq_dataset")
+            bq_dataset = st.text_input(t("save.bq_dataset"), key="w_save_bq_dataset")
         with col2:
-            bq_table = st.text_input("テーブル", key="w_save_bq_table")
+            bq_table = st.text_input(t("save.bq_table"), key="w_save_bq_table")
 
-        bq_mode = st.selectbox("保存モード", ["上書き", "追記"], key="w_save_bq_mode")
+        bq_mode_labels, bq_mode_default_idx, bq_mode_opts = translated_select_model(
+            SAVE_BQ_MODE_KEYS,
+            current_value=st.session_state.get("w_save_bq_mode", "overwrite"),
+        )
+        bq_mode_label = st.selectbox(
+            t("save.bq_mode"),
+            bq_mode_labels,
+            index=bq_mode_default_idx,
+            key="w_save_bq_mode_select",
+        )
+        bq_mode = bq_mode_opts[bq_mode_label]
+        st.session_state["w_save_bq_mode"] = bq_mode
 
-        if st.button("📤 BigQuery に保存", width="stretch", type="primary"):
+        if st.button(t("save.bq_button"), width="stretch", type="primary"):
             if not all([bq_project, bq_dataset, bq_table]):
-                st.error("プロジェクトID、データセット、テーブルを入力してください")
+                st.error(t("save.bq_enter_all"))
             else:
                 try:
-                    bq_mode_map = {"上書き": "overwrite", "追記": "append"}
-                    save_to_bq(bq_project, bq_dataset, bq_table, display_df, mode=bq_mode_map[bq_mode])
-                    st.success(f"✓ {bq_project}.{bq_dataset}.{bq_table} に保存しました")
+                    save_to_bq(bq_project, bq_dataset, bq_table, display_df, mode=bq_mode)
+                    st.success(t("save.bq_saved", dest=f"{bq_project}.{bq_dataset}.{bq_table}"))
                 except Exception as e:
-                    st.error(f"エラー: {e}")
+                    st.error(t("msg.error", error=str(e)))
 
-# JSONパラメータ表示（AI Agent連携用）
+# JSON params display (AI Agent integration)
 with st.sidebar:
-    with st.expander("🤖 JSON (AI Agent用)"):
+    with st.expander(t("agent.json_header")):
         params = build_agent_params(
             source=source,
             start_date=start_date if 'start_date' in dir() else None,
