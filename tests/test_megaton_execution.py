@@ -239,7 +239,7 @@ class TestMegatonExecution(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_query_bq_without_params_uses_legacy(self):
-        """params=None → 従来の get_bigquery().run() 経由"""
+        """params=None -> use legacy get_bigquery().run() path."""
         bq = MagicMock()
         bq.run.return_value = pd.DataFrame([{"x": 1}])
         with patch("megaton_lib.megaton_client.get_bigquery", return_value=bq):
@@ -248,7 +248,7 @@ class TestMegatonExecution(unittest.TestCase):
         bq.run.assert_called_once_with("select 1", to_dataframe=True)
 
     def test_query_bq_with_params_uses_native_client(self):
-        """params あり → get_bq_client() + parameterized query"""
+        """With params -> use get_bq_client() + parameterized query."""
         fake_bigquery = MagicMock()
 
         class FakeScalarQueryParameter:
@@ -324,7 +324,7 @@ class TestMegatonExecution(unittest.TestCase):
         self.assertIsNone(qp.value)
 
     def test_query_bq_with_params_default_location_none(self):
-        """location 未指定 → kwargs に location が含まれない"""
+        """Without location, kwargs should not include location."""
         fake_bigquery = MagicMock()
         fake_bigquery.ScalarQueryParameter = lambda n, t, v: (n, t, v)
         fake_bigquery.QueryJobConfig = MagicMock()
@@ -344,7 +344,7 @@ class TestMegatonExecution(unittest.TestCase):
             mc.query_bq("proj", "SELECT 1", params=[("x", 1)])  # type: ignore[arg-type]
 
     def test_query_bq_with_empty_params_uses_native(self):
-        """params={} (空dict) → native client 経由（None とは区別）"""
+        """params={} (empty dict) -> native client path (distinct from None)."""
         fake_bigquery = MagicMock()
         fake_bigquery.QueryJobConfig = MagicMock()
 

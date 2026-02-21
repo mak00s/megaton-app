@@ -386,7 +386,7 @@ class TestParamsValidator(unittest.TestCase):
         self.assertTrue(any(e["error_code"] == "MISSING_REQUIRED" for e in errors))
 
     def test_save_with_pipeline(self):
-        """save と pipeline の両方を同時に指定できる"""
+        """Both save and pipeline can be specified together."""
         data = {
             "schema_version": "1.0",
             "source": "gsc",

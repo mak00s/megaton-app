@@ -1,20 +1,20 @@
-"""日付テンプレート解決
+"""Date template resolver.
 
-params.json の date_range.start / end に相対日付式を書けるようにする。
+Allows relative date expressions in ``params.json`` date_range.start/end.
 
-対応する式:
-  today           → 実行日
-  today-Nd        → N日前
-  today+Nd        → N日後
-  month-start     → 当月1日
-  month-end       → 当月末日
-  year-start      → 当年1月1日
-  year-end        → 当年12月31日
-  prev-month-start → 前月1日
-  prev-month-end   → 前月末日
-  week-start      → 今週月曜日（ISO: 月=0）
-  YYYY-MM-DD      → そのまま（絶対日付はパススルー）
-  YYYYMMDD        → YYYY-MM-DD に正規化
+Supported expressions:
+  today             -> execution date
+  today-Nd          -> N days ago
+  today+Nd          -> N days later
+  month-start       -> first day of current month
+  month-end         -> last day of current month
+  year-start        -> Jan 1 of current year
+  year-end          -> Dec 31 of current year
+  prev-month-start  -> first day of previous month
+  prev-month-end    -> last day of previous month
+  week-start        -> Monday of current week (ISO: Monday=0)
+  YYYY-MM-DD        -> pass through (absolute date)
+  YYYYMMDD          -> normalized to YYYY-MM-DD
 """
 
 from __future__ import annotations
@@ -26,13 +26,13 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 
-# today±Nd パターン
+# today±Nd pattern
 _RELATIVE_RE = re.compile(r"^today([+-])(\d+)d$")
 _DEFAULT_TZ = "Asia/Tokyo"
 
 
 def _resolve_timezone() -> ZoneInfo:
-    """DATE_TEMPLATE_TZ を解決（不正値は Asia/Tokyo にフォールバック）。"""
+    """Resolve DATE_TEMPLATE_TZ (fallback to Asia/Tokyo on invalid value)."""
     tz_name = os.getenv("DATE_TEMPLATE_TZ", _DEFAULT_TZ).strip() or _DEFAULT_TZ
     try:
         return ZoneInfo(tz_name)
@@ -41,27 +41,27 @@ def _resolve_timezone() -> ZoneInfo:
 
 
 def _current_date_in_configured_tz() -> date:
-    """現在日付を設定済みタイムゾーンで返す。"""
+    """Return current date in configured timezone."""
     return datetime.now(_resolve_timezone()).date()
 
 
 def resolve_date(expr: str, *, reference: date | None = None) -> str:
-    """日付テンプレート式を YYYY-MM-DD に解決する。
+    """Resolve a date template expression to YYYY-MM-DD.
 
     Args:
-        expr: 日付式（"today-7d", "prev-month-start", "2026-01-01" など）
-        reference: 基準日（デフォルト: 実行日）
+        expr: Date expression (e.g. "today-7d", "prev-month-start", "2026-01-01").
+        reference: Reference date (default: execution date).
 
     Returns:
-        "YYYY-MM-DD" 形式の文字列
+        Date string in "YYYY-MM-DD" format.
 
     Raises:
-        ValueError: 不明な日付式
+        ValueError: Unknown date expression.
     """
     ref = reference or _current_date_in_configured_tz()
     expr = expr.strip()
 
-    # 絶対日付（YYYY-MM-DD / YYYYMMDD）は実在チェックして返す
+    # Absolute dates (YYYY-MM-DD / YYYYMMDD): validate and return.
     if re.match(r"^\d{4}-\d{2}-\d{2}$", expr):
         try:
             datetime.strptime(expr, "%Y-%m-%d")
@@ -119,10 +119,10 @@ def resolve_date(expr: str, *, reference: date | None = None) -> str:
 
 
 def resolve_dates_in_params(params: dict) -> dict:
-    """params dict 内の date_range.start / end をテンプレート解決する。
+    """Resolve template dates in ``params['date_range'].start/end``.
 
-    元の dict は変更せず、新しい dict を返す。
-    date_range がない場合（bigquery等）はそのまま返す。
+    Returns a new dict without mutating the original.
+    If date_range is absent (e.g. bigquery), returns params as-is.
     """
     date_range = params.get("date_range")
     if not date_range:
@@ -135,7 +135,7 @@ def resolve_dates_in_params(params: dict) -> dict:
     resolved_end = resolve_date(end)
 
     if resolved_start == start and resolved_end == end:
-        return params  # 変更なし
+        return params  # unchanged
 
     new_params = dict(params)
     new_params["date_range"] = {

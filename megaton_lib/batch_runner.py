@@ -1,8 +1,8 @@
-"""バッチ実行エンジン
+"""Batch execution engine.
 
-configsディレクトリ内のJSONを順番に実行する。
+Executes JSON files in a configs directory in filename order.
 
-使い方:
+Usage:
     python scripts/query.py --batch configs/weekly/
     python scripts/query.py --batch configs/weekly/ --json
 """
@@ -18,17 +18,17 @@ from megaton_lib.params_validator import validate_params
 
 
 def collect_configs(batch_path: str) -> list[Path]:
-    """バッチ対象のJSONファイルをファイル名順で収集。
+    """Collect target JSON config files in filename order.
 
     Args:
-        batch_path: ディレクトリパス or 単一JSONファイルパス
+        batch_path: Directory path or single JSON file path.
 
     Returns:
-        ソート済みのPathリスト
+        Sorted list of Paths.
 
     Raises:
-        FileNotFoundError: パスが存在しない
-        ValueError: JSONファイルが見つからない
+        FileNotFoundError: Path does not exist.
+        ValueError: No JSON files found.
     """
     p = Path(batch_path)
     if not p.exists():
@@ -47,7 +47,7 @@ def collect_configs(batch_path: str) -> list[Path]:
 
 
 def _load_and_validate(config_path: Path) -> tuple[dict | None, list[dict]]:
-    """1つのconfigファイルを読み込み・検証。"""
+    """Load and validate one config file."""
     try:
         raw = json.loads(config_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
@@ -71,16 +71,16 @@ def run_batch(
     execute_fn: Callable[[dict, Path], dict[str, Any]],
     on_progress: Callable[[str, int, int, dict], None] | None = None,
 ) -> dict[str, Any]:
-    """バッチ実行。
+    """Run batch execution.
 
     Args:
-        batch_path: configs ディレクトリまたは単一JSONファイル
-        execute_fn: 1つのconfig を実行する関数。
+        batch_path: Configs directory or single JSON file.
+        execute_fn: Function that executes one config.
             (params: dict, config_path: Path) -> {"status": "ok", ...} or {"status": "error", ...}
-        on_progress: 各config完了時のコールバック(config_name, index, total, result)
+        on_progress: Callback per completed config(config_name, index, total, result).
 
     Returns:
-        バッチ実行結果サマリ:
+        Batch result summary:
         {
             "total": N,
             "succeeded": N,

@@ -1,38 +1,38 @@
-"""Search Console からクエリ別データを取得（megaton使用）"""
+"""Fetch query-level Search Console data (via megaton)."""
 from datetime import datetime, timedelta
 from megaton import start
 from megaton_lib.credentials import resolve_service_account_path
 
-# 設定
+# Configuration
 CREDS_PATH = resolve_service_account_path()
-GSC_SITE_URL = ""  # 例: "sc-domain:example.com"
+GSC_SITE_URL = ""  # e.g. "sc-domain:example.com"
 
-# 初期化（headlessモード）
+# Initialize (headless mode)
 mg = start.Megaton(CREDS_PATH, headless=True)
 
-# サイトURLが未設定の場合、一覧を表示
+# If GSC_SITE_URL is unset, show available sites.
 if not GSC_SITE_URL:
-    print("=== Search Console サイト一覧 ===")
-    print("（GSC_SITE_URL を設定してください）\n")
+    print("=== Search Console Sites ===")
+    print("(Set GSC_SITE_URL and re-run)\n")
     
     sites = mg.search.get.sites()
     for site in sites:
         print(f"  - {site}")
     
-    print("\n上記から GSC_SITE_URL を選んでスクリプトに設定してください")
+    print("\nPick a site from the list above and set GSC_SITE_URL in the script.")
     exit(0)
 
-# サイトを選択
+# Select site
 mg.search.use(GSC_SITE_URL)
-print(f"サイト: {GSC_SITE_URL}")
+print(f"Site: {GSC_SITE_URL}")
 
-# 期間設定（直近7日）
+# Date range (last 7 days)
 end_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
 start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
 mg.search.set.dates(start_date, end_date)
-print(f"期間: {start_date} 〜 {end_date}\n")
+print(f"Period: {start_date} - {end_date}\n")
 
-# クエリ別データを取得
+# Fetch query-level data
 mg.search.run(
     dimensions=['query'],
     metrics=['clicks', 'impressions', 'ctr', 'position'],
@@ -40,14 +40,14 @@ mg.search.run(
 
 df = mg.search.data
 
-TOP_N = 20  # 表示件数
+TOP_N = 20  # number of rows to display
 
 if df is not None and not df.empty:
-    # クリック数でソート
+    # Sort by clicks
     df = df.sort_values('clicks', ascending=False)
-    
-    print(f"=== クエリ別パフォーマンス（上位{TOP_N}件） ===")
-    print(f"{'クエリ':<40} {'クリック':>8} {'表示':>10} {'CTR':>8} {'順位':>6}")
+
+    print(f"=== Query Performance (Top {TOP_N}) ===")
+    print(f"{'Query':<40} {'Clicks':>8} {'Impr.':>10} {'CTR':>8} {'Pos':>6}")
     print("-" * 76)
     
     for _, row in df.head(TOP_N).iterrows():
@@ -58,11 +58,11 @@ if df is not None and not df.empty:
         position = float(row['position'])
         print(f"{query:<40} {clicks:>8,} {impressions:>10,} {ctr:>7.1%} {position:>6.1f}")
     
-    # 全体集計
+    # Totals
     total_clicks = int(df['clicks'].sum())
     total_impressions = int(df['impressions'].sum())
-    
+
     print("-" * 76)
-    print(f"{'合計':<40} {total_clicks:>8,} {total_impressions:>10,}")
+    print(f"{'Total':<40} {total_clicks:>8,} {total_impressions:>10,}")
 else:
-    print("データが取得できませんでした")
+    print("No data was returned.")

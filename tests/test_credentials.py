@@ -105,7 +105,7 @@ class TestListServiceAccountPaths(unittest.TestCase):
             self.assertEqual(paths, [])
 
     def test_resolve_still_errors_on_multiple(self):
-        """resolve_service_account_path は複数ファイルでエラーのまま（後方互換）"""
+        """resolve_service_account_path still errors on multiple files (backward compatibility)."""
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "a.json").write_text("{}", encoding="utf-8")
             (Path(tmp) / "b.json").write_text("{}", encoding="utf-8")

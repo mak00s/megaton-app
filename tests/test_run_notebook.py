@@ -45,13 +45,13 @@ SIMPLE_NB = textwrap.dedent("""\
 class TestExtractCells:
     def test_skips_yaml_header(self):
         cells = extract_cells(SIMPLE_NB)
-        # ヘッダーはセルに含まれない
+        # Header should not appear in cells.
         for c in cells:
             assert "jupytext" not in c["source"]
 
     def test_cell_count(self):
         cells = extract_cells(SIMPLE_NB)
-        # ヘッダー後の空行セル + markdown + params + code
+        # Empty cell after header + markdown + params + code
         code_cells = [c for c in cells if c["marker"] and "markdown" not in c["marker"]]
         assert len(code_cells) == 2  # params + code
 
@@ -67,7 +67,7 @@ class TestExtractCells:
         assert len(md_cells) == 1
 
     def test_no_header(self):
-        """ヘッダーなしのノートブックも処理できる。"""
+        """Notebook without header is also handled."""
         src = "# %% tags=[\"parameters\"]\nA = 1\n\n# %%\nprint(A)\n"
         cells = extract_cells(src)
         assert len(cells) == 2
@@ -87,7 +87,7 @@ class TestInjectParams:
         cells = self._make_params_cell('X = "old"\nY = 42\n')
         result = inject_params(cells, {"X": "new"})
         assert "X = 'new'" in result[0]["source"]
-        assert "Y = 42" in result[0]["source"]  # 未変更
+        assert "Y = 42" in result[0]["source"]  # unchanged
 
     def test_int_override(self):
         cells = self._make_params_cell("COUNT = 10\n")
@@ -161,7 +161,7 @@ class TestParseParamPairs:
         assert result == {"A": "1", "B": "hello"}
 
     def test_value_with_equals(self):
-        """値に = を含む場合（URL等）。"""
+        """When value contains '=' (e.g. URL)."""
         result = _parse_param_pairs(["URL=https://x.com?a=1"])
         assert result == {"URL": "https://x.com?a=1"}
 
@@ -187,7 +187,7 @@ class TestParseArgs:
 
 class TestRun:
     def test_e2e_simple(self, tmp_path):
-        """簡易ノートブックを作成して実行、出力ファイルを検証。"""
+        """Create and run a simple notebook, then verify output."""
         nb = tmp_path / "test_nb.py"
         out = tmp_path / "out.txt"
         nb.write_text(textwrap.dedent(f"""\
@@ -225,7 +225,7 @@ class TestRun:
         assert out.read_text() == "overridden x7"
 
     def test_e2e_markdown_skipped(self, tmp_path):
-        """markdown セルのコードは実行されない。"""
+        """Code inside markdown cells is not executed."""
         nb = tmp_path / "test_nb.py"
         out = tmp_path / "out.txt"
         nb.write_text(textwrap.dedent(f"""\
@@ -243,7 +243,7 @@ class TestRun:
         assert out.read_text() == "1"
 
     def test_cwd_restored(self, tmp_path):
-        """実行後に CWD が元に戻る。"""
+        """CWD is restored after execution."""
         nb = tmp_path / "sub" / "test_nb.py"
         nb.parent.mkdir()
         nb.write_text('# %% tags=["parameters"]\nX = 1\n\n# %%\npass\n')

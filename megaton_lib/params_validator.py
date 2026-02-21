@@ -1,4 +1,4 @@
-"""input/params.json のバリデーション"""
+"""Validation for input/params.json."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -24,18 +24,18 @@ def _err(code: str, message: str, path: str, hint: str) -> dict[str, str]:
 
 
 def _is_valid_date(value: Any) -> bool:
-    """YYYY-MM-DD 絶対日付、またはテンプレート式を受理する。"""
+    """Accept YYYY-MM-DD absolute dates and supported template expressions."""
     if not isinstance(value, str):
         return False
     try:
-        resolve_date(value)  # テンプレート式も含めて解決可能か検証
+        resolve_date(value)  # validate resolvability including templates
         return True
     except ValueError:
         return False
 
 
 def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, str]]]:
-    """クエリパラメータを検証して正規化結果を返す。"""
+    """Validate query params and return normalized output."""
     errors: list[dict[str, str]] = []
     if not isinstance(data, dict):
         return None, [_err("INVALID_TYPE", "Root must be a JSON object", "$", "Use an object like {\"schema_version\": \"1.0\", ...}")]
@@ -392,7 +392,7 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
     if errors:
         return None, errors
 
-    # テンプレート日付を実日付に解決
+    # Resolve template dates to concrete dates.
     normalized = resolve_dates_in_params(normalized)
 
     return normalized, []

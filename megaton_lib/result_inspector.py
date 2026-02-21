@@ -1,4 +1,4 @@
-"""ジョブ結果CSVの部分読み込み/要約/変換"""
+"""Partial read/summary/transform utilities for job result CSV files."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,10 +12,10 @@ SUPPORTED_TRANSFORMS = {"date_format", "url_decode", "path_only", "strip_qs"}
 
 
 def parse_transforms(expr: str) -> list[tuple[str, str, str | None]]:
-    """'col:func,col2:func2:args' 形式のトランスフォーム定義をパース
+    """Parse transform definitions in ``col:func,col2:func2:args`` format.
 
-    コロンを含まないセグメントは直前のtransformの引数に追記する。
-    例: "page:strip_qs:id,ref" → [("page", "strip_qs", "id,ref")]
+    Segments without ``:`` are appended to the previous transform args.
+    Example: ``"page:strip_qs:id,ref"`` -> ``[("page", "strip_qs", "id,ref")]``.
     """
     raw_parts = [p.strip() for p in expr.split(",") if p.strip()]
     if not raw_parts:
@@ -24,7 +24,7 @@ def parse_transforms(expr: str) -> list[tuple[str, str, str | None]]:
     result: list[tuple[str, str, str | None]] = []
     for part in raw_parts:
         if ":" not in part:
-            # コロンなし → 直前の transform の引数に追記
+            # No colon: append to previous transform args.
             if not result or result[-1][2] is None:
                 raise ValueError(f"Invalid transform expression: {part}")
             prev = result[-1]
@@ -42,7 +42,7 @@ def parse_transforms(expr: str) -> list[tuple[str, str, str | None]]:
 
 
 def apply_transform(df: pd.DataFrame, expr: str) -> pd.DataFrame:
-    """列にトランスフォームを順次適用"""
+    """Apply transforms sequentially to columns."""
     transforms = parse_transforms(expr)
     result = df.copy()
 
@@ -65,7 +65,7 @@ def apply_transform(df: pd.DataFrame, expr: str) -> pd.DataFrame:
             )
         elif func == "strip_qs":
             if args:
-                # 指定パラメータのみ保持
+                # Keep only specified query params.
                 keep = [p.strip() for p in args.split(",")]
 
                 def _keep_qs(url: str, keep: list[str] = keep) -> str:
@@ -77,7 +77,7 @@ def apply_transform(df: pd.DataFrame, expr: str) -> pd.DataFrame:
 
                 result[col] = result[col].astype(str).apply(_keep_qs)
             else:
-                # 全クエリパラメータ除去
+                # Remove all query params.
                 result[col] = result[col].astype(str).apply(
                     lambda u: urlparse(u)._replace(query="", fragment="").geturl()
                 )
@@ -86,14 +86,14 @@ def apply_transform(df: pd.DataFrame, expr: str) -> pd.DataFrame:
 
 
 def read_head(csv_path: str | Path, rows: int) -> pd.DataFrame:
-    """CSVの先頭N行を読み込む"""
+    """Read first N rows of a CSV."""
     if rows <= 0:
         raise ValueError("rows must be greater than 0")
     return pd.read_csv(csv_path, nrows=rows)
 
 
 def apply_where(df: pd.DataFrame, expr: str) -> pd.DataFrame:
-    """DataFrame.query()で行フィルタ"""
+    """Filter rows using DataFrame.query()."""
     try:
         return df.query(expr, engine="python")
     except Exception as e:
@@ -101,7 +101,7 @@ def apply_where(df: pd.DataFrame, expr: str) -> pd.DataFrame:
 
 
 def apply_sort(df: pd.DataFrame, sort_expr: str) -> pd.DataFrame:
-    """'col DESC,col2 ASC' 形式のソート"""
+    """Sort in ``col DESC,col2 ASC`` format."""
     parts = [p.strip() for p in sort_expr.split(",") if p.strip()]
     if not parts:
         raise ValueError("Invalid sort expression: expression is empty")
@@ -130,7 +130,7 @@ def apply_sort(df: pd.DataFrame, sort_expr: str) -> pd.DataFrame:
 
 
 def apply_columns(df: pd.DataFrame, columns_expr: str) -> pd.DataFrame:
-    """カンマ区切りの列名で射影"""
+    """Project columns from a comma-separated column list."""
     cols = [c.strip() for c in columns_expr.split(",") if c.strip()]
     if not cols:
         raise ValueError("Invalid columns expression: no columns specified")
@@ -143,7 +143,7 @@ def apply_columns(df: pd.DataFrame, columns_expr: str) -> pd.DataFrame:
 
 
 def apply_group_aggregate(df: pd.DataFrame, group_by: str, aggregate: str) -> pd.DataFrame:
-    """グループ集計。結果列名は {func}_{col}"""
+    """Group and aggregate. Output column names are ``{func}_{col}``."""
     group_cols = [c.strip() for c in group_by.split(",") if c.strip()]
     if not group_cols:
         raise ValueError("Invalid aggregate: group_by is empty")
@@ -186,7 +186,7 @@ def apply_pipeline(
     columns: str | None = None,
     head: int | None = None,
 ) -> pd.DataFrame:
-    """transform→where→group/aggregate→sort→columns→head の順に適用"""
+    """Apply in order: transform -> where -> group/aggregate -> sort -> columns -> head."""
     result = df.copy()
 
     if transform:
@@ -215,7 +215,7 @@ def apply_pipeline(
 
 
 def build_summary(csv_path: str | Path) -> dict[str, Any]:
-    """CSV全体の要約統計を返す"""
+    """Return summary statistics for an entire CSV."""
     df = pd.read_csv(csv_path)
 
     summary: dict[str, Any] = {
