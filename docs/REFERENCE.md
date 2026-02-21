@@ -1,72 +1,83 @@
-# 技術リファレンス
+# Technical Reference
 
-操作フローや使い方は [USAGE.md](USAGE.md) を参照。
+For setup and how-to, see [USAGE.md](USAGE.md).
 
-## JSONパラメータスキーマ
+---
 
-- スキーマファイル: `schemas/query-params.schema.json`
-- `schema_version` は必須（現在は `"1.0"`）
-- `source` ごとに許可されるキー以外はエラー（`additionalProperties: false`）
-- Streamlit と CLI（`scripts/query.py --params ...`）で同じスキーマを共通利用
+## CLI (`scripts/query.py`)
 
-## CLI オプション一覧
+### Options
 
-`scripts/query.py` の全オプション。基本的な使い方は [USAGE.md](USAGE.md#cli-の詳しい使い方) を参照。
+| Option | Description | Default |
+|--------|------------|---------|
+| `--params` | Schema-validated JSON input | `input/params.json` |
+| `--submit` | Submit as async job | OFF |
+| `--status <job_id>` | Show job status | - |
+| `--cancel <job_id>` | Cancel queued/running job | - |
+| `--result <job_id>` | Show job result | - |
+| `--head <N>` | First N rows (with `--result`) | - |
+| `--summary` | Summary stats (with `--result`) | OFF |
+| `--transform` | Column transform (`col:func`) | - |
+| `--where` | Row filter (pandas query) | - |
+| `--sort` | Sort (`col DESC,col2 ASC`) | - |
+| `--columns` | Column selection (comma-separated) | - |
+| `--group-by` | Group columns (comma-separated) | - |
+| `--aggregate` | Aggregation (`sum:clicks,mean:ctr`) | - |
+| `--batch <dir>` | Batch execute all JSON in directory | - |
+| `--list-jobs` | List jobs | OFF |
+| `--job-limit` | Max jobs to list | 20 |
+| `--list-ga4-properties` | List GA4 properties | OFF |
+| `--list-gsc-sites` | List GSC sites | OFF |
+| `--list-bq-datasets` | List BQ datasets | OFF |
+| `--project` | GCP project for dataset listing | - |
+| `--json` | JSON output | table |
+| `--output` | Save to CSV file | - |
 
-| オプション | 説明 | デフォルト |
-|-----------|------|-----------|
-| `--params` | スキーマ検証済みJSON入力 | `input/params.json` |
-| `--submit` | ジョブを非同期投入 | OFF |
-| `--status <job_id>` | ジョブ状態の表示 | - |
-| `--cancel <job_id>` | 実行中/待機中ジョブのキャンセル | - |
-| `--result <job_id>` | ジョブ結果情報の表示 | - |
-| `--head <N>` | `--result` で先頭N行を返す | - |
-| `--summary` | `--result` で要約統計を返す | OFF |
-| `--transform` | `--result` で列変換（`col:func` 形式） | - |
-| `--where` | `--result` で行フィルタ（pandas query） | - |
-| `--sort` | `--result` でソート（`col DESC,col2 ASC`） | - |
-| `--columns` | `--result` で列選択（カンマ区切り） | - |
-| `--group-by` | `--result` でグループ列（カンマ区切り） | - |
-| `--aggregate` | `--result` で集計（`sum:clicks` 形式） | - |
-| `--batch <dir>` | ディレクトリ内JSONを一括実行 | - |
-| `--list-jobs` | ジョブ一覧の表示 | OFF |
-| `--job-limit` | ジョブ一覧の件数上限 | 20 |
-| `--list-ga4-properties` | GA4プロパティ一覧 | OFF |
-| `--list-gsc-sites` | GSCサイト一覧 | OFF |
-| `--list-bq-datasets` | BigQueryデータセット一覧 | OFF |
-| `--project` | データセット一覧取得対象プロジェクト | - |
-| `--json` | JSON出力 | テーブル出力 |
-| `--output` | CSV出力ファイル | - |
+**Constraints:**
+- `--params`: validates `schema_version: "1.0"` and source-key consistency
+- `--params` sync execution: pipeline must be in params.json (CLI args not allowed)
+- `--head` and `--summary`: require `--result`
+- `--group-by` and `--aggregate`: must be used together
+- `--summary`: exclusive with pipeline options
 
-**制約:**
-- `--params` 実行時は `schema_version: "1.0"` を必須検証。`source` とキー整合性が崩れている場合は実行前にエラー
-- `--params` 同期実行時のパイプライン → params.json の `pipeline` で指定（CLI 引数は不可）
-- `--head` と `--summary` は `--result` と併用
-- `--group-by` と `--aggregate` は同時指定必須
-- `--summary` は `--result` 専用で、パイプラインオプションとは排他
-- `--json` 指定時は成功・失敗ともに構造化JSONを返す
+### Result Pipeline
 
-### フィルタ書式
+Transforms query results (from `--result` or `--params` sync execution).
 
-`input/params.json` 内で指定する。
+**Processing order (fixed):**
+`read CSV → transform → where → group-by+aggregate → sort → columns → head → output`
 
-**GA4:** `filter_d` に `field==value` 形式（複数はセミコロン区切り）
-```json
-"filter_d": "sessionDefaultChannelGroup==Organic Search;country==Japan"
-```
+#### Transform Functions (`--transform`)
 
-**GSC:** `filter` に `dimension:operator:expression` 形式（複数はセミコロン区切り）
-```json
-"filter": "query:contains:渋谷;page:includingRegex:/blog/"
-```
+| Function | Syntax | Description |
+|----------|--------|-------------|
+| `date_format` | `date:date_format` | YYYYMMDD → YYYY-MM-DD |
+| `url_decode` | `page:url_decode` | Decode %xx |
+| `path_only` | `page:path_only` | Extract path (remove domain) |
+| `strip_qs` | `page:strip_qs` | Remove all query params |
+| `strip_qs` | `page:strip_qs:id,ref` | Keep only specified params |
 
-GSC演算子: `contains`, `notContains`, `equals`, `notEquals`, `includingRegex`, `excludingRegex`
+**strip_qs args:** Without args → remove all. With args → keep listed params only.
 
-## CLI Job管理
+**Comma disambiguation:** In `page:strip_qs:id,ref`, `ref` is a strip_qs argument (not a new transform). Segments without colons are appended to the preceding transform.
 
-### `--json` レスポンス形式
+#### Aggregate Functions
 
-成功時:
+`sum`, `mean`, `count`, `min`, `max`, `median`
+
+#### Pipeline Error Codes
+
+| Code | Condition |
+|------|-----------|
+| `INVALID_TRANSFORM` | Invalid transform function/column/expression |
+| `INVALID_WHERE` | Invalid where expression |
+| `INVALID_SORT` | Invalid sort syntax or column |
+| `INVALID_COLUMNS` | Non-existent column |
+| `INVALID_AGGREGATE` | Invalid aggregate function/column |
+
+### `--json` Response Format
+
+Success:
 
 ```json
 {
@@ -76,12 +87,10 @@ GSC演算子: `contains`, `notContains`, `equals`, `notEquals`, `includingRegex`
 }
 ```
 
-補足:
-- 同期実行（`--params`）で params.json に `pipeline` フィールドが含まれる場合、`data.pipeline` に `input_rows` / `output_rows` を含む実行メタが入る。
-- `--params` 同期実行時は CLI パイプライン引数（`--where` 等）は使用不可。`pipeline` は params.json 内で指定する。
-- `--result` ジョブ結果時は従来通り CLI 引数（`--where` / `--sort` 等）で指定する。
+- With `pipeline` in params.json: `data.pipeline` includes `input_rows` / `output_rows`
+- `--result` jobs: use CLI args (`--where` / `--sort` etc.)
 
-失敗時:
+Failure:
 
 ```json
 {
@@ -93,92 +102,86 @@ GSC演算子: `contains`, `notContains`, `equals`, `notEquals`, `includingRegex`
 }
 ```
 
-### 結果パイプラインオプション
+### Job Management
 
-`--result`（ジョブ結果CSV）または同期実行（`--params`）の結果DataFrameに対して変換し、必要行だけ返す。
+#### Job States
 
-処理順序（固定）:
-`CSV読み込み → transform → where → group-by+aggregate → sort → columns → head → 出力`
+| Status | Description |
+|--------|-------------|
+| `queued` | Submitted to queue |
+| `running` | In progress |
+| `canceled` | Canceled |
+| `succeeded` | Done (result CSV in `artifact_path`) |
+| `failed` | Failed (details in `error`) |
 
-#### オプション
+#### Storage
 
-| オプション | 書式 | 説明 |
-|-----------|------|------|
-| `--transform` | `col:func,col2:func2` | 列変換 |
-| `--where` | pandas query式 | 行フィルタ |
-| `--sort` | `col DESC,col2 ASC` | ソート |
-| `--columns` | `col1,col2` | 列選択 |
-| `--group-by` | `col1,col2` | グループ列 |
-| `--aggregate` | `sum:clicks,mean:ctr` | 集計 |
-| `--head` | `N` | 先頭N行 |
+| Path | Contents |
+|------|----------|
+| `output/jobs/records/<job_id>.json` | Job metadata |
+| `output/jobs/logs/<job_id>.log` | Execution log |
+| `output/jobs/artifacts/<job_id>.csv` | Result CSV |
 
-#### 変換関数（`--transform`）
+### Batch Execution
 
-| 関数 | 書式 | 説明 |
-|------|------|------|
-| `date_format` | `date:date_format` | YYYYMMDD → YYYY-MM-DD |
-| `url_decode` | `page:url_decode` | %エンコード解除 |
-| `path_only` | `page:path_only` | URLからパスのみ抽出（ドメイン除去） |
-| `strip_qs` | `page:strip_qs` | 全クエリパラメータ除去 |
-| `strip_qs` | `page:strip_qs:id,ref` | 指定パラメータのみ保持（他は除去） |
+`--batch <dir>` runs all JSON files in the directory in filename order.
+Each config runs independently; failures don't stop the rest.
 
-**strip_qs の引数仕様:**
-- 引数なし（`page:strip_qs`）→ 全クエリパラメータとフラグメントを除去
-- 引数あり（`page:strip_qs:id,ref`）→ 指定パラメータのみ保持、他は除去
+```bash
+python scripts/query.py --batch configs/weekly/ --json
+```
 
-**カンマ曖昧性の解決:**
-`page:strip_qs:id,ref` の `ref` はstrip_qsの引数（新しいtransformではない）。コロンを含まないセグメントは直前のtransformの引数に追加される。
+```json
+{
+  "status": "ok",
+  "total": 3, "succeeded": 2, "failed": 1, "skipped": 0,
+  "results": [
+    {"config": "01_gsc.json", "status": "ok", "row_count": 500},
+    {"config": "02_ga4.json", "status": "ok", "row_count": 120},
+    {"config": "03_bq.json", "status": "error", "error": "..."}
+  ],
+  "elapsed_sec": 12.34
+}
+```
 
-#### 集計関数
+---
 
-`sum`, `mean`, `count`, `min`, `max`, `median`
+## JSON Parameter Schema
 
-#### 制約
+- Schema file: `schemas/query-params.schema.json`
+- `schema_version` required (currently `"1.0"`)
+- Only keys allowed for the specified `source` (`additionalProperties: false`)
+- Shared by Streamlit UI and CLI
 
-- `--result` 時: CLI引数 `--transform` / `--where` / `--sort` / `--columns` / `--group-by` / `--aggregate` / `--head` で指定
-- `--params` 同期実行時: params.json の `pipeline` フィールドで指定。CLI引数は使用不可
-- `--group-by` と `--aggregate` は同時指定必須
-- `--summary` とパイプラインオプションは排他
+### Fields
 
-#### エラーコード
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `schema_version` | string | ✓ | `"1.0"` |
+| `source` | string | ✓ | `"ga4"`, `"gsc"`, `"bigquery"` |
+| `property_id` | string | GA4 | GA4 property ID |
+| `site_url` | string | GSC | Search Console site URL |
+| `project_id` | string | BQ | GCP project ID |
+| `sql` | string | BQ | SQL to execute |
+| `date_range.start` | string | GA4/GSC | Start date (YYYY-MM-DD or template) |
+| `date_range.end` | string | GA4/GSC | End date (YYYY-MM-DD or template) |
+| `dimensions` | array | - | Dimension list |
+| `metrics` | array | GA4 | Metric list |
+| `filter_d` | string | - | GA4 filter (`field==value` format) |
+| `filter` | string | - | GSC filter (`dim:op:expr` format) |
+| `limit` | number | - | Row limit (max 100,000) |
+| `pipeline` | object | - | Post-fetch pipeline (see below) |
+| `save` | object | - | Save destination (see below) |
 
-| code | 条件 |
-|------|------|
-| `INVALID_TRANSFORM` | `--transform` 関数/列/式が不正 |
-| `INVALID_WHERE` | `--where` 式が不正 |
-| `INVALID_SORT` | `--sort` 書式不正 / 列不正 |
-| `INVALID_COLUMNS` | `--columns` に存在しない列 |
-| `INVALID_AGGREGATE` | 集計関数/列/式が不正 |
+### Examples
 
-### ジョブ状態
-
-| status | 説明 |
-|--------|------|
-| `queued` | キュー投入済み |
-| `running` | 実行中 |
-| `canceled` | キャンセル済み |
-| `succeeded` | 成功（`artifact_path` に結果CSVあり） |
-| `failed` | 失敗（`error` に詳細あり） |
-
-### 保存構造
-
-| パス | 内容 |
-|------|------|
-| `output/jobs/records/<job_id>.json` | ジョブメタデータ |
-| `output/jobs/logs/<job_id>.log` | 実行ログ |
-| `output/jobs/artifacts/<job_id>.csv` | 結果CSV |
-
-### GA4クエリ
-
+**GA4:**
 ```json
 {
   "schema_version": "1.0",
   "source": "ga4",
   "property_id": "254470346",
-  "date_range": {
-    "start": "2026-01-28",
-    "end": "2026-02-03"
-  },
+  "date_range": {"start": "2026-01-28", "end": "2026-02-03"},
   "dimensions": ["date"],
   "metrics": ["sessions", "activeUsers"],
   "filter_d": "sessionDefaultChannelGroup==Organic Search",
@@ -186,25 +189,20 @@ GSC演算子: `contains`, `notContains`, `equals`, `notEquals`, `includingRegex`
 }
 ```
 
-### GSCクエリ
-
+**GSC:**
 ```json
 {
   "schema_version": "1.0",
   "source": "gsc",
   "site_url": "https://www.example.com/",
-  "date_range": {
-    "start": "2026-01-21",
-    "end": "2026-02-03"
-  },
+  "date_range": {"start": "2026-01-21", "end": "2026-02-03"},
   "dimensions": ["query"],
-  "filter": "query:contains:渋谷",
+  "filter": "query:contains:keyword",
   "limit": 1000
 }
 ```
 
-### BigQueryクエリ
-
+**BigQuery:**
 ```json
 {
   "schema_version": "1.0",
@@ -214,38 +212,35 @@ GSC演算子: `contains`, `notContains`, `equals`, `notEquals`, `includingRegex`
 }
 ```
 
-### フィールド説明
+### Filter Syntax
 
-| フィールド | 型 | 必須 | 説明 |
-|-----------|-----|------|------|
-| `schema_version` | string | ✓ | 現在は `"1.0"` 固定 |
-| `source` | string | ✓ | `"ga4"`, `"gsc"`, `"bigquery"` |
-| `property_id` | string | GA4時 | GA4プロパティID |
-| `site_url` | string | GSC時 | Search ConsoleサイトURL |
-| `project_id` | string | BQ時 | GCPプロジェクトID |
-| `sql` | string | BQ時 | 実行するSQL |
-| `date_range.start` | string | GA4/GSC | 開始日（YYYY-MM-DD or テンプレート） |
-| `date_range.end` | string | GA4/GSC | 終了日（YYYY-MM-DD or テンプレート） |
-| `dimensions` | array | - | ディメンション一覧 |
-| `metrics` | array | GA4時 | メトリクス一覧 |
-| `filter_d` | string | GA4時 | GA4フィルタ（`field==value`形式） |
-| `filter` | string | GSC時 | GSCフィルタ（`dim:op:expr`形式） |
-| `limit` | number | - | 結果件数上限（最大10万） |
-| `pipeline` | object | - | 取得後のパイプライン処理（下記参照） |
+**GA4** (`filter_d`): `field==value` format, semicolon-separated for multiple
 
-#### pipeline フィールド
+```
+"filter_d": "sessionDefaultChannelGroup==Organic Search;country==Japan"
+```
 
-`pipeline` は取得結果に対する後処理を定義するオブジェクト。全 source で使用可能。
+**GSC** (`filter`): `dimension:operator:expression` format, semicolon-separated
 
-| フィールド | 型 | 説明 |
-|-----------|-----|------|
-| `pipeline.transform` | string | 列変換（`col:func` 形式） |
-| `pipeline.where` | string | 行フィルタ（pandas query式） |
-| `pipeline.sort` | string | ソート（`col DESC,col2 ASC`） |
-| `pipeline.columns` | string | 列選択（`col1,col2`） |
-| `pipeline.group_by` | string | グループ列（`col1,col2`） |
-| `pipeline.aggregate` | string | 集計（`sum:clicks,mean:ctr`） |
-| `pipeline.head` | integer | 先頭N行 |
+```
+"filter": "query:contains:keyword;page:includingRegex:/blog/"
+```
+
+GSC operators: `contains`, `notContains`, `equals`, `notEquals`, `includingRegex`, `excludingRegex`
+
+### Pipeline Field
+
+Post-fetch processing. Available for all sources.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `pipeline.transform` | string | Column transform (`col:func`) |
+| `pipeline.where` | string | Row filter (pandas query) |
+| `pipeline.sort` | string | Sort (`col DESC,col2 ASC`) |
+| `pipeline.columns` | string | Column selection |
+| `pipeline.group_by` | string | Group columns |
+| `pipeline.aggregate` | string | Aggregation (`sum:clicks,mean:ctr`) |
+| `pipeline.head` | integer | First N rows |
 
 ```json
 {
@@ -266,183 +261,61 @@ GSC演算子: `contains`, `notContains`, `equals`, `notEquals`, `includingRegex`
 }
 ```
 
-### save フィールド
+### Save Field
 
-`save` はクエリ結果（pipeline適用後）の保存先を定義するオブジェクト。全 source で使用可能。
+Save destination for query results (post-pipeline). Available for all sources.
 
-| フィールド | 型 | 必須 | 説明 |
-|-----------|-----|------|------|
-| `save.to` | string | ○ | 保存先: `csv`, `sheets`, `bigquery` |
-| `save.mode` | string | | 保存モード: `overwrite`(デフォルト), `append`, `upsert` |
-| `save.path` | string | CSV時○ | ファイルパス（例: `output/report.csv`） |
-| `save.sheet_url` | string | Sheets時○ | スプレッドシートURL |
-| `save.sheet_name` | string | | シート名（デフォルト: `data`） |
-| `save.project_id` | string | BQ時○ | GCPプロジェクトID |
-| `save.dataset` | string | BQ時○ | データセットID |
-| `save.table` | string | BQ時○ | テーブルID |
-| `save.keys` | string[] | upsert時○ | アップサートのキー列 |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `save.to` | string | ✓ | `csv`, `sheets`, `bigquery` |
+| `save.mode` | string | | `overwrite` (default), `append`, `upsert` |
+| `save.path` | string | CSV | File path |
+| `save.sheet_url` | string | Sheets | Spreadsheet URL |
+| `save.sheet_name` | string | | Sheet name (default: `data`) |
+| `save.project_id` | string | BQ | GCP project ID |
+| `save.dataset` | string | BQ | Dataset ID |
+| `save.table` | string | BQ | Table ID |
+| `save.keys` | string[] | upsert | Upsert key columns |
 
-**モード制約:**
+| Mode | CSV | Sheets | BigQuery |
+|------|-----|--------|----------|
+| overwrite | ✓ | ✓ | ✓ |
+| append | ✓ | ✓ | ✓ |
+| upsert | - | ✓ | - |
 
-| モード | CSV | Sheets | BigQuery |
-|--------|-----|--------|----------|
-| overwrite | ○ | ○ | ○ |
-| append | ○ | ○ | ○ |
-| upsert | × | ○ | ×（将来対応） |
+### Date Templates
 
-```json
-{
-  "schema_version": "1.0",
-  "source": "gsc",
-  "site_url": "https://www.example.com/",
-  "date_range": {"start": "2026-01-21", "end": "2026-02-03"},
-  "dimensions": ["query", "page"],
-  "limit": 25000,
-  "pipeline": {
-    "transform": "page:url_decode,page:strip_qs,page:path_only",
-    "group_by": "page",
-    "aggregate": "sum:clicks,sum:impressions",
-    "sort": "sum_clicks DESC"
-  },
-  "save": {
-    "to": "bigquery",
-    "project_id": "my-project",
-    "dataset": "analytics",
-    "table": "gsc_pages",
-    "mode": "overwrite"
-  }
-}
-```
+`date_range.start` / `date_range.end` accept template expressions resolved at validation time.
 
-#### 日付テンプレート
-
-`date_range.start` / `date_range.end` には絶対日付の他にテンプレート式が使える。
-バリデーション時に実日付に解決される。
-
-| テンプレート式 | 意味 |
-|--------------|------|
-| `today` | 実行日 |
-| `today-Nd` | N日前（例: `today-7d`） |
-| `today+Nd` | N日後（例: `today+3d`） |
-| `month-start` | 当月1日 |
-| `month-end` | 当月末日 |
-| `prev-month-start` | 前月1日 |
-| `prev-month-end` | 前月末日 |
-| `week-start` | 今週月曜日 |
-| `YYYY-MM-DD` | 絶対日付（パススルー） |
-
-#### バッチ実行
-
-`--batch <dir>` でディレクトリ内のJSONをファイル名順に一括実行する。
-
-```bash
-python scripts/query.py --batch configs/weekly/ --json
-```
-
-各configは独立した1ステップとして順番に実行される。
-1つが失敗しても残りは続行。最後にサマリを出力。
-
-JSON出力例:
-```json
-{
-  "status": "ok",
-  "total": 3,
-  "succeeded": 2,
-  "failed": 1,
-  "skipped": 0,
-  "results": [
-    {"config": "01_gsc.json", "status": "ok", "row_count": 500},
-    {"config": "02_ga4.json", "status": "ok", "row_count": 120},
-    {"config": "03_bq.json", "status": "error", "error": "..."}
-  ],
-  "elapsed_sec": 12.34
-}
-```
-
----
-
-## 認証情報
-
-### サービスアカウント JSON
-
-- 格納場所: `credentials/` ディレクトリ
-- Git管理: **除外**（.gitignoreで設定済み）
-- 推奨指定: 環境変数 `MEGATON_CREDS_PATH`（JSONファイル or JSONを1つ含むディレクトリ）
-
-### 認証解決ルール（実装準拠）
-
-#### GA4 / GSC（Megaton経由）
-
-`MEGATON_CREDS_PATH` と `credentials/*.json` から候補を収集し、
-`get_ga4(property_id)` / `get_gsc(site_url)` が対象に対応する認証を選ぶ。
-
-候補解決順:
-1. `MEGATON_CREDS_PATH` がファイルを指す: その1件
-2. `MEGATON_CREDS_PATH` がディレクトリを指す: 配下 `*.json`（ファイル名昇順）
-3. 未指定時: `credentials/*.json`（親ディレクトリ探索あり）
-
-#### BigQuery（native client）
-
-`query_bq(..., params=...)` は `google.cloud.bigquery.Client` を使用。
-認証解決順:
-1. `GOOGLE_APPLICATION_CREDENTIALS` が設定済みならそれを優先
-2. 未設定時、`MEGATON_CREDS_PATH` / `credentials/*.json` 候補から1件選択
-   - `get_bq_client(project_id, creds_hint="corp")` の `creds_hint` を含むファイル名を優先
-   - 一致がなければ先頭候補
-
-補足:
-- `get_bq_client` の native client キャッシュキーは現在 `project_id` 単位
-  （同一プロジェクトで複数認証を切り替える用途は想定外）
-
-### Notebook での指定
-
-```python
-# セットアップセルで init() を呼ぶだけ（パス解決・環境変数・モジュールを一括初期化）
-from megaton_lib.notebook import init; init()
-```
-
-`init()` が CWD から上方向に `credentials/` ディレクトリを探してプロジェクトルートを解決し、
-`MEGATON_CREDS_PATH` を自動設定する。
-
-### スクリプトでの指定
-
-```python
-import os
-CREDS_PATH = os.environ["MEGATON_CREDS_PATH"]  # ファイル or ディレクトリを指定
-```
-
-### 解決結果の確認
-
-実行時にどの認証が使われるかを確認するには:
-
-```python
-from megaton_lib.megaton_client import describe_auth_context
-
-info = describe_auth_context(creds_hint="corp")
-# info["resolved_bq_creds_path"], info["resolved_bq_source"] などを確認
-```
+| Template | Meaning |
+|----------|---------|
+| `today` | Current date |
+| `today-Nd` | N days ago (e.g., `today-7d`) |
+| `today+Nd` | N days ahead (e.g., `today+3d`) |
+| `month-start` | First day of current month |
+| `month-end` | Last day of current month |
+| `prev-month-start` | First day of previous month |
+| `prev-month-end` | Last day of previous month |
+| `week-start` | Monday of current week |
+| `YYYY-MM-DD` | Absolute date (pass-through) |
 
 ---
 
 ## megaton API
 
-### 初期化（Notebook 推奨）
+### Initialization
 
 ```python
 from megaton_lib.megaton_client import get_ga4, get_gsc
 
-# クレデンシャル自動選択 + アカウント/プロパティ選択済み
-mg = get_ga4("PROPERTY_ID")
-
-# クレデンシャル自動選択 + サイト選択済み
-mg = get_gsc("https://example.com/")
+mg = get_ga4("PROPERTY_ID")     # Auto-selects credentials + account/property
+mg = get_gsc("https://example.com/")  # Auto-selects credentials + site
 ```
 
-`get_ga4()` / `get_gsc()` は megaton インスタンスを返す。
-`mg.report.run()` → `ReportResult`、`mg.search.run()` → `SearchResult` でメソッドチェーンが可能。
+`get_ga4()` / `get_gsc()` return a megaton instance.
+`mg.report.run()` → `ReportResult`, `mg.search.run()` → `SearchResult` (chainable).
 
-### 初期化（低レベル）
-
+**Low-level init:**
 ```python
 from megaton import start
 from megaton_lib.credentials import resolve_service_account_path
@@ -452,375 +325,230 @@ mg = start.Megaton(resolve_service_account_path(), headless=True)
 ### GA4
 
 ```python
-# get_ga4() を使う場合（推奨）
 mg = get_ga4("PROPERTY_ID")
 mg.report.set.dates("2026-01-01", "2026-01-31")
 result = mg.report.run(d=["date"], m=["sessions"], filter_d="...", show=False)
 result.clean_url("landingPage").group("date").sort("date")
 df = result.df
-
-# 低レベル API
-mg.ga["4"].accounts  # [{"id": "...", "name": "...", "properties": [...]}]
-mg.ga["4"].account.select("ACCOUNT_ID")
-mg.ga["4"].property.select("PROPERTY_ID")
-mg.report.set.dates("2026-01-01", "2026-01-31")
-result = mg.report.run(d=["date"], m=["sessions"], filter_d="...", show=False)
-df = result.df
 ```
 
-#### ReportResult メソッド
-
-| メソッド | 説明 |
-|---------|------|
-| `.clean_url(dim)` | URL正規化（デコード、クエリ除去、小文字化） |
-| `.group(by, method='sum')` | グループ集計 |
-| `.sort(by, ascending=True)` | ソート |
-| `.fill(to='(not set)')` | 欠損値埋め |
-| `.to_int(metrics)` | メトリクスを整数化 |
-| `.replace(dim, by)` | 値の置換 |
-| `.normalize(dim, by)` | 値の正規化（上書き） |
-| `.categorize(dim, by, into)` | カテゴリ列の追加 |
-| `.classify(dim, by)` | 正規化 + 集計 |
-| `.df` | 最終 DataFrame を取得 |
-
-#### dimensions / metrics の指定方法
+#### Dimensions / Metrics
 
 ```python
-# 基本: 文字列のリスト
+# Basic: list of strings
 d = ["date", "sessionDefaultChannelGroup"]
 m = ["sessions", "activeUsers"]
 
-# 列名を変更: タプルで (API名, 表示名) を指定
-d = [
-    "date",
-    ("sessionDefaultChannelGroup", "channel"),  # → 列名が "channel" になる
-]
-m = [
-    ("sessions", "セッション"),      # → 列名が "セッション" になる
-    ("activeUsers", "uu"),           # → 列名が "uu" になる
-]
-
-mg.report.run(d=d, m=m, show=False)
+# Rename columns: tuple (API_name, display_name)
+d = ["date", ("sessionDefaultChannelGroup", "channel")]
+m = [("sessions", "sessions_count"), ("activeUsers", "uu")]
 ```
 
-#### フィルタの書式
+**Common dimensions:**
 
-フィルタは**文字列**で指定する。書式: `<フィールド名><演算子><値>`
+| API Name | Description |
+|----------|-------------|
+| `date` | Date |
+| `sessionDefaultChannelGroup` | Channel (Organic Search, etc.) |
+| `sessionSource` | Source |
+| `sessionMedium` | Medium |
+| `pagePath` | Page path |
+| `landingPage` | Landing page |
+| `deviceCategory` | Device (desktop/mobile/tablet) |
+| `country` | Country |
+
+**Common metrics:**
+
+| API Name | Description |
+|----------|-------------|
+| `sessions` | Sessions |
+| `activeUsers` | Active users |
+| `newUsers` | New users |
+| `screenPageViews` | Page views |
+| `bounceRate` | Bounce rate |
+| `averageSessionDuration` | Average session duration |
+| `conversions` | Conversions |
+
+#### Filter Syntax
+
+String format: `<field><operator><value>`, semicolon-separated for AND.
 
 ```python
-# 単一フィルタ
-mg.report.run(
-    d=["date"], 
-    m=["sessions"], 
-    filter_d="sessionDefaultChannelGroup==Organic Search",
-    show=False
-)
-
-# 複数フィルタはセミコロン(;)で区切る（AND条件）
-mg.report.run(
-    d=["date"], 
-    m=["sessions"], 
-    filter_d="sessionDefaultChannelGroup==Organic Search;country==Japan",
-    show=False
-)
-
-# メトリクスのフィルタは filter_m を使用
-mg.report.run(
-    d=["date"], 
-    m=["sessions"], 
-    filter_m="sessions>100",
-    show=False
-)
+filter_d="sessionDefaultChannelGroup==Organic Search;country==Japan"
+filter_m="sessions>100"  # Metric filter
 ```
 
-**演算子一覧:**
-| 演算子 | 説明 | 例 |
-|-------|------|-----|
-| `==` | 完全一致 | `country==Japan` |
-| `!=` | 不一致 | `country!=Japan` |
-| `=@` | 部分一致（contains） | `pagePath=@/blog/` |
-| `!@` | 部分不一致 | `pagePath!@/admin/` |
-| `=~` | 正規表現一致 | `pagePath=~^/products/` |
-| `!~` | 正規表現不一致 | `pagePath!~/test/` |
-| `>`, `>=`, `<`, `<=` | 数値比較 | `sessions>100` |
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `==` | Equals | `country==Japan` |
+| `!=` | Not equals | `country!=Japan` |
+| `=@` | Contains | `pagePath=@/blog/` |
+| `!@` | Not contains | `pagePath!@/admin/` |
+| `=~` | Regex match | `pagePath=~^/products/` |
+| `!~` | Regex not match | `pagePath!~/test/` |
+| `>`, `>=`, `<`, `<=` | Numeric | `sessions>100` |
 
-#### ソートの書式
+#### Sort Syntax
 
-ソートは文字列で指定。降順は先頭に `-` を付ける。
+String format. Prefix `-` for descending.
 
 ```python
-# 日付で昇順ソート
-mg.report.run(d=["date"], m=["sessions"], sort="date", show=False)
-
-# セッション数で降順ソート
-mg.report.run(d=["date"], m=["sessions"], sort="-sessions", show=False)
-
-# 複数ソート（カンマ区切り）：日付昇順 → セッション降順
-mg.report.run(d=["date", "country"], m=["sessions"], sort="date,-sessions", show=False)
+mg.report.run(d=["date"], m=["sessions"], sort="date", show=False)       # Ascending
+mg.report.run(d=["date"], m=["sessions"], sort="-sessions", show=False)  # Descending
 ```
 
-#### よく使うディメンション・メトリクス
+#### ReportResult Methods
 
-**ディメンション:**
-| API名 | 説明 |
-|-------|------|
-| `date` | 日付 |
-| `sessionDefaultChannelGroup` | チャネル（Organic Search等） |
-| `sessionSource` | 参照元 |
-| `sessionMedium` | メディア |
-| `pagePath` | ページパス |
-| `landingPage` | ランディングページ |
-| `deviceCategory` | デバイス（desktop/mobile/tablet） |
-| `country` | 国 |
-
-**メトリクス:**
-| API名 | 説明 |
-|-------|------|
-| `sessions` | セッション数 |
-| `activeUsers` | アクティブユーザー数 |
-| `newUsers` | 新規ユーザー数 |
-| `screenPageViews` | ページビュー数 |
-| `bounceRate` | 直帰率 |
-| `averageSessionDuration` | 平均セッション時間 |
-| `conversions` | コンバージョン数 |
+| Method | Description |
+|--------|-------------|
+| `.clean_url(dim)` | Normalize URL (decode, strip query, lowercase) |
+| `.group(by, method='sum')` | Group and aggregate |
+| `.sort(by, ascending=True)` | Sort |
+| `.fill(to='(not set)')` | Fill missing values |
+| `.to_int(metrics)` | Convert metrics to int |
+| `.replace(dim, by)` | Replace values |
+| `.normalize(dim, by)` | Normalize values (overwrite) |
+| `.categorize(dim, by, into)` | Add category column |
+| `.classify(dim, by)` | Normalize + aggregate |
+| `.df` | Get final DataFrame |
 
 ### Search Console
 
 ```python
-# get_gsc() を使う場合（推奨）
 mg = get_gsc("https://example.com/")
 mg.search.set.dates("2026-01-01", "2026-01-31")
 result = mg.search.run(dimensions=["query", "page"], limit=25000)
 result.decode().clean_url().normalize_queries().filter_impressions(min=10)
 df = result.df
+```
 
-# 低レベル API
-sites = mg.search.get.sites()
-mg.search.use("https://example.com/")
-mg.search.set.dates("2026-01-01", "2026-01-31")
-mg.search.run(dimensions=["query"], metrics=["clicks", "impressions", "ctr", "position"])
-df = mg.search.data
-
-# フィルタ付きレポート
+**Filter:**
+```python
 mg.search.run(
     dimensions=["query", "page"],
     dimension_filter=[
-        {"dimension": "query", "operator": "contains", "expression": "渋谷"},
-        {"dimension": "page", "operator": "includingRegex", "expression": "/blog/"}
+        {"dimension": "query", "operator": "contains", "expression": "keyword"},
     ]
 )
 ```
 
-#### SearchResult メソッド
+| Operator | Description |
+|----------|-------------|
+| `contains` | Contains |
+| `notContains` | Not contains |
+| `equals` | Equals |
+| `notEquals` | Not equals |
+| `includingRegex` | Regex match |
+| `excludingRegex` | Regex not match |
 
-| メソッド | 説明 |
-|---------|------|
-| `.decode()` | URL デコード（%xx → 文字） |
-| `.clean_url(dim='page')` | URL正規化（デコード、クエリ除去、小文字化） |
-| `.remove_params(keep=None)` | URLクエリパラメータ除去 |
-| `.normalize_queries()` | クエリ空白の正規化・重複統合 |
-| `.filter_clicks(min, max)` | クリック数でフィルタ |
-| `.filter_impressions(min, max)` | 表示回数でフィルタ |
-| `.filter_ctr(min, max)` | CTRでフィルタ |
-| `.filter_position(min, max)` | 掲載順位でフィルタ |
-| `.aggregate(by)` | 手動集計 |
-| `.normalize(dim, by)` | 値の正規化（上書き） |
-| `.categorize(dim, by, into)` | カテゴリ列の追加 |
-| `.classify(dim, by)` | 正規化 + 集計 |
-| `.apply_if(cond, method)` | 条件付きメソッド適用 |
-| `.df` | 最終 DataFrame を取得 |
+**Dimensions:** `query`, `page`, `country`, `device`, `date`
+**Metrics:** `clicks`, `impressions`, `ctr` (0-1), `position`
 
-#### ディメンション・メトリクス
+#### SearchResult Methods
 
-**ディメンション:**
-| 名前 | 説明 |
-|------|------|
-| `query` | 検索クエリ |
-| `page` | ページURL |
-| `country` | 国 |
-| `device` | デバイス（DESKTOP/MOBILE/TABLET） |
-| `date` | 日付 |
-
-**メトリクス:**
-| 名前 | 説明 |
-|------|------|
-| `clicks` | クリック数 |
-| `impressions` | 表示回数 |
-| `ctr` | クリック率（0〜1） |
-| `position` | 平均掲載順位 |
-
-#### フィルタの書式
-
-フィルタは辞書のリストで指定。
-
-```python
-dimension_filter = [
-    {"dimension": "query", "operator": "contains", "expression": "渋谷"},
-]
-```
-
-**演算子一覧:**
-| 演算子 | 説明 |
-|-------|------|
-| `contains` | 部分一致 |
-| `notContains` | 部分不一致 |
-| `equals` | 完全一致 |
-| `notEquals` | 不一致 |
-| `includingRegex` | 正規表現一致 |
-| `excludingRegex` | 正規表現不一致 |
+| Method | Description |
+|--------|-------------|
+| `.decode()` | URL decode (%xx → char) |
+| `.clean_url(dim='page')` | Normalize URL |
+| `.remove_params(keep=None)` | Remove URL query params |
+| `.normalize_queries()` | Normalize query whitespace, merge duplicates |
+| `.filter_clicks(min, max)` | Filter by clicks |
+| `.filter_impressions(min, max)` | Filter by impressions |
+| `.filter_ctr(min, max)` | Filter by CTR |
+| `.filter_position(min, max)` | Filter by position |
+| `.aggregate(by)` | Manual aggregation |
+| `.normalize(dim, by)` | Normalize values |
+| `.categorize(dim, by, into)` | Add category column |
+| `.classify(dim, by)` | Normalize + aggregate |
+| `.apply_if(cond, method)` | Conditional method application |
+| `.df` | Get final DataFrame |
 
 ### Google Sheets
 
-#### スプレッドシートを開く
-
 ```python
-# スプレッドシートを開く
 mg.open.sheet("https://docs.google.com/spreadsheets/d/xxxxx")
 
-# シートを選択
-mg.sheets.select("シート名")
-
-# シート一覧
-mg.sheets.list()
-
-# シート作成・削除
-mg.sheets.create("新規シート")
-mg.sheets.delete("削除するシート")
-```
-
-#### データの読み込み
-
-```python
-# 現在のシートをDataFrameとして取得
+# Read
+mg.sheets.select("sheet_name")
 df = mg.sheet.df()
 
-# セル単位で読み込み
-value = mg.load.cell(row=1, col=1)  # A1セル
-```
+# Write (overwrite)
+mg.save.to.sheet("sheet_name", df, sort_by="date", auto_width=True)
 
-#### データの保存（上書き）
+# Append
+mg.append.to.sheet("sheet_name", df)
 
-```python
-# シート名を指定して保存（シートがなければ作成）
-mg.save.to.sheet("シート名", df)
+# Upsert (merge by key)
+mg.upsert.to.sheet("sheet_name", df, keys=["date", "channel"])
 
-# オプション
-mg.save.to.sheet("シート名", df, 
-    sort_by="date",        # ソート列
-    sort_desc=True,        # 降順
-    auto_width=True,       # 列幅自動調整
-    freeze_header=True     # ヘッダー行を固定
-)
-
-# 現在選択中のシートに保存
-mg.sheet.save(df)
-```
-
-#### データの追記
-
-```python
-# シート名を指定して追記（既存データの末尾に追加）
-mg.append.to.sheet("シート名", df)
-
-# 現在選択中のシートに追記
-mg.sheet.append(df)
-```
-
-#### データのアップサート（マージ）
-
-キー列を基準に、既存行は更新、新規行は追加。
-
-```python
-# シート名を指定してアップサート
-mg.upsert.to.sheet("シート名", df, keys=["id"])
-
-# 複数キー
-mg.upsert.to.sheet("シート名", df, keys=["date", "channel"])
-
-# オプション
-mg.upsert.to.sheet("シート名", df, 
-    keys=["id"],
-    columns=["name", "value"],  # 更新する列を限定
-    sort_by="id"                # ソート
-)
-
-# 現在選択中のシートにアップサート
-mg.sheet.upsert(df, keys=["id"])
-```
-
-#### セル・範囲の書き込み
-
-```python
-# セル単位で書き込み
-mg.sheet.cell.set("A1", "値")
-mg.sheet.cell.set("B2", 123)
-
-# 範囲に書き込み（2次元配列）
-mg.sheet.range.set("A1:C3", [
-    ["A1", "B1", "C1"],
-    ["A2", "B2", "C2"],
-    ["A3", "B3", "C3"],
-])
-```
-
-#### シートのクリア
-
-```python
-# 現在のシートをクリア
+# Cell operations
+mg.sheet.cell.set("A1", "value")
+mg.sheet.range.set("A1:C3", [["a", "b", "c"], ...])
 mg.sheet.clear()
 ```
 
+Sheet management: `mg.sheets.list()`, `mg.sheets.create("name")`, `mg.sheets.delete("name")`
+
 ### BigQuery
 
-#### 初期化
-
 ```python
-# BigQueryサービスを起動（GCPプロジェクトIDを指定）
 bq = mg.launch_bigquery("my-gcp-project")
-```
 
-#### SQLクエリの実行
-
-```python
-# DataFrameとして結果を取得
+# Query
 df = bq.run("SELECT * FROM `project.dataset.table` LIMIT 100", to_dataframe=True)
 
-# イテレータとして取得（大量データ向け）
-results = bq.run("SELECT * FROM `project.dataset.table`", to_dataframe=False)
-for row in results:
-    print(row)
-```
-
-#### データセット・テーブルの操作
-
-```python
-# データセット一覧
-bq.datasets  # ['dataset1', 'dataset2', ...]
-
-# データセットを選択
+# Browse
+bq.datasets                    # ['dataset1', 'dataset2']
 bq.dataset.select("my_dataset")
-
-# テーブル一覧
-bq.dataset.tables  # ['table1', 'table2', ...]
-
-# テーブルを選択
-bq.table.select("my_table")
-```
-
-#### GA4エクスポートテーブルの操作
-
-```python
-# GA4イベントデータの取得（日付範囲指定）
-df = bq.ga4.events(
-    start_date="20260101",
-    end_date="20260131",
-    event_names=["page_view", "purchase"]
-)
+bq.dataset.tables              # ['table1', 'table2']
 ```
 
 ---
 
-## 外部リンク
+## Authentication
 
-- [megaton GitHub](https://github.com/mak00s/megaton)
+### Service Account JSON
+
+- Location: `credentials/` directory
+- Git: excluded (`.gitignore`)
+- Recommended: set `MEGATON_CREDS_PATH` env var (file or directory containing JSON)
+
+### Resolution Rules
+
+**GA4 / GSC (via Megaton):**
+
+`get_ga4(property_id)` / `get_gsc(site_url)` auto-select credentials:
+1. `MEGATON_CREDS_PATH` points to a file → use that file
+2. `MEGATON_CREDS_PATH` points to a directory → `*.json` files (sorted by filename)
+3. Not set → search `credentials/*.json` (with parent directory traversal)
+
+**BigQuery (native client):**
+
+`query_bq()` uses `google.cloud.bigquery.Client`:
+1. `GOOGLE_APPLICATION_CREDENTIALS` if set
+2. Otherwise, select from `MEGATON_CREDS_PATH` / `credentials/*.json`
+   - `creds_hint` parameter matches filename substring
+   - Falls back to first candidate
+
+### In Notebooks
+
+```python
+from megaton_lib.notebook import init; init()
+```
+
+`init()` searches upward for `credentials/` to resolve project root and set `MEGATON_CREDS_PATH`.
+
+### Verify Resolution
+
+```python
+from megaton_lib.megaton_client import describe_auth_context
+info = describe_auth_context(creds_hint="corp")
+# info["resolved_bq_creds_path"], info["resolved_bq_source"]
+```
+
+---
+
+## External Links
+
+- [megaton on GitHub](https://github.com/mak00s/megaton)
 - [Streamlit Documentation](https://docs.streamlit.io/)
