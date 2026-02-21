@@ -4,6 +4,7 @@ from datetime import date
 import pandas as pd
 
 from app.ui.query_builders import (
+    AGG_NONE,
     build_agent_params,
     build_pipeline_kwargs,
     build_transform_expression,
@@ -60,7 +61,7 @@ class TestPipelineBuilders(unittest.TestCase):
             where_expr="clicks > 10",
             selected_cols=["page", "clicks"],
             group_cols=["page"],
-            agg_map={"clicks": "sum", "ctr": "mean", "position": "（なし）"},
+            agg_map={"clicks": "sum", "ctr": "mean", "position": AGG_NONE},
             head_val=20,
         )
         self.assertEqual(kwargs["transform"], "page:path_only")

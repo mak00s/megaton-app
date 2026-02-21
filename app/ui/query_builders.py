@@ -5,6 +5,9 @@ from datetime import date
 
 import pandas as pd
 
+# Sentinel value for "no aggregation" (language-independent).
+AGG_NONE = ""
+
 
 def parse_gsc_filter(filter_str: str) -> list[dict] | None:
     """Parse GSC filter expression into API payload list."""
@@ -81,7 +84,7 @@ def build_pipeline_kwargs(
 
     agg_exprs: list[str] = []
     for col, func in agg_map.items():
-        if func and func != "（なし）":
+        if func and func != AGG_NONE:
             agg_exprs.append(f"{func}:{col}")
     if group_cols and agg_exprs:
         kwargs["group_by"] = ",".join(group_cols)
