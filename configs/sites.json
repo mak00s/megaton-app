@@ -1,0 +1,54 @@
+{
+  "corp": {
+    "gsc_site_url": "https://corp.shiseido.com/",
+    "ga4_property_id": "334854563"
+  },
+  "shibuya": {
+    "gsc_site_url": "https://www.shibuyakyousei.jp/",
+    "ga4_property_id": "254470346"
+  },
+  "shibuya-gr": {
+    "gsc_site_url": "https://shibuya-kyousei.gr.jp/",
+    "ga4_property_id": "341415410"
+  },
+  "shinjuku": {
+    "gsc_site_url": "https://www.shinjukushinbi.com/",
+    "ga4_property_id": "254477007"
+  },
+  "yokohama": {
+    "gsc_site_url": "https://www.yokohamakyousei.com/",
+    "ga4_property_id": "254800682"
+  },
+  "namba": {
+    "gsc_site_url": "https://www.nambakyousei.com/",
+    "ga4_property_id": "254475127"
+  },
+  "hakata": {
+    "gsc_site_url": "https://www.hakatakyousei.com/",
+    "ga4_property_id": "254818909"
+  },
+  "umeda": {
+    "gsc_site_url": "https://umeda-cure.jp/",
+    "ga4_property_id": "250423487"
+  },
+  "tenjin": {
+    "gsc_site_url": "https://tenjinkyousei.com/",
+    "ga4_property_id": "251231302"
+  },
+  "ikebukuro": {
+    "gsc_site_url": "https://ikebukurokyousei.com/",
+    "ga4_property_id": "253611291"
+  },
+  "yaesu": {
+    "gsc_site_url": "https://tokyo-cure.jp/",
+    "ga4_property_id": "254467517"
+  },
+  "sendai": {
+    "gsc_site_url": "https://sendai-cure.jp/",
+    "ga4_property_id": "266373360"
+  },
+  "sapporo": {
+    "gsc_site_url": "https://sapporo-cure.jp/",
+    "ga4_property_id": "251616452"
+  }
+}
