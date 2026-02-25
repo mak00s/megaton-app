@@ -159,6 +159,7 @@ python scripts/query.py --batch configs/weekly/ --json
 |-------|------|----------|-------------|
 | `schema_version` | string | ✓ | `"1.0"` |
 | `source` | string | ✓ | `"ga4"`, `"gsc"`, `"bigquery"` |
+| `site` | string | - | Site alias defined in `configs/sites.json` |
 | `property_id` | string | GA4 | GA4 property ID |
 | `site_url` | string | GSC | Search Console site URL |
 | `project_id` | string | BQ | GCP project ID |
@@ -173,6 +174,11 @@ python scripts/query.py --batch configs/weekly/ --json
 | `pipeline` | object | - | Post-fetch pipeline (see below) |
 | `save` | object | - | Save destination (see below) |
 
+`site` is resolved by CLI before validation.
+- `source: "ga4"`: `site` -> `property_id`
+- `source: "gsc"`: `site` -> `site_url`
+- If `property_id` / `site_url` is already set, it takes precedence over `site`.
+
 ### Examples
 
 **GA4:**
@@ -185,6 +191,19 @@ python scripts/query.py --batch configs/weekly/ --json
   "dimensions": ["date"],
   "metrics": ["sessions", "activeUsers"],
   "filter_d": "sessionDefaultChannelGroup==Organic Search",
+  "limit": 1000
+}
+```
+
+**GA4 (with alias):**
+```json
+{
+  "schema_version": "1.0",
+  "source": "ga4",
+  "site": "corp",
+  "date_range": {"start": "today-7d", "end": "today"},
+  "dimensions": ["date"],
+  "metrics": ["sessions", "activeUsers"],
   "limit": 1000
 }
 ```
@@ -211,6 +230,31 @@ python scripts/query.py --batch configs/weekly/ --json
   "sql": "SELECT event_date, COUNT(*) as cnt FROM `project.dataset.events_*` GROUP BY 1"
 }
 ```
+
+### Spike Investigation Template (GA4)
+
+Use this when investigating a short traffic spike by page and channel.
+
+```json
+{
+  "schema_version": "1.0",
+  "source": "ga4",
+  "site": "corp",
+  "date_range": {"start": "2026-01-01", "end": "2026-01-12"},
+  "dimensions": ["date", "landingPage", "sessionDefaultChannelGroup"],
+  "metrics": ["sessions", "activeUsers"],
+  "filter_d": "landingPage=@/jp/company/",
+  "limit": 50000,
+  "pipeline": {"sort": "date ASC"}
+}
+```
+
+Then compare:
+- baseline window (example: `2026-01-01` to `2026-01-05`)
+- spike window (example: `2026-01-06` to `2026-01-08`)
+- delta metrics by `landingPage`, `sessionDefaultChannelGroup`, and their combination
+
+Note: delta computation is not a built-in one-shot CLI feature. Export rows (`--output`) and compute comparisons in pandas / notebook / BI tool.
 
 ### Filter Syntax
 
