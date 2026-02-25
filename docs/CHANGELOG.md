@@ -2,6 +2,14 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+### 2026-02-25 (v0.4.1) — CLI JSON output stability and docs updates
+
+- Fixed JSON mode output stability in `scripts/query.py`: non-JSON log lines emitted by underlying calls are now captured instead of contaminating stdout
+- Added `warnings` payload support for JSON responses (`list_*` and sync query paths)
+- Preserved captured warning lines even when query/list execution raises exceptions (available in error `details.warnings`)
+- Added regression tests for captured warnings on exception paths
+- Expanded docs with GA4 alias usage (`"site": "corp"`), Spike Investigation template, and explicit note that delta comparison is computed outside one-shot CLI
+
 ### 2026-02-25 (v0.4.0) — AI Agent DX improvements
 
 - Added `--inline` CLI option: pass JSON params directly without a temp file

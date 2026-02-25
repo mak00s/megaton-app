@@ -24,6 +24,8 @@ Examples:
     python scripts/query.py --result <job_id> --summary
 """
 import argparse
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -88,6 +90,51 @@ def emit_error(args, error_code: str, message: str, hint: str | None = None, det
                     file=sys.stderr,
                 )
     return 1
+
+
+class CapturedExecutionError(RuntimeError):
+    """Raised when capture_stdio captures output and the wrapped call fails."""
+
+    def __init__(self, error: Exception, messages: list[str]):
+        self.error = error
+        self.messages = messages
+        super().__init__(str(error))
+
+
+def _collect_messages(stdout_text: str, stderr_text: str) -> list[str]:
+    """Collect unique non-empty log lines while preserving order."""
+    messages: list[str] = []
+    seen: set[str] = set()
+    for line in [*stdout_text.splitlines(), *stderr_text.splitlines()]:
+        text = line.strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        messages.append(text)
+    return messages
+
+
+def capture_stdio(func, *args, **kwargs):
+    """Run callable while capturing stdout/stderr, returning (result, messages)."""
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
+            result = func(*args, **kwargs)
+    except Exception as e:
+        messages = _collect_messages(stdout_buf.getvalue(), stderr_buf.getvalue())
+        raise CapturedExecutionError(e, messages) from e
+
+    messages = _collect_messages(stdout_buf.getvalue(), stderr_buf.getvalue())
+    return result, messages
+
+
+def emit_warnings(args, warnings: list[str] | None) -> None:
+    """Emit warnings to stderr for non-JSON mode."""
+    if args.json or not warnings:
+        return
+    for msg in warnings:
+        print(f"[warn] {msg}", file=sys.stderr)
 
 
 def has_pipeline_opts(args) -> bool:
@@ -284,7 +331,13 @@ def execute_query_from_params(params: dict) -> tuple[object, list[str]]:
     raise ValueError(f"Unknown source: {source}")
 
 
-def output_result(df, args, pipeline: dict | None = None, save: dict | None = None):
+def output_result(
+    df,
+    args,
+    pipeline: dict | None = None,
+    save: dict | None = None,
+    warnings: list[str] | None = None,
+):
     """Output query results."""
     if args.output:
         Path(args.output).parent.mkdir(parents=True, exist_ok=True)
@@ -298,6 +351,8 @@ def output_result(df, args, pipeline: dict | None = None, save: dict | None = No
                 payload["pipeline"] = pipeline
             if save is not None:
                 payload["save"] = save
+            if warnings:
+                payload["warnings"] = warnings
             emit_success(
                 args,
                 payload,
@@ -315,6 +370,8 @@ def output_result(df, args, pipeline: dict | None = None, save: dict | None = No
             payload["pipeline"] = pipeline
         if save is not None:
             payload["save"] = save
+        if warnings:
+            payload["warnings"] = warnings
         emit_success(
             args,
             payload,
@@ -740,7 +797,17 @@ def run_list_mode(args) -> tuple[bool, int]:
     """Handle list-mode commands."""
     if args.list_ga4_properties:
         try:
-            props = get_ga4_properties()
+            props, warnings = capture_stdio(get_ga4_properties)
+        except CapturedExecutionError as e:
+            emit_warnings(args, e.messages)
+            details = {"warnings": e.messages} if args.json and e.messages else None
+            return True, emit_error(
+                args,
+                "LIST_OPERATION_FAILED",
+                f"failed to list GA4 properties: {e.error}",
+                "Check credentials and GA4 permissions.",
+                details=details,
+            )
         except Exception as e:
             return True, emit_error(
                 args,
@@ -748,8 +815,12 @@ def run_list_mode(args) -> tuple[bool, int]:
                 f"failed to list GA4 properties: {e}",
                 "Check credentials and GA4 permissions.",
             )
+        emit_warnings(args, warnings)
         if args.json:
-            emit_success(args, {"properties": props, "count": len(props)}, mode="list_ga4_properties")
+            payload = {"properties": props, "count": len(props)}
+            if warnings:
+                payload["warnings"] = warnings
+            emit_success(args, payload, mode="list_ga4_properties")
         else:
             print("GA4プロパティ一覧:")
             for p in props:
@@ -758,7 +829,17 @@ def run_list_mode(args) -> tuple[bool, int]:
 
     if args.list_gsc_sites:
         try:
-            sites = get_gsc_sites()
+            sites, warnings = capture_stdio(get_gsc_sites)
+        except CapturedExecutionError as e:
+            emit_warnings(args, e.messages)
+            details = {"warnings": e.messages} if args.json and e.messages else None
+            return True, emit_error(
+                args,
+                "LIST_OPERATION_FAILED",
+                f"failed to list GSC sites: {e.error}",
+                "Check credentials and Search Console permissions.",
+                details=details,
+            )
         except Exception as e:
             return True, emit_error(
                 args,
@@ -766,8 +847,12 @@ def run_list_mode(args) -> tuple[bool, int]:
                 f"failed to list GSC sites: {e}",
                 "Check credentials and Search Console permissions.",
             )
+        emit_warnings(args, warnings)
         if args.json:
-            emit_success(args, {"sites": sites, "count": len(sites)}, mode="list_gsc_sites")
+            payload = {"sites": sites, "count": len(sites)}
+            if warnings:
+                payload["warnings"] = warnings
+            emit_success(args, payload, mode="list_gsc_sites")
         else:
             print("GSCサイト一覧:")
             for s in sites:
@@ -783,7 +868,17 @@ def run_list_mode(args) -> tuple[bool, int]:
                 "Use --list-bq-datasets --project <gcp_project_id>.",
             )
         try:
-            datasets = get_bq_datasets(args.project)
+            datasets, warnings = capture_stdio(get_bq_datasets, args.project)
+        except CapturedExecutionError as e:
+            emit_warnings(args, e.messages)
+            details = {"warnings": e.messages} if args.json and e.messages else None
+            return True, emit_error(
+                args,
+                "LIST_OPERATION_FAILED",
+                f"failed to list BigQuery datasets: {e.error}",
+                "Check project_id and BigQuery permissions.",
+                details=details,
+            )
         except Exception as e:
             return True, emit_error(
                 args,
@@ -791,12 +886,12 @@ def run_list_mode(args) -> tuple[bool, int]:
                 f"failed to list BigQuery datasets: {e}",
                 "Check project_id and BigQuery permissions.",
             )
+        emit_warnings(args, warnings)
         if args.json:
-            emit_success(
-                args,
-                {"project_id": args.project, "datasets": datasets, "count": len(datasets)},
-                mode="list_bq_datasets",
-            )
+            payload = {"project_id": args.project, "datasets": datasets, "count": len(datasets)}
+            if warnings:
+                payload["warnings"] = warnings
+            emit_success(args, payload, mode="list_bq_datasets")
         else:
             print(f"データセット一覧 ({args.project}):")
             for ds in datasets:
@@ -809,7 +904,17 @@ def run_list_mode(args) -> tuple[bool, int]:
 def _execute_single_config(params: dict, config_path: Path) -> dict:
     """Execute one config in a batch (used as run_batch execute_fn)."""
     try:
-        df, header_lines = execute_query_from_params(params)
+        (df, _header_lines), warnings = capture_stdio(execute_query_from_params, params)
+    except CapturedExecutionError as e:
+        result = {
+            "status": "error",
+            "error_code": "QUERY_EXECUTION_FAILED",
+            "message": str(e.error),
+            "hint": "Check source-specific params and credentials.",
+        }
+        if e.messages:
+            result["warnings"] = e.messages
+        return result
     except Exception as e:
         return {
             "status": "error",
@@ -818,12 +923,15 @@ def _execute_single_config(params: dict, config_path: Path) -> dict:
             "hint": "Check source-specific params and credentials.",
         }
     if df is None or df.empty:
-        return {
+        result = {
             "status": "error",
             "error_code": "NO_DATA_RETURNED",
             "message": "No data returned.",
             "hint": "Adjust date range, filters, or source parameters.",
         }
+        if warnings:
+            result["warnings"] = warnings
+        return result
 
     row_count = int(len(df))
 
@@ -871,12 +979,15 @@ def _execute_single_config(params: dict, config_path: Path) -> dict:
                 "hint": "Check save target settings and permissions.",
             }
 
-    return {
+    result = {
         "status": "ok",
         "row_count": int(len(df)),
         "source": params.get("source"),
         "save": save_result,
     }
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 def run_batch_mode(args) -> int:
@@ -1032,13 +1143,16 @@ def main():
         return emit_error(args, **err)
 
     try:
-        df, header_lines = execute_query_from_params(params)
+        (df, header_lines), query_warnings = capture_stdio(execute_query_from_params, params)
         if df is None or df.empty:
+            emit_warnings(args, query_warnings)
+            details = {"warnings": query_warnings} if args.json and query_warnings else None
             return emit_error(
                 args,
                 "NO_DATA",
                 "No data returned from query.",
                 "Check date range, filters, and property/site settings.",
+                details=details,
             )
 
         pipeline_info = None
@@ -1091,8 +1205,27 @@ def main():
                 print(line)
             print()
 
-        output_result(df, args, pipeline=pipeline_info, save=save_result)
+        emit_warnings(args, query_warnings)
+        output_result(df, args, pipeline=pipeline_info, save=save_result, warnings=query_warnings)
         return 0
+    except CapturedExecutionError as e:
+        emit_warnings(args, e.messages)
+        details = {"warnings": e.messages} if args.json and e.messages else None
+        if isinstance(e.error, ValueError):
+            return emit_error(
+                args,
+                "INVALID_QUERY",
+                str(e.error),
+                "Check params and query fields.",
+                details=details,
+            )
+        return emit_error(
+            args,
+            "QUERY_EXECUTION_FAILED",
+            str(e.error),
+            "Check source credentials and query parameters.",
+            details=details,
+        )
     except ValueError as e:
         return emit_error(
             args,

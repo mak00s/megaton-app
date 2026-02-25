@@ -50,6 +50,17 @@ class _DummyProc:
 
 
 class TestFunctionNonJsonBranches(unittest.TestCase):
+    def test_capture_stdio_preserves_messages_on_exception(self):
+        def _boom():
+            print("warning before error")
+            raise RuntimeError("boom")
+
+        with self.assertRaises(query_cli.CapturedExecutionError) as cm:
+            query_cli.capture_stdio(_boom)
+
+        self.assertEqual(str(cm.exception.error), "boom")
+        self.assertIn("warning before error", cm.exception.messages)
+
     def test_emit_success_non_json_no_output(self):
         out = io.StringIO()
         with redirect_stdout(out):
@@ -281,6 +292,25 @@ class TestFunctionNonJsonBranches(unittest.TestCase):
 
 
 class TestMainBranches(unittest.TestCase):
+    def test_main_json_error_contains_captured_warnings(self):
+        params = {"schema_version": "1.0", "source": "ga4"}
+
+        def _exec(_params):
+            print("noisy warning")
+            raise ValueError("bad query")
+
+        with patch.object(query_cli, "run_list_mode", return_value=(False, 0)), patch.object(
+            query_cli, "load_params", return_value=(params, None)
+        ), patch.object(query_cli, "execute_query_from_params", side_effect=_exec), patch.object(
+            sys, "argv", ["query.py", "--json"]
+        ):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(query_cli.main(), 1)
+            payload = json.loads(out.getvalue())
+            self.assertEqual(payload["error_code"], "INVALID_QUERY")
+            self.assertEqual(payload["details"]["warnings"], ["noisy warning"])
+
     def test_main_return_from_handled_and_action_routes(self):
         with patch.object(query_cli, "run_list_mode", return_value=(True, 9)), patch.object(
             sys, "argv", ["query.py", "--json"]

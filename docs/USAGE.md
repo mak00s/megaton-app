@@ -69,18 +69,22 @@ streamlit run app/streamlit_app.py
 {
   "schema_version": "1.0",
   "source": "ga4",
-  "property_id": "123456789",
+  "site": "corp",
   "date_range": { "start": "today-7d", "end": "today" },
   "dimensions": ["date"],
   "metrics": ["sessions", "activeUsers"]
 }
 ```
 
+`site` は `configs/sites.json` の alias（`corp`, `shibuya` など）。`property_id` を直接指定してもよい。
+
 2. 実行:
 
 ```bash
-python scripts/query.py --params input/params.json
+python scripts/query.py --params output/ga4_quickstart.json --json
 ```
+
+`--json` 実行時は machine-readable な JSON のみを出力し、警告メッセージは `data.warnings` に格納される。
 
 ### Notebook で分析する
 
@@ -130,6 +134,37 @@ result = mg.report.run(
     show=False
 )
 ```
+
+### GA4 スパイクを期間比較で調べる（期間A vs 期間B）
+
+1. 分解データを取得:
+
+```json
+{
+  "schema_version": "1.0",
+  "source": "ga4",
+  "site": "corp",
+  "date_range": {"start": "2026-01-01", "end": "2026-01-12"},
+  "dimensions": ["date", "landingPage", "sessionDefaultChannelGroup"],
+  "metrics": ["sessions", "activeUsers"],
+  "filter_d": "landingPage=@/jp/company/",
+  "limit": 50000,
+  "pipeline": {"sort": "date ASC"}
+}
+```
+
+2. 実行して CSV 化:
+
+```bash
+python scripts/query.py --params output/corp_company_spike.json --output output/corp_company_spike.csv
+```
+
+3. 比較期間を決めて増分を算出:
+- 例: 基準期間 `2026-01-01`〜`2026-01-05`
+- 例: スパイク期間 `2026-01-06`〜`2026-01-08`
+- `landingPage` / `sessionDefaultChannelGroup` / その掛け合わせで `sessions` 増分を比較
+
+注: 期間差分（delta）の自動算出は CLI 単体機能としては未実装。`--output` で保存した CSV を pandas / Notebook / BI ツールで比較する。
 
 ### GSC の検索クエリを分析する
 
