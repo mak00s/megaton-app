@@ -313,16 +313,42 @@ def query_ga4(
     """
     dimensions_l = _normalize_fields(dimensions, name="dimensions")
     metrics_l = _normalize_fields(metrics, name="metrics")
-    mg = get_ga4(property_id)
+    try:
+        mg = get_ga4(property_id)
+    except Exception as e:
+        err_msg = str(e)
+        if "403" in err_msg or "permission" in err_msg.lower():
+            raise PermissionError(
+                f"No access to GA4 property {property_id}. "
+                f"Check that the service account has Viewer role on this property."
+            ) from e
+        raise
     mg.report.set.dates(start_date, end_date)
-    result = mg.report.run(
-        d=dimensions_l,
-        m=metrics_l,
-        filter_d=filter_d if filter_d else None,
-        limit=limit,
-        show=False,
-    )
-    return result.df if result is not None else pd.DataFrame()
+    try:
+        result = mg.report.run(
+            d=dimensions_l,
+            m=metrics_l,
+            filter_d=filter_d if filter_d else None,
+            limit=limit,
+            show=False,
+        )
+    except Exception as e:
+        err_msg = str(e)
+        if "403" in err_msg or "permission" in err_msg.lower():
+            raise PermissionError(
+                f"Permission denied for GA4 property {property_id}. "
+                f"The service account lacks access to run reports."
+            ) from e
+        raise
+    df = result.df if result is not None else pd.DataFrame()
+    # Convert datetime.date columns to YYYY-MM-DD strings so JSON
+    # serialization produces human-readable dates instead of epoch ms.
+    if not df.empty:
+        import datetime as _dt
+        for col in df.columns:
+            if df[col].dtype == object and len(df) > 0 and isinstance(df[col].iloc[0], _dt.date):
+                df[col] = df[col].astype(str)
+    return df
 
 
 # === GSC ===

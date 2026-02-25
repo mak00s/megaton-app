@@ -134,6 +134,84 @@ def parse_gsc_filter(filter_str: str) -> list | None:
     return filters
 
 
+_sites_cache: dict | None = None
+
+
+def _load_sites() -> dict:
+    """Load site alias definitions from configs/sites.json."""
+    global _sites_cache
+    if _sites_cache is not None:
+        return _sites_cache
+    sites_path = Path(__file__).parent.parent / "configs" / "sites.json"
+    if sites_path.exists():
+        with open(sites_path, "r", encoding="utf-8") as f:
+            _sites_cache = json.load(f)
+    else:
+        _sites_cache = {}
+    return _sites_cache
+
+
+def resolve_site_alias(raw: dict) -> dict:
+    """Expand ``site`` alias to ``site_url`` / ``property_id``.
+
+    If ``site`` is present, look it up in configs/sites.json and inject the
+    appropriate field for the source type. The ``site`` key is removed so the
+    validator won't reject it as an unknown field.
+    """
+    alias = raw.get("site")
+    if not alias:
+        return raw
+    sites = _load_sites()
+    entry = sites.get(alias)
+    if entry is None:
+        available = ", ".join(sorted(sites.keys())) if sites else "(none)"
+        raise ValueError(
+            f"Unknown site alias '{alias}'. Available: {available}"
+        )
+    raw = dict(raw)  # shallow copy
+    source = raw.get("source", "").lower()
+    if source == "gsc" and "site_url" not in raw:
+        raw["site_url"] = entry["gsc_site_url"]
+    elif source == "ga4" and "property_id" not in raw:
+        raw["property_id"] = entry["ga4_property_id"]
+    del raw["site"]
+    return raw
+
+
+def _validate_raw(raw: dict) -> tuple[dict | None, dict | None]:
+    """Resolve aliases then validate params."""
+    try:
+        raw = resolve_site_alias(raw)
+    except ValueError as e:
+        return None, {
+            "error_code": "INVALID_SITE_ALIAS",
+            "message": str(e),
+            "hint": "Check configs/sites.json for available aliases.",
+        }
+    params, errors = validate_params(raw)
+    if errors:
+        return None, {
+            "error_code": "PARAMS_VALIDATION_FAILED",
+            "message": "Params validation failed.",
+            "hint": "Fix params based on details[].",
+            "details": {"errors": errors},
+        }
+    return params, None
+
+
+def load_params_from_json(raw_json: str) -> tuple[dict | None, dict | None]:
+    """Parse and validate inline JSON string."""
+    try:
+        raw = json.loads(raw_json)
+    except json.JSONDecodeError as e:
+        return None, {
+            "error_code": "INVALID_JSON",
+            "message": f"Invalid inline JSON: {e}",
+            "hint": "Check JSON syntax in --inline value.",
+        }
+    return _validate_raw(raw)
+
+
 def load_params(params_path: str) -> tuple[dict | None, dict | None]:
     """Load and validate params.json."""
     try:
@@ -151,17 +229,7 @@ def load_params(params_path: str) -> tuple[dict | None, dict | None]:
             "message": f"Invalid JSON in params file: {e}",
             "hint": "Fix JSON syntax in params file.",
         }
-
-    params, errors = validate_params(raw)
-    if errors:
-        return None, {
-            "error_code": "PARAMS_VALIDATION_FAILED",
-            "message": "Params validation failed.",
-            "hint": "Fix params based on details[].",
-            "details": {"errors": errors},
-        }
-
-    return params, None
+    return _validate_raw(raw)
 
 
 def execute_query_from_params(params: dict) -> tuple[object, list[str]]:
@@ -196,6 +264,7 @@ def execute_query_from_params(params: dict) -> tuple[object, list[str]]:
             dimensions=params["dimensions"],
             limit=params.get("limit", 1000),
             dimension_filter=dimension_filter,
+            page_to_path=False,  # CLI keeps full URLs; use pipeline transform "page:path_only" if needed
         )
         if df is not None and "clicks" in df.columns:
             df = df.sort_values("clicks", ascending=False)
@@ -299,12 +368,19 @@ def execute_save(df: pd.DataFrame, save_conf: dict) -> dict:
         raise ValueError(f"Unknown save target: {target}")
 
 
+def _load_params_from_args(args) -> tuple[dict | None, dict | None]:
+    """Load params from --inline or --params."""
+    if getattr(args, "inline", None):
+        return load_params_from_json(args.inline)
+    return load_params(args.params)
+
+
 def submit_job(args, store: JobStore) -> int:
-    params, err = load_params(args.params)
+    params, err = _load_params_from_args(args)
     if err:
         return emit_error(args, **err)
 
-    job = store.create_job(params=params, params_path=args.params)
+    job = store.create_job(params=params, params_path=getattr(args, "inline", None) or args.params)
     job_id = job["job_id"]
     log_path = store.log_path(job_id)
 
@@ -831,6 +907,7 @@ def run_batch_mode(args) -> int:
 def main():
     parser = argparse.ArgumentParser(description="Unified Query CLI")
     parser.add_argument("--params", default="input/params.json", help="Strict params JSON path (schema_version=1.0)")
+    parser.add_argument("--inline", help="Inline JSON params (no file needed)")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument("--output", help="CSV output file path")
     parser.add_argument("--submit", action="store_true", help="Submit job asynchronously")
@@ -950,7 +1027,7 @@ def main():
     if args.batch:
         return run_batch_mode(args)
 
-    params, err = load_params(args.params)
+    params, err = _load_params_from_args(args)
     if err:
         return emit_error(args, **err)
 

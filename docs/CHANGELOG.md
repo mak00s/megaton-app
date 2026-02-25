@@ -2,6 +2,16 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+### 2026-02-25 (v0.4.0) — AI Agent DX improvements
+
+- Added `--inline` CLI option: pass JSON params directly without a temp file
+- Added site alias system (`configs/sites.json`): use `"site": "corp"` instead of full URLs/property IDs
+- GA4 date columns now auto-convert to `YYYY-MM-DD` strings (instead of epoch ms in JSON output)
+- Improved GA4 403 error messages: now shows property ID and suggests checking service account permissions
+- CLI GSC queries now keep full URLs by default (`page_to_path=False`); use pipeline `transform: "page:path_only"` when needed
+- Added CLAUDE.md and expanded AGENTS.md with available resources, filter syntax, recipes, and site aliases
+- Added Site URL column to GA4 properties table in AGENTS.md
+
 ### 2026-02-21
 
 - Added multilingual support to the Streamlit UI (Japanese and English)
