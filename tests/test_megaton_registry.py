@@ -94,6 +94,8 @@ class TestBuildRegistry(unittest.TestCase):
         self.assertEqual(mc._property_map["P2"], "/creds/b.json")
         self.assertEqual(mc._site_map["https://a.example.com/"], "/creds/a.json")
         self.assertEqual(mc._site_map["https://b.example.com/"], "/creds/b.json")
+        self.assertEqual(mc._site_map["https://a.example.com"], "/creds/a.json")
+        self.assertEqual(mc._site_map["https://b.example.com"], "/creds/b.json")
 
     @patch("megaton_lib.megaton_client.list_service_account_paths")
     @patch("megaton_lib.megaton_client.start.Megaton")
@@ -190,6 +192,19 @@ class TestRoutingFunctions(unittest.TestCase):
         mock_megaton_cls.return_value = mg_b
 
         result = mc.get_megaton_for_site("https://example.com/")
+        self.assertIs(result, mg_b)
+
+    @patch("megaton_lib.megaton_client.list_service_account_paths")
+    @patch("megaton_lib.megaton_client.start.Megaton")
+    def test_get_megaton_for_site_accepts_trailing_slash_variant(self, mock_megaton_cls, mock_list):
+        mock_list.return_value = ["/creds/b.json"]
+        mg_b = _make_mock_megaton(
+            accounts=[],
+            sites=["https://example.com/"],
+        )
+        mock_megaton_cls.return_value = mg_b
+
+        result = mc.get_megaton_for_site("https://example.com")
         self.assertIs(result, mg_b)
 
     @patch("megaton_lib.megaton_client.list_service_account_paths", return_value=[])
