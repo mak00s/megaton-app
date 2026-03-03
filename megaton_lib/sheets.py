@@ -37,6 +37,73 @@ def upsert_or_skip(mg, name: str, df: pd.DataFrame, *, keys: list, sort_by: list
     return True
 
 
+def replace_sheet_by_group_keys(
+    mg,
+    *,
+    sheet_url: str,
+    sheet_name: str,
+    df_new: pd.DataFrame,
+    remove_group_keys: list[str],
+    sort_by: list[str],
+    columns: list[str],
+) -> pd.DataFrame:
+    """Replace existing rows matching group keys, then overwrite the sheet.
+
+    Useful when a monthly batch should fully refresh a group (e.g. month+clinic)
+    while keeping older groups untouched.
+    """
+    if not mg.open.sheet(sheet_url):
+        raise RuntimeError(f"Could not open sheet URL: {sheet_url}")
+
+    if sheet_name not in mg.gs.sheets:
+        try:
+            mg.gs.sheet.create(sheet_name)
+        except Exception:
+            mg.gs._driver.add_worksheet(title=sheet_name, rows=2000, cols=30)
+
+    mg.gs.sheet.select(sheet_name)
+    existing = pd.DataFrame(mg.gs.sheet.data or [])
+
+    incoming = df_new.copy()
+    if existing.empty:
+        out = incoming[columns].copy()
+        mg.save.to.sheet(df=out, sheet_name=sheet_name)
+        return out
+
+    for col in columns:
+        if col not in existing.columns:
+            existing[col] = pd.NA
+        if col not in incoming.columns:
+            incoming[col] = pd.NA
+
+    existing = existing[columns].copy()
+    incoming = incoming[columns].copy()
+
+    for key in remove_group_keys:
+        existing[key] = existing[key].astype(str).str.strip()
+        incoming[key] = incoming[key].astype(str).str.strip()
+
+    keys_to_remove = set(tuple(r) for r in incoming[remove_group_keys].drop_duplicates().values.tolist())
+    if keys_to_remove:
+        mask = existing[remove_group_keys].apply(tuple, axis=1).isin(keys_to_remove)
+        existing = existing[~mask].copy()
+
+    out = pd.concat([existing, incoming], ignore_index=True).sort_values(sort_by).reset_index(drop=True)
+    mg.save.to.sheet(df=out, sheet_name=sheet_name)
+    return out
+
+
+def update_cells(mg, *, sheet_url: str, sheet_name: str, values: dict[str, str]) -> None:
+    """Update multiple A1 cells in a worksheet."""
+    if not values:
+        return
+    if not mg.open.sheet(sheet_url):
+        raise RuntimeError(f"Could not open sheet URL: {sheet_url}")
+    mg.gs.sheet.select(sheet_name)
+    for cell, value in values.items():
+        mg.gs.sheet._driver.update_acell(cell, value)
+
+
 def save_sheet_from_template(
     mg,
     sheet_name: str,

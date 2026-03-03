@@ -36,6 +36,23 @@ def run_report_df(
     return result.df
 
 
+def report_data_or_empty(mg, expected_cols: list[str]) -> pd.DataFrame:
+    """Return ``mg.report.data`` as DataFrame with guaranteed columns.
+
+    Args:
+        mg: Megaton instance whose ``report.run`` was executed.
+        expected_cols: Column names to guarantee and order.
+    """
+    df = getattr(getattr(mg, "report", None), "data", None)
+    if df is None or len(df) == 0:
+        return pd.DataFrame(columns=expected_cols)
+    out = pd.DataFrame(df).copy()
+    for col in expected_cols:
+        if col not in out.columns:
+            out[col] = pd.NA
+    return out[expected_cols]
+
+
 def build_filter(*parts: str | None) -> str | None:
     """Build GA4 filter string by joining non-empty parts with ``;``."""
     cleaned = [p.strip() for p in parts if isinstance(p, str) and p.strip()]

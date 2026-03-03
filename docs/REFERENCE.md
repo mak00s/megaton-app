@@ -396,6 +396,49 @@ df = drop_current_month_rows(df, month_col="month_ym")
 
 ---
 
+## Library Helper Modules
+
+### GA4 Helpers (`megaton_lib.ga4_helpers`)
+
+| Function | Description |
+|----------|-------------|
+| `run_report_df(mg, dimensions, metrics, ...)` | Execute `mg.report.run()` and return `result.df` |
+| `report_data_or_empty(mg, expected_cols)` | Return `mg.report.data` with guaranteed columns/order |
+| `build_filter(*parts)` | Build GA4 filter string from non-empty parts |
+| `to_datetime_col(df, col="date")` | Convert a date-like column to datetime |
+| `to_numeric_cols(df, cols, fillna=None, as_int=False)` | Convert selected columns to numeric |
+
+### GSC Helpers (`megaton_lib.gsc_utils`)
+
+| Function | Description |
+|----------|-------------|
+| `aggregate_search_console_data(df_raw)` | Normalize `page` and aggregate clicks/impressions/position |
+| `deduplicate_queries(df_in)` | Merge whitespace-variant queries by `month+clinic+page` |
+| `filter_by_clinic_thresholds(df, threshold_df)` | Apply clinic-specific min impressions / max position filters |
+| `force_text_on_numeric_column(df, column="query")` | Prefix apostrophe for numeric-like strings (Sheets safety) |
+
+Notes:
+- `aggregate_search_console_data()` and `deduplicate_queries()` assume numeric metrics (`clicks`, `impressions`, `position`) or numeric-castable values.
+- `filter_by_clinic_thresholds()` evaluates only clinics present in `threshold_df` and excludes undefined clinics by design.
+
+### Table Mapping Helpers (`megaton_lib.table_utils`)
+
+| Function | Description |
+|----------|-------------|
+| `apply_pattern_map(df, column, mapping, output_col=None, default_unmatched=None)` | Regex map values in a column |
+| `classify_by_pattern_map(df, mapping, source_col, output_col="category", default_label="other")` | Classify with explicit fallback label |
+
+### Sheets Helpers (`megaton_lib.sheets`)
+
+| Function | Description |
+|----------|-------------|
+| `upsert_or_skip(mg, name, df, keys, ...)` | Skip empty input, otherwise upsert to worksheet |
+| `replace_sheet_by_group_keys(mg, sheet_url, sheet_name, ...)` | Replace matching group rows (e.g. month+clinic) and overwrite |
+| `update_cells(mg, sheet_url, sheet_name, values)` | Update multiple A1 cells |
+| `save_sheet_from_template(mg, sheet_name, df, ...)` | Write with template-based sheet creation |
+
+---
+
 ## megaton API
 
 ### Initialization
