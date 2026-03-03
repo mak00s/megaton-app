@@ -7,8 +7,14 @@ from unittest.mock import Mock
 import pandas as pd
 import pytest
 
-from megaton_lib.sheets import save_sheet_from_template, upsert_or_skip
-from megaton_lib.sheets import replace_sheet_by_group_keys, update_cells
+from megaton_lib.sheets import (
+    load_pattern_map,
+    read_sheet_table,
+    replace_sheet_by_group_keys,
+    save_sheet_from_template,
+    update_cells,
+    upsert_or_skip,
+)
 
 
 @dataclass
@@ -139,6 +145,19 @@ def _replace_mg(*, existing_rows: list[dict] | None = None, sheets: list[str] | 
     return mg, save_mock, update_acell_mock
 
 
+def _read_mg(*, rows: list[dict], sheet_name: str = "config"):
+    mg = SimpleNamespace(
+        open=SimpleNamespace(sheet=Mock(return_value=True)),
+        gs=SimpleNamespace(
+            sheet=SimpleNamespace(
+                data=rows,
+                select=Mock(return_value=True),
+            ),
+        ),
+    )
+    return mg
+
+
 def test_upsert_or_skip_calls_upsert_when_data_present():
     mg, mock = _upsert_mg()
     df = pd.DataFrame({"month": ["2024-01"], "page": ["/a"], "pv": [10]})
@@ -211,6 +230,27 @@ def test_replace_sheet_by_group_keys_initial_write():
     save_mock.assert_called_once()
 
 
+def test_replace_sheet_by_group_keys_initial_write_fills_missing_columns():
+    mg, save_mock, _ = _replace_mg(existing_rows=[], sheets=["_x"])
+    df_new = pd.DataFrame({"month": ["202601"]})
+
+    out = replace_sheet_by_group_keys(
+        mg,
+        sheet_url="https://example.com",
+        sheet_name="_x",
+        df_new=df_new,
+        remove_group_keys=["month", "clinic"],
+        sort_by=["month", "clinic"],
+        columns=["month", "clinic", "users"],
+    )
+
+    assert out.columns.tolist() == ["month", "clinic", "users"]
+    assert out.loc[0, "month"] == "202601"
+    assert pd.isna(out.loc[0, "clinic"])
+    assert pd.isna(out.loc[0, "users"])
+    save_mock.assert_called_once()
+
+
 def test_replace_sheet_by_group_keys_replaces_matching_groups():
     existing = [
         {"month": "202601", "clinic": "渋谷", "users": 1},
@@ -247,3 +287,27 @@ def test_update_cells_calls_update_acell():
     assert update_mock.call_count == 2
     update_mock.assert_any_call("A1", "2026-01-01")
     update_mock.assert_any_call("B1", "2026-01-31")
+
+
+def test_read_sheet_table_returns_trimmed_dataframe():
+    mg = _read_mg(rows=[{" a ": 1}, {" a ": 2}])
+    out = read_sheet_table(mg, sheet_url="https://example.com", sheet_name="config")
+    assert out.columns.tolist() == ["a"]
+    assert len(out) == 2
+
+
+def test_load_pattern_map_returns_dict():
+    mg = _read_mg(
+        rows=[
+            {"pattern": r"abc", "normalized": "x"},
+            {"pattern": r"def", "normalized": "y"},
+        ]
+    )
+    out = load_pattern_map(
+        mg,
+        sheet_url="https://example.com",
+        sheet_name="source_map",
+        key_col="pattern",
+        value_col="normalized",
+    )
+    assert out == {"abc": "x", "def": "y"}

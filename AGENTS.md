@@ -12,6 +12,7 @@ megaton-app/
 │   ├── ga4_helpers.py     #   GA4 report execution & DataFrame helpers
 │   ├── gsc_utils.py       #   GSC aggregation / dedup / threshold helpers
 │   ├── table_utils.py     #   Pattern map/classification helpers
+│   ├── traffic.py         #   Source normalization and channel reclassification
 │   ├── sheets.py          #   Google Sheets read/write & group-key replace helpers
 │   ├── analysis.py        #   show() and analysis utilities
 │   ├── params_validator.py#   JSON parameter schema validation
