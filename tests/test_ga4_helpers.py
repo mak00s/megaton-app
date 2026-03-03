@@ -9,6 +9,7 @@ from megaton_lib.ga4_helpers import (
     build_filter,
     collect_site_frames,
     fetch_named_clinic_report_data_or_empty,
+    merge_dataframes,
     report_data_or_empty,
     run_report_merge,
     run_report_data_or_empty,
@@ -64,6 +65,27 @@ class TestRunReportDf:
         run_report_df(mg, ["date"], ["sessions"])
         call_kwargs = mg.report.run.call_args.kwargs
         assert "limit" not in call_kwargs
+
+
+class TestMergeDataframes:
+    def test_merges_in_order_and_coerces_int_columns(self):
+        base = pd.DataFrame({"page": ["/a", "/b"], "pv": [10, 20]})
+        footer = pd.DataFrame({"page": ["/a"], "footer_views": [3]})
+        video = pd.DataFrame({"page": ["/a", "/b"], "video_views": [1, 2]})
+        out = merge_dataframes(
+            [base, footer, video],
+            on="page",
+            how="left",
+            int_cols=["footer_views", "video_views"],
+        )
+        assert out.columns.tolist() == ["page", "pv", "footer_views", "video_views"]
+        assert out["footer_views"].tolist() == [3, 0]
+        assert out["video_views"].tolist() == [1, 2]
+
+    def test_skips_empty_or_none_frames(self):
+        base = pd.DataFrame({"k": [1], "v": [10]})
+        out = merge_dataframes([base, None, pd.DataFrame()], on="k")
+        assert out.equals(base)
 
 
 class TestReportDataOrEmpty:

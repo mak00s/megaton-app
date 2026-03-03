@@ -37,6 +37,33 @@ def run_report_df(
     return result.df
 
 
+def merge_dataframes(
+    frames: list[pd.DataFrame | None],
+    *,
+    on: str | list[str],
+    how: str = "left",
+    int_cols: list[str] | None = None,
+) -> pd.DataFrame:
+    """Merge multiple DataFrames in order, skipping ``None``/empty frames."""
+    if not frames:
+        return pd.DataFrame()
+    base = frames[0]
+    if base is None:
+        return pd.DataFrame()
+    merged = base.copy()
+
+    for df in frames[1:]:
+        if df is None or len(df) == 0:
+            continue
+        merged = merged.merge(df, on=on, how=how)
+
+    if int_cols:
+        for col in int_cols:
+            if col in merged.columns:
+                merged[col] = pd.to_numeric(merged[col], errors="coerce").fillna(0).astype(int)
+    return merged
+
+
 def collect_site_frames(
     mg,
     sites_df: pd.DataFrame,
