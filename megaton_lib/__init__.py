@@ -9,5 +9,5 @@ Core:
     sheets           : save_sheet_from_template() and sheet utilities
 
 Date utilities:
-    date_utils       : month_ranges_for_year, month_ranges_between, months_between
+    date_utils       : month ranges + month parsing/current-month filtering helpers
 """

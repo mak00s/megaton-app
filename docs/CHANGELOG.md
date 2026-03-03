@@ -2,6 +2,12 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+### 2026-03-03 (v0.4.2) — Date utilities expansion
+
+- Expanded `megaton_lib.date_utils` with timezone-aware helpers: `now_in_tz()`, `previous_month_range()`, `month_start_months_ago()`, `previous_year_start()`, `month_suffix_months_ago()`
+- Added month parsing/filter helpers for tabular workflows: `parse_year_month_series()`, `drop_current_month_rows()`, `select_recent_months()`
+- Added technical reference notes and examples for month normalization and recent-month filtering
+
 ### 2026-02-25 (v0.4.1) — CLI JSON output stability and docs updates
 
 - Fixed JSON mode output stability in `scripts/query.py`: non-JSON log lines emitted by underlying calls are now captured instead of contaminating stdout

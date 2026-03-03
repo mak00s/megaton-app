@@ -166,6 +166,21 @@ python scripts/query.py --params output/corp_company_spike.json --output output/
 
 注: 期間差分（delta）の自動算出は CLI 単体機能としては未実装。`--output` で保存した CSV を pandas / Notebook / BI ツールで比較する。
 
+### 年月列を正規化して直近 N か月だけ使う
+
+`YYYYMM` 数値、`YYYY-MM`、`YYYY年M月` などが混在する列は、`megaton_lib.date_utils` で正規化してから絞り込む。
+
+```python
+import pandas as pd
+from megaton_lib.date_utils import parse_year_month_series, select_recent_months, drop_current_month_rows
+
+df = pd.DataFrame({"month_raw": [202401, "2024-02", "2024年3月"], "value": [10, 12, 9]})
+df["month_dt"] = parse_year_month_series(df["month_raw"])          # 月初 datetime へ統一
+df = select_recent_months(df, month_col="month_dt", months=13)     # 直近13か月
+df["month_ym"] = df["month_dt"].dt.strftime("%Y%m")
+df = drop_current_month_rows(df, month_col="month_ym")             # 当月除外
+```
+
 ### GSC の検索クエリを分析する
 
 ```python
