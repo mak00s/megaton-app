@@ -19,6 +19,9 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
   - `apply_pattern_map()` and `classify_by_pattern_map()` for regex-based mapping/classification
 - Expanded helper modules:
   - `megaton_lib.ga4_helpers.report_data_or_empty()` for stable GA4 DataFrame shape
+  - `megaton_lib.ga4_helpers.collect_site_frames()` for shared per-site GA4 collection loops
+  - `megaton_lib.ga4_helpers.run_report_data_or_empty()` for stable report-data extraction
+  - `megaton_lib.ga4_helpers.run_report_merge()` for multi-report merges by shared keys
   - `megaton_lib.sheets.read_sheet_table()` for worksheet-to-DataFrame loading
   - `megaton_lib.sheets.load_pattern_map()` for loading regex maps from Sheets
   - `megaton_lib.sheets.replace_sheet_by_group_keys()` for monthly group refresh workflows
