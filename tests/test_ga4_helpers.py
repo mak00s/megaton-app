@@ -7,7 +7,11 @@ import pandas as pd
 
 from megaton_lib.ga4_helpers import (
     build_filter,
+    collect_site_frames,
+    fetch_named_clinic_report_data_or_empty,
     report_data_or_empty,
+    run_report_merge,
+    run_report_data_or_empty,
     run_report_df,
     to_datetime_col,
     to_numeric_cols,
@@ -78,6 +82,225 @@ class TestReportDataOrEmpty:
         assert df.loc[0, "month"] == "202601"
         assert pd.isna(df.loc[0, "clinic"])
         assert df.loc[0, "users"] == 10
+
+
+class TestCollectSiteFrames:
+    def test_collects_non_empty_frames(self):
+        mg = MagicMock()
+        sites = pd.DataFrame(
+            [
+                {"clinic": "A", "ga4_property_id": "111"},
+                {"clinic": "B", "ga4_property_id": "222"},
+            ]
+        )
+
+        def fetch_fn(_mg, _site, clinic, _ga4):
+            return pd.DataFrame({"clinic": [clinic], "x": [1]})
+
+        frames = collect_site_frames(mg, sites, fetch_fn=fetch_fn, warn_label="_x")
+        assert len(frames) == 2
+        assert mg.ga["4"].property.id == "222"
+
+    def test_skips_missing_property_and_skip_clinic(self):
+        mg = MagicMock()
+        sites = pd.DataFrame(
+            [
+                {"clinic": "A", "ga4_property_id": ""},
+                {"clinic": "B", "ga4_property_id": "222"},
+            ]
+        )
+
+        frames = collect_site_frames(
+            mg,
+            sites,
+            fetch_fn=lambda *_: pd.DataFrame({"ok": [1]}),
+            skip_clinics={"B"},
+            warn_on_missing_property=True,
+        )
+        assert frames == []
+
+    def test_continues_when_fetch_fn_raises(self):
+        mg = MagicMock()
+        sites = pd.DataFrame(
+            [
+                {"clinic": "A", "ga4_property_id": "111"},
+                {"clinic": "B", "ga4_property_id": "222"},
+            ]
+        )
+
+        def fetch_fn(_mg, _site, clinic, _ga4):
+            if clinic == "A":
+                raise RuntimeError("boom")
+            return pd.DataFrame({"clinic": [clinic]})
+
+        frames = collect_site_frames(mg, sites, fetch_fn=fetch_fn, warn_label="_test")
+        assert len(frames) == 1
+        assert frames[0]["clinic"].iloc[0] == "B"
+
+
+class TestRunReportDataOrEmpty:
+    def test_runs_report_and_returns_expected_columns(self):
+        mg = MagicMock()
+        mg.report.data = pd.DataFrame({"month": ["202601"], "users": [10]})
+
+        out = run_report_data_or_empty(
+            mg,
+            dimensions=["month"],
+            metrics=[("activeUsers", "users")],
+            expected_cols=["month", "users", "cv"],
+            filter_d="x==1",
+        )
+
+        mg.report.run.assert_called_once_with(
+            d=["month"],
+            m=[("activeUsers", "users")],
+            filter_d="x==1",
+            show=False,
+        )
+        assert out.columns.tolist() == ["month", "users", "cv"]
+        assert out.loc[0, "month"] == "202601"
+        assert out.loc[0, "users"] == 10
+
+
+class TestFetchNamedClinicReportDataOrEmpty:
+    def test_returns_empty_when_clinic_missing(self):
+        mg = MagicMock()
+        sites = pd.DataFrame([{"clinic": "A", "ga4_property_id": "111"}])
+        out = fetch_named_clinic_report_data_or_empty(
+            mg,
+            sites,
+            clinic_name="dentamap",
+            dimensions=["month"],
+            metrics=[("activeUsers", "users")],
+            expected_cols=["month", "users"],
+        )
+        assert out.empty
+        assert out.columns.tolist() == ["month", "users"]
+        mg.report.run.assert_not_called()
+
+    def test_returns_empty_when_property_missing(self):
+        mg = MagicMock()
+        sites = pd.DataFrame([{"clinic": "dentamap", "ga4_property_id": ""}])
+        out = fetch_named_clinic_report_data_or_empty(
+            mg,
+            sites,
+            clinic_name="dentamap",
+            dimensions=["month"],
+            metrics=[("activeUsers", "users")],
+            expected_cols=["month", "users"],
+        )
+        assert out.empty
+        assert out.columns.tolist() == ["month", "users"]
+        mg.report.run.assert_not_called()
+
+    def test_runs_report_and_sets_dates(self):
+        mg = MagicMock()
+        mg.report.data = pd.DataFrame({"month": ["202601"], "users": [10]})
+        sites = pd.DataFrame([{"clinic": "dentamap", "ga4_property_id": "999"}])
+        out = fetch_named_clinic_report_data_or_empty(
+            mg,
+            sites,
+            clinic_name="dentamap",
+            dimensions=["month"],
+            metrics=[("activeUsers", "users")],
+            expected_cols=["month", "users"],
+            filter_d="x==1",
+            set_dates=("2026-01-01", "2026-01-31"),
+            warn_label="_test",
+        )
+        assert out.loc[0, "month"] == "202601"
+        assert out.loc[0, "users"] == 10
+        assert mg.ga["4"].property.id == "999"
+        mg.report.set.dates.assert_called_once_with("2026-01-01", "2026-01-31")
+        mg.report.run.assert_called_once_with(
+            d=["month"],
+            m=[("activeUsers", "users")],
+            filter_d="x==1",
+            show=False,
+        )
+
+    def test_returns_empty_when_run_fails(self):
+        mg = MagicMock()
+        mg.report.run.side_effect = RuntimeError("boom")
+        sites = pd.DataFrame([{"clinic": "dentamap", "ga4_property_id": "999"}])
+        out = fetch_named_clinic_report_data_or_empty(
+            mg,
+            sites,
+            clinic_name="dentamap",
+            dimensions=["month"],
+            metrics=[("activeUsers", "users")],
+            expected_cols=["month", "users"],
+            warn_label="_test",
+        )
+        assert out.empty
+        assert out.columns.tolist() == ["month", "users"]
+
+
+class TestRunReportMerge:
+    def test_merges_multiple_reports(self):
+        mg = MagicMock()
+        mg.report.run.side_effect = [None, None]
+        mg.report.data = pd.DataFrame({"month": ["202601"], "channel": ["Organic"], "users": [10]})
+
+        reports = [
+            {
+                "dimensions": ["month", "channel"],
+                "metrics": [("activeUsers", "users")],
+                "expected_cols": ["month", "channel", "users"],
+            },
+            {
+                "dimensions": ["month", "channel"],
+                "metrics": [("totalPurchasers", "cv")],
+                "expected_cols": ["month", "channel", "cv"],
+            },
+        ]
+
+        # emulate changing mg.report.data after each run
+        def _set_data(*_args, **_kwargs):
+            if mg.report.run.call_count == 1:
+                mg.report.data = pd.DataFrame({"month": ["202601"], "channel": ["Organic"], "users": [10]})
+            else:
+                mg.report.data = pd.DataFrame({"month": ["202601"], "channel": ["Organic"], "cv": [2]})
+
+        mg.report.run.side_effect = _set_data
+
+        out = run_report_merge(mg, reports=reports, on=["month", "channel"], how="left")
+        assert out.columns.tolist() == ["month", "channel", "users", "cv"]
+        assert out.loc[0, "users"] == 10
+        assert out.loc[0, "cv"] == 2
+        assert mg.report.run.call_count == 2
+
+    def test_fillna_value(self):
+        mg = MagicMock()
+        mg.report.data = pd.DataFrame({"month": ["202601"], "channel": ["Organic"], "users": [10]})
+
+        def _set_data(*_args, **_kwargs):
+            if mg.report.run.call_count == 1:
+                mg.report.data = pd.DataFrame({"month": ["202601"], "channel": ["Organic"], "users": [10]})
+            else:
+                mg.report.data = pd.DataFrame(columns=["month", "channel", "cv"])
+
+        mg.report.run.side_effect = _set_data
+
+        out = run_report_merge(
+            mg,
+            reports=[
+                {
+                    "dimensions": ["month", "channel"],
+                    "metrics": [("activeUsers", "users")],
+                    "expected_cols": ["month", "channel", "users"],
+                },
+                {
+                    "dimensions": ["month", "channel"],
+                    "metrics": [("totalPurchasers", "cv")],
+                    "expected_cols": ["month", "channel", "cv"],
+                },
+            ],
+            on=["month", "channel"],
+            how="left",
+            fillna_value=0,
+        )
+        assert out.loc[0, "cv"] == 0
 
 
 class TestBuildFilter:

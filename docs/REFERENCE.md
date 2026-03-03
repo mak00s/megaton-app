@@ -403,7 +403,10 @@ df = drop_current_month_rows(df, month_col="month_ym")
 | Function | Description |
 |----------|-------------|
 | `run_report_df(mg, dimensions, metrics, ...)` | Execute `mg.report.run()` and return `result.df` |
+| `collect_site_frames(mg, sites_df, fetch_fn, ...)` | Loop site settings and collect non-empty per-site frames |
 | `report_data_or_empty(mg, expected_cols)` | Return `mg.report.data` with guaranteed columns/order |
+| `run_report_data_or_empty(mg, dimensions, metrics, expected_cols, ...)` | Run report and return `report.data` in stable schema |
+| `run_report_merge(mg, reports, on, how="outer", fillna_value=None)` | Run multiple report specs and merge by shared keys |
 | `build_filter(*parts)` | Build GA4 filter string from non-empty parts |
 | `to_datetime_col(df, col="date")` | Convert a date-like column to datetime |
 | `to_numeric_cols(df, cols, fillna=None, as_int=False)` | Convert selected columns to numeric |
