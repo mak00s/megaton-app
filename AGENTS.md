@@ -18,7 +18,7 @@ megaton-app/
 │   ├── result_inspector.py#   Pipeline processing (where/sort/group etc.)
 │   ├── date_template.py   #   Date template resolution (today-7d etc.)
 │   ├── periods.py         #   Period utilities
-│   ├── date_utils.py      #   Monthly range generation
+│   ├── date_utils.py      #   Month range / timezone / month parsing helpers
 │   ├── params_diff.py     #   params.json diff detection
 │   └── notebook.py        #   Notebook initialization helper
 ├── scripts/

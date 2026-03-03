@@ -345,6 +345,57 @@ Save destination for query results (post-pipeline). Available for all sources.
 
 ---
 
+## Date Utilities (`megaton_lib.date_utils`)
+
+### Month Range Helpers
+
+| Function | Returns |
+|----------|---------|
+| `month_ranges_for_year(year)` | List of `("YYYY-MM-01", "YYYY-MM-last")` for each month |
+| `month_ranges_between(start, end)` | Per-month clamped `(start, end)` pairs inside the window |
+| `months_between(start, end)` | `["YYYYMM", ...]` month keys in range |
+
+### Timezone/Relative Month Helpers
+
+| Function | Description |
+|----------|-------------|
+| `now_in_tz(tz="Asia/Tokyo")` | Current timezone-aware datetime |
+| `previous_month_range(reference=None, tz="Asia/Tokyo")` | Previous month start/end (`YYYY-MM-DD`) |
+| `month_start_months_ago(months_ago, reference=None, tz="Asia/Tokyo")` | Month start for N months ago |
+| `previous_year_start(reference=None, tz="Asia/Tokyo")` | Jan 1 of previous year |
+| `month_suffix_months_ago(months_ago, reference=None, tz="Asia/Tokyo", fmt="%Y.%m")` | Month label for N months ago |
+
+### DataFrame Month Parsing/Filtering
+
+| Function | Description |
+|----------|-------------|
+| `parse_year_month_series(series)` | Parse flexible month values (`202301`, `2023-01`, `2023/1`, `2023年1月`) into month-start datetime |
+| `drop_current_month_rows(df, month_col, tz="Asia/Tokyo")` | Remove rows matching current month key (`YYYYMM`) |
+| `select_recent_months(df, month_col, months=13)` | Keep recent N months from the max month in the column |
+
+Notes:
+- `drop_current_month_rows()` compares against `YYYYMM` string values. Normalize your month column first when source data is datetime, slash/dash strings, or numeric `YYYYMM`.
+- For numeric/heterogeneous month columns, run `parse_year_month_series()` first, then filter on the parsed datetime column.
+
+Example:
+
+```python
+import pandas as pd
+from megaton_lib.date_utils import (
+    parse_year_month_series,
+    select_recent_months,
+    drop_current_month_rows,
+)
+
+df = pd.DataFrame({"month_raw": [202401, "2024-02", "2024年3月"], "value": [10, 12, 9]})
+df["month_dt"] = parse_year_month_series(df["month_raw"])
+df = select_recent_months(df, month_col="month_dt", months=13)
+df["month_ym"] = df["month_dt"].dt.strftime("%Y%m")
+df = drop_current_month_rows(df, month_col="month_ym")
+```
+
+---
+
 ## megaton API
 
 ### Initialization
