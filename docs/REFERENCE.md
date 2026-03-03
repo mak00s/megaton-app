@@ -432,10 +432,20 @@ Notes:
 
 | Function | Description |
 |----------|-------------|
+| `read_sheet_table(mg, sheet_url, sheet_name)` | Read a worksheet into DataFrame (trimmed headers, empty rows dropped) |
+| `load_pattern_map(mg, sheet_url, sheet_name, key_col, value_col)` | Load mapping table as `{pattern: value}` dict |
 | `upsert_or_skip(mg, name, df, keys, ...)` | Skip empty input, otherwise upsert to worksheet |
 | `replace_sheet_by_group_keys(mg, sheet_url, sheet_name, ...)` | Replace matching group rows (e.g. month+clinic) and overwrite |
 | `update_cells(mg, sheet_url, sheet_name, values)` | Update multiple A1 cells |
 | `save_sheet_from_template(mg, sheet_name, df, ...)` | Write with template-based sheet creation |
+
+### Traffic Helpers (`megaton_lib.traffic`)
+
+| Function | Description |
+|----------|-------------|
+| `normalize_domain(value)` | Normalize host text (strip scheme/path/www, lowercase) |
+| `apply_source_normalization(df, source_map, source_col="source")` | Apply regex map to normalize source values |
+| `classify_channel(row, ...)` | Reclassify channel using source/medium heuristics (AI/Map/Group etc.) |
 
 ---
 

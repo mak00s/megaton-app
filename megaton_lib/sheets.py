@@ -13,6 +13,45 @@ from typing import Optional
 import pandas as pd
 
 
+def read_sheet_table(mg, *, sheet_url: str, sheet_name: str) -> pd.DataFrame:
+    """Read worksheet values into a DataFrame.
+
+    Returns empty DataFrame when the worksheet has no rows.
+    """
+    if not mg.open.sheet(sheet_url):
+        raise RuntimeError(f"Could not open sheet URL: {sheet_url}")
+    mg.gs.sheet.select(sheet_name)
+    data = mg.gs.sheet.data or []
+    df = pd.DataFrame(data)
+    if df.empty:
+        return df
+    df.columns = [str(c).strip() for c in df.columns]
+    return df.dropna(how="all")
+
+
+def load_pattern_map(
+    mg,
+    *,
+    sheet_url: str,
+    sheet_name: str,
+    key_col: str,
+    value_col: str,
+) -> dict[str, str]:
+    """Load regex mapping table from a worksheet as ``{pattern: value}``."""
+    df = read_sheet_table(mg, sheet_url=sheet_url, sheet_name=sheet_name)
+    if df.empty:
+        print(f"[warn] {sheet_name} is empty")
+        return {}
+
+    required = {key_col, value_col}
+    missing = sorted(required - set(df.columns))
+    if missing:
+        raise ValueError(f"{sheet_name}: missing columns {missing}")
+
+    df = df[[key_col, value_col]].dropna(subset=[key_col])
+    return {str(k): str(v) for k, v in zip(df[key_col], df[value_col])}
+
+
 def upsert_or_skip(mg, name: str, df: pd.DataFrame, *, keys: list, sort_by: list | None = None, **kwargs) -> bool:
     """Upsert DataFrame to a worksheet, or print skip message when empty.
 
@@ -65,19 +104,21 @@ def replace_sheet_by_group_keys(
     existing = pd.DataFrame(mg.gs.sheet.data or [])
 
     incoming = df_new.copy()
+    for col in columns:
+        if col not in incoming.columns:
+            incoming[col] = pd.NA
+    incoming = incoming[columns].copy()
+
     if existing.empty:
-        out = incoming[columns].copy()
+        out = incoming.copy()
         mg.save.to.sheet(df=out, sheet_name=sheet_name)
         return out
 
     for col in columns:
         if col not in existing.columns:
             existing[col] = pd.NA
-        if col not in incoming.columns:
-            incoming[col] = pd.NA
 
     existing = existing[columns].copy()
-    incoming = incoming[columns].copy()
 
     for key in remove_group_keys:
         existing[key] = existing[key].astype(str).str.strip()
