@@ -47,6 +47,27 @@ def _normalize_key(value: object) -> str:
     return str(value).strip()
 
 
+def _site_url_candidates(site_url: object) -> list[str]:
+    """Return site_url candidates that absorb trailing slash differences."""
+    raw = _normalize_key(site_url)
+    if not raw:
+        return []
+    if raw.startswith("sc-domain:"):
+        return [raw]
+
+    variants = [raw]
+    if raw.startswith("http://") or raw.startswith("https://"):
+        base = raw.rstrip("/")
+        if base:
+            variants.extend([base, f"{base}/"])
+
+    candidates: list[str] = []
+    for value in variants:
+        if value and value not in candidates:
+            candidates.append(value)
+    return candidates
+
+
 def _normalize_fields(
     fields: Sequence[FieldSpec],
     *,
@@ -167,7 +188,8 @@ def build_registry() -> None:
         try:
             sites = mg.search.get.sites()
             for site in sites:
-                _site_map[_normalize_key(site)] = path
+                for candidate in _site_url_candidates(site):
+                    _site_map[_normalize_key(candidate)] = path
         except Exception as e:
             logger.debug("Skipping GSC for %s: %s", path, e)
 
@@ -202,16 +224,25 @@ def get_megaton_for_property(property_id: str):
 
 def get_megaton_for_site(site_url: str):
     """Return Megaton instance for the specified GSC site."""
-    key = _normalize_key(site_url)
+    keys = [_normalize_key(v) for v in _site_url_candidates(site_url)]
+    if not keys:
+        raise ValueError(f"No credential found for site_url: {site_url}")
     build_registry()
-    creds_path = _site_map.get(key)
+    creds_path = None
+    for key in keys:
+        creds_path = _site_map.get(key)
+        if creds_path is not None:
+            break
     if creds_path is None:
         _property_map.clear()
         _site_map.clear()
         global _registry_built
         _registry_built = False
         build_registry()
-        creds_path = _site_map.get(key)
+        for key in keys:
+            creds_path = _site_map.get(key)
+            if creds_path is not None:
+                break
     if creds_path is None:
         raise ValueError(f"No credential found for site_url: {site_url}")
     return get_megaton(creds_path)
