@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from megaton_lib.sheets import save_sheet_from_template, upsert_or_skip
+from megaton_lib.sheets import replace_sheet_by_group_keys, update_cells
 
 
 @dataclass
@@ -115,6 +116,29 @@ def _upsert_mg():
     return mg, upsert_mock
 
 
+def _replace_mg(*, existing_rows: list[dict] | None = None, sheets: list[str] | None = None):
+    save_mock = Mock()
+    update_acell_mock = Mock()
+
+    sheet = SimpleNamespace(
+        data=existing_rows or [],
+        select=Mock(return_value=True),
+        create=Mock(),
+        _driver=SimpleNamespace(update_acell=update_acell_mock),
+    )
+    gs = SimpleNamespace(
+        sheets=sheets or ["_x"],
+        sheet=sheet,
+        _driver=SimpleNamespace(add_worksheet=Mock()),
+    )
+    mg = SimpleNamespace(
+        open=SimpleNamespace(sheet=Mock(return_value=True)),
+        gs=gs,
+        save=SimpleNamespace(to=SimpleNamespace(sheet=save_mock)),
+    )
+    return mg, save_mock, update_acell_mock
+
+
 def test_upsert_or_skip_calls_upsert_when_data_present():
     mg, mock = _upsert_mg()
     df = pd.DataFrame({"month": ["2024-01"], "page": ["/a"], "pv": [10]})
@@ -167,3 +191,59 @@ def test_upsert_or_skip_forwards_extra_kwargs():
         keys=["a", "link"], sort_by=["a", "link"],
         columns=["a", "link", "ts"],
     )
+
+
+def test_replace_sheet_by_group_keys_initial_write():
+    mg, save_mock, _ = _replace_mg(existing_rows=[], sheets=["_x"])
+    df_new = pd.DataFrame({"month": ["202601"], "clinic": ["渋谷"], "users": [10]})
+
+    out = replace_sheet_by_group_keys(
+        mg,
+        sheet_url="https://example.com",
+        sheet_name="_x",
+        df_new=df_new,
+        remove_group_keys=["month", "clinic"],
+        sort_by=["month", "clinic"],
+        columns=["month", "clinic", "users"],
+    )
+
+    assert len(out) == 1
+    save_mock.assert_called_once()
+
+
+def test_replace_sheet_by_group_keys_replaces_matching_groups():
+    existing = [
+        {"month": "202601", "clinic": "渋谷", "users": 1},
+        {"month": "202512", "clinic": "渋谷", "users": 2},
+    ]
+    mg, save_mock, _ = _replace_mg(existing_rows=existing, sheets=["_x"])
+    df_new = pd.DataFrame({"month": ["202601"], "clinic": ["渋谷"], "users": [10]})
+
+    out = replace_sheet_by_group_keys(
+        mg,
+        sheet_url="https://example.com",
+        sheet_name="_x",
+        df_new=df_new,
+        remove_group_keys=["month", "clinic"],
+        sort_by=["month", "clinic"],
+        columns=["month", "clinic", "users"],
+    )
+
+    assert len(out) == 2
+    assert out[out["month"] == "202601"]["users"].iloc[0] == 10
+    assert save_mock.call_count == 1
+
+
+def test_update_cells_calls_update_acell():
+    mg, _, update_mock = _replace_mg(existing_rows=[], sheets=["_x"])
+
+    update_cells(
+        mg,
+        sheet_url="https://example.com",
+        sheet_name="_x",
+        values={"A1": "2026-01-01", "B1": "2026-01-31"},
+    )
+
+    assert update_mock.call_count == 2
+    update_mock.assert_any_call("A1", "2026-01-01")
+    update_mock.assert_any_call("B1", "2026-01-31")

@@ -9,8 +9,10 @@ megaton-app/
 ├── megaton_lib/           # Shared library (used by other repos via pip install -e)
 │   ├── megaton_client.py  #   GA4/GSC/BQ init & query execution (core module)
 │   ├── credentials.py     #   Service account auto-detection
-│   ├── ga4_helpers.py     #   GA4 API helpers
-│   ├── sheets.py          #   Google Sheets read/write
+│   ├── ga4_helpers.py     #   GA4 report execution & DataFrame helpers
+│   ├── gsc_utils.py       #   GSC aggregation / dedup / threshold helpers
+│   ├── table_utils.py     #   Pattern map/classification helpers
+│   ├── sheets.py          #   Google Sheets read/write & group-key replace helpers
 │   ├── analysis.py        #   show() and analysis utilities
 │   ├── params_validator.py#   JSON parameter schema validation
 │   ├── job_manager.py     #   Async job management

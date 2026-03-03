@@ -7,6 +7,7 @@ import pandas as pd
 
 from megaton_lib.ga4_helpers import (
     build_filter,
+    report_data_or_empty,
     run_report_df,
     to_datetime_col,
     to_numeric_cols,
@@ -59,6 +60,24 @@ class TestRunReportDf:
         run_report_df(mg, ["date"], ["sessions"])
         call_kwargs = mg.report.run.call_args.kwargs
         assert "limit" not in call_kwargs
+
+
+class TestReportDataOrEmpty:
+    def test_returns_empty_with_expected_cols_when_no_data(self):
+        mg = MagicMock()
+        mg.report.data = None
+        df = report_data_or_empty(mg, ["month", "users"])
+        assert df.columns.tolist() == ["month", "users"]
+        assert df.empty
+
+    def test_fills_missing_cols_and_reorders(self):
+        mg = MagicMock()
+        mg.report.data = pd.DataFrame({"month": ["202601"], "users": [10]})
+        df = report_data_or_empty(mg, ["month", "clinic", "users"])
+        assert df.columns.tolist() == ["month", "clinic", "users"]
+        assert df.loc[0, "month"] == "202601"
+        assert pd.isna(df.loc[0, "clinic"])
+        assert df.loc[0, "users"] == 10
 
 
 class TestBuildFilter:

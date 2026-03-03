@@ -2,19 +2,27 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-### 2026-03-03 (v0.4.2) — Date utilities expansion
-
-- Expanded `megaton_lib.date_utils` with timezone-aware helpers: `now_in_tz()`, `previous_month_range()`, `month_start_months_ago()`, `previous_year_start()`, `month_suffix_months_ago()`
-- Added month parsing/filter helpers for tabular workflows: `parse_year_month_series()`, `drop_current_month_rows()`, `select_recent_months()`
-- Added technical reference notes and examples for month normalization and recent-month filtering
-
-### 2026-02-25 (v0.4.1) — CLI JSON output stability and docs updates
+### 2026-03-03 (v0.4.1) — Consolidated updates since last GitHub release
 
 - Fixed JSON mode output stability in `scripts/query.py`: non-JSON log lines emitted by underlying calls are now captured instead of contaminating stdout
 - Added `warnings` payload support for JSON responses (`list_*` and sync query paths)
 - Preserved captured warning lines even when query/list execution raises exceptions (available in error `details.warnings`)
 - Added regression tests for captured warnings on exception paths
 - Expanded docs with GA4 alias usage (`"site": "corp"`), Spike Investigation template, and explicit note that delta comparison is computed outside one-shot CLI
+- Expanded `megaton_lib.date_utils` with timezone-aware helpers: `now_in_tz()`, `previous_month_range()`, `month_start_months_ago()`, `previous_year_start()`, `month_suffix_months_ago()`
+- Added month parsing/filter helpers for tabular workflows: `parse_year_month_series()`, `drop_current_month_rows()`, `select_recent_months()`
+- Added `megaton_lib.gsc_utils`:
+  - `aggregate_search_console_data()` for page normalization + metric aggregation
+  - `deduplicate_queries()` for whitespace-variant query merge with weighted position
+  - `filter_by_clinic_thresholds()` for clinic-specific row filtering
+  - `force_text_on_numeric_column()` for Sheets-safe text handling
+- Added `megaton_lib.table_utils`:
+  - `apply_pattern_map()` and `classify_by_pattern_map()` for regex-based mapping/classification
+- Expanded helper modules:
+  - `megaton_lib.ga4_helpers.report_data_or_empty()` for stable GA4 DataFrame shape
+  - `megaton_lib.sheets.replace_sheet_by_group_keys()` for monthly group refresh workflows
+  - `megaton_lib.sheets.update_cells()` for batched A1 cell updates
+- Added unit tests for the new helper modules and APIs
 
 ### 2026-02-25 (v0.4.0) — AI Agent DX improvements
 
