@@ -135,6 +135,24 @@ result = mg.report.run(
 )
 ```
 
+### 複数レポートの DataFrame を順番に結合する
+
+```python
+import pandas as pd
+from megaton_lib.ga4_helpers import merge_dataframes
+
+base = pd.DataFrame({"page": ["/a", "/b"], "pv": [10, 20]})
+footer = pd.DataFrame({"page": ["/a"], "footer_views": [3]})
+video = pd.DataFrame({"page": ["/a", "/b"], "video_views": [1, 2]})
+
+df = merge_dataframes(
+    [base, footer, video],
+    on="page",
+    how="left",
+    int_cols=["footer_views", "video_views"],  # 欠損は 0 にして int 化
+)
+```
+
 ### GA4 スパイクを期間比較で調べる（期間A vs 期間B）
 
 1. 分解データを取得:
@@ -179,6 +197,19 @@ df["month_dt"] = parse_year_month_series(df["month_raw"])          # 月初 date
 df = select_recent_months(df, month_col="month_dt", months=13)     # 直近13か月
 df["month_ym"] = df["month_dt"].dt.strftime("%Y%m")
 df = drop_current_month_rows(df, month_col="month_ym")             # 当月除外
+```
+
+### source と channel を同時に再分類する
+
+```python
+import pandas as pd
+from megaton_lib.traffic import ensure_trailing_slash, reclassify_source_channel
+
+df["landingPage"] = df["landingPage"].apply(ensure_trailing_slash)
+df[["source_reclassified", "channel_reclassified"]] = df.apply(
+    lambda row: pd.Series(reclassify_source_channel(row)),
+    axis=1,
+)
 ```
 
 ### GSC の検索クエリを分析する
