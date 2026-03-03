@@ -403,6 +403,7 @@ df = drop_current_month_rows(df, month_col="month_ym")
 | Function | Description |
 |----------|-------------|
 | `run_report_df(mg, dimensions, metrics, ...)` | Execute `mg.report.run()` and return `result.df` |
+| `merge_dataframes(frames, on, how="left", int_cols=None)` | Merge DataFrames in order, skipping `None`/empty frames |
 | `collect_site_frames(mg, sites_df, fetch_fn, ...)` | Loop site settings and collect non-empty per-site frames |
 | `report_data_or_empty(mg, expected_cols)` | Return `mg.report.data` with guaranteed columns/order |
 | `run_report_data_or_empty(mg, dimensions, metrics, expected_cols, ...)` | Run report and return `report.data` in stable schema |
@@ -447,8 +448,10 @@ Notes:
 | Function | Description |
 |----------|-------------|
 | `normalize_domain(value)` | Normalize host text (strip scheme/path/www, lowercase) |
+| `ensure_trailing_slash(path, preserve_suffixes=(".html", "/"))` | Append `/` unless path already has a preserved suffix |
 | `apply_source_normalization(df, source_map, source_col="source")` | Apply regex map to normalize source values |
 | `classify_channel(row, ...)` | Reclassify channel using source/medium heuristics (AI/Map/Group etc.) |
+| `reclassify_source_channel(row, ...)` | Reclassify source + channel pair and return `(source, channel)` |
 
 ---
 

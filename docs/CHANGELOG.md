@@ -22,14 +22,17 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
   - `megaton_lib.ga4_helpers.collect_site_frames()` for shared per-site GA4 collection loops
   - `megaton_lib.ga4_helpers.run_report_data_or_empty()` for stable report-data extraction
   - `megaton_lib.ga4_helpers.run_report_merge()` for multi-report merges by shared keys
+  - `megaton_lib.ga4_helpers.merge_dataframes()` for ordered DataFrame merges with optional int coercion
   - `megaton_lib.sheets.read_sheet_table()` for worksheet-to-DataFrame loading
   - `megaton_lib.sheets.load_pattern_map()` for loading regex maps from Sheets
   - `megaton_lib.sheets.replace_sheet_by_group_keys()` for monthly group refresh workflows
   - `megaton_lib.sheets.update_cells()` for batched A1 cell updates
 - Added `megaton_lib.traffic`:
   - `normalize_domain()` for source-domain normalization
+  - `ensure_trailing_slash()` for URL path normalization
   - `apply_source_normalization()` for regex-based source normalization
   - `classify_channel()` for channel reclassification heuristics
+  - `reclassify_source_channel()` for paired source/channel reclassification with configurable regex rules
 - Expanded meaningful branch coverage tests for `scripts/query.py` (batch/list/job/alias/error paths) to satisfy CI coverage gate
 
 ### 2026-02-25 (v0.4.0) — AI Agent DX improvements
