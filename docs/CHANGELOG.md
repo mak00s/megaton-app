@@ -30,6 +30,7 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
   - `normalize_domain()` for source-domain normalization
   - `apply_source_normalization()` for regex-based source normalization
   - `classify_channel()` for channel reclassification heuristics
+- Expanded meaningful branch coverage tests for `scripts/query.py` (batch/list/job/alias/error paths) to satisfy CI coverage gate
 
 ### 2026-02-25 (v0.4.0) — AI Agent DX improvements
 
