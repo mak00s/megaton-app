@@ -20,6 +20,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "sidebar.end_date": "終了日",
         "sidebar.limit": "取得件数",
         "sidebar.execute": "🚀 実行",
+        "sidebar.execute_running": "⏳ 実行中...",
 
         # --- Sidebar: GA4 ---
         "ga4.property": "プロパティ",
@@ -108,6 +109,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # --- Chart ---
         "chart.x_axis": "X軸",
         "chart.y_axis": "Y軸",
+        "chart.series": "系列（任意）",
+        "chart.series_none": "（なし）",
+        "chart.series_trimmed": "系列が多すぎるため上位 {shown} 件のみ表示（全 {total} 件）",
         "chart.type": "チャートタイプ",
         "chart.line": "折れ線",
         "chart.bar": "棒グラフ",
@@ -155,6 +159,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "sidebar.end_date": "End Date",
         "sidebar.limit": "Row Limit",
         "sidebar.execute": "🚀 Run",
+        "sidebar.execute_running": "⏳ Running...",
 
         # --- Sidebar: GA4 ---
         "ga4.property": "Property",
@@ -243,6 +248,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # --- Chart ---
         "chart.x_axis": "X Axis",
         "chart.y_axis": "Y Axis",
+        "chart.series": "Series (optional)",
+        "chart.series_none": "(none)",
+        "chart.series_trimmed": "Too many series; showing top {shown} of {total}",
         "chart.type": "Chart Type",
         "chart.line": "Line",
         "chart.bar": "Bar",

@@ -6,7 +6,14 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 - Expanded default credentials discovery in `megaton_lib.credentials`:
   - If `credentials/` is not found from CWD/parent traversal, fallback to package-parent `megaton-app/credentials/`
+- Improved Streamlit query execution feedback:
+  - Run button now shows running state and prevents duplicate clicks while processing
+- Improved Streamlit chart UX:
+  - Datetime-like columns are auto-selected as default X-axis candidates
+  - Added optional series split (pivoted multi-series charts by second dimension)
+  - Added top-series cap for readability when category cardinality is high
 - Updated authentication resolution docs in `docs/REFERENCE.md` to include full fallback order
+- Updated docs (`README.md`, `docs/USAGE.md`, `docs/REFERENCE.md`) for new Streamlit behavior
 
 ### 2026-03-03 (v0.4.1) — Consolidated updates since last GitHub release
 
