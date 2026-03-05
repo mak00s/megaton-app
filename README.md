@@ -7,7 +7,7 @@ AI agents can drive the entire workflow through a simple JSON file, with no MCP 
 ## Features
 
 - **AI Agent ready** — File-based integration works with any agent; zero context overhead
-- **Streamlit UI** — Browse GA4/GSC/BQ data with filtering, charting, and CSV export
+- **Streamlit UI** — Browse GA4/GSC/BQ data with filtering, table/chart tabs, and CSV export
 - **CLI** — Run queries from JSON, async jobs, batch execution, and result pipelines
 - **Notebook** — Develop analyses interactively, then run them as scheduled jobs
 

@@ -283,6 +283,39 @@ def execute_bq_query(project_id, sql):
     return query_bq(project_id, sql)
 
 
+def detect_datetime_x_axis(df: pd.DataFrame) -> tuple[str | None, pd.Series | None]:
+    """Pick a datetime-like column for chart X-axis when available."""
+    if df.empty:
+        return None, None
+
+    if "date" in df.columns:
+        parsed = pd.to_datetime(df["date"], errors="coerce")
+        if parsed.notna().any():
+            return "date", parsed
+
+    for col in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            parsed = pd.to_datetime(df[col], errors="coerce")
+            if parsed.notna().any():
+                return col, parsed
+
+    time_name_hints = ("date", "day", "time", "month", "week")
+    hinted = [c for c in df.columns if any(h in str(c).lower() for h in time_name_hints)]
+    others = [c for c in df.columns if c not in hinted]
+
+    for col in [*hinted, *others]:
+        series = df[col]
+        if pd.api.types.is_numeric_dtype(series):
+            continue
+        parsed = pd.to_datetime(series, errors="coerce")
+        if len(parsed) == 0:
+            continue
+        if float(parsed.notna().mean()) >= 0.8:
+            return col, parsed
+
+    return None, None
+
+
 # === UI ===
 
 st.title(t("page.heading"))
@@ -298,6 +331,10 @@ if "params_validation_errors" not in st.session_state:
     st.session_state["params_validation_errors"] = []
 if "last_params_canonical" not in st.session_state:
     st.session_state["last_params_canonical"] = None
+if "execute_requested" not in st.session_state:
+    st.session_state["execute_requested"] = False
+if "is_executing" not in st.session_state:
+    st.session_state["is_executing"] = False
 
 # Auto-refresh (file watching: every 2s)
 if st.session_state.get("auto_watch", True):
@@ -525,7 +562,19 @@ with st.sidebar:
 
     st.divider()
 
-    execute_btn = st.button(t("sidebar.execute"), type="primary", width="stretch")
+    execute_btn = st.button(
+        t("sidebar.execute_running") if st.session_state.get("is_executing") else t("sidebar.execute"),
+        type="primary",
+        width="stretch",
+        disabled=st.session_state.get("is_executing", False),
+    )
+    if execute_btn and not st.session_state.get("is_executing", False):
+        st.session_state["execute_requested"] = True
+        st.session_state["is_executing"] = True
+        st.rerun()
+
+    if st.session_state.get("is_executing", False):
+        st.caption(t("msg.fetching"))
 
     st.divider()
 
@@ -574,6 +623,10 @@ with st.sidebar:
 auto_execute_pending = st.session_state.get("auto_execute_pending", False)
 if auto_execute_pending:
     st.session_state["auto_execute_pending"] = False
+    if not st.session_state.get("is_executing", False):
+        st.session_state["execute_requested"] = True
+        st.session_state["is_executing"] = True
+        st.rerun()
 
 # BigQuery SQL input area (main area)
 if source == "BigQuery":
@@ -605,7 +658,7 @@ ORDER BY event_date"""
                 st.warning(t("bq.dataset_error", error=str(e)))
 
 # Main area
-if execute_btn or auto_execute_pending or (file_just_updated and st.session_state.get("auto_execute", False)):
+if st.session_state.get("execute_requested") and st.session_state.get("is_executing"):
     with st.spinner(t("msg.fetching")):
         try:
             if source == "GA4":
@@ -647,6 +700,9 @@ if execute_btn or auto_execute_pending or (file_just_updated and st.session_stat
 
         except Exception as e:
             st.error(t("msg.error", error=str(e)))
+        finally:
+            st.session_state["execute_requested"] = False
+            st.session_state["is_executing"] = False
 
 # Results display
 if "df" in st.session_state:
@@ -803,23 +859,90 @@ if "df" in st.session_state:
 
     with tab2:
         if len(display_df.columns) >= 2:
-            col1, col2 = st.columns(2)
-            with col1:
-                x_col = st.selectbox(t("chart.x_axis"), display_df.columns)
-            with col2:
-                y_col = st.selectbox(t("chart.y_axis"), [c for c in display_df.columns if c != x_col])
+            chart_df = display_df.copy()
+            auto_x_col, auto_x_values = detect_datetime_x_axis(chart_df)
+            if auto_x_col and auto_x_values is not None:
+                chart_df[auto_x_col] = auto_x_values
+                chart_df = chart_df[chart_df[auto_x_col].notna()].copy()
 
-            chart_opts = t_option_map({
-                "chart.line": "line",
-                "chart.bar": "bar",
-            })
-            chart_label = st.radio(t("chart.type"), list(chart_opts.keys()), horizontal=True)
-            chart_type = chart_opts[chart_label]
-
-            if chart_type == "line":
-                st.line_chart(display_df.set_index(x_col)[y_col])
+            if chart_df.empty:
+                st.warning(t("msg.no_data"))
             else:
-                st.bar_chart(display_df.set_index(x_col)[y_col])
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    x_options = list(chart_df.columns)
+                    default_x_index = x_options.index(auto_x_col) if auto_x_col in x_options else 0
+                    x_col = st.selectbox(t("chart.x_axis"), x_options, index=default_x_index)
+                with col2:
+                    y_candidates = [
+                        c for c in chart_df.columns
+                        if c != x_col and pd.api.types.is_numeric_dtype(chart_df[c])
+                    ]
+                    if y_candidates:
+                        y_col = st.selectbox(t("chart.y_axis"), y_candidates)
+                    else:
+                        y_col = None
+                        st.selectbox(t("chart.y_axis"), ["-"], disabled=True)
+                with col3:
+                    series_none_label = t("chart.series_none")
+                    if y_col:
+                        series_candidates = [
+                            c for c in chart_df.columns
+                            if c not in {x_col, y_col}
+                            and not pd.api.types.is_numeric_dtype(chart_df[c])
+                            and not pd.api.types.is_datetime64_any_dtype(chart_df[c])
+                        ]
+                        series_options = [series_none_label, *series_candidates]
+                        default_series_index = 1 if len(series_options) > 1 else 0
+                        series_label = st.selectbox(
+                            t("chart.series"),
+                            series_options,
+                            index=default_series_index,
+                        )
+                        series_col = None if series_label == series_none_label else series_label
+                    else:
+                        series_col = None
+                        st.selectbox(t("chart.series"), [series_none_label], disabled=True)
+
+                chart_opts = t_option_map({
+                    "chart.line": "line",
+                    "chart.bar": "bar",
+                })
+                chart_label = st.radio(t("chart.type"), list(chart_opts.keys()), horizontal=True)
+                chart_type = chart_opts[chart_label]
+
+                if y_col:
+                    plot_df = chart_df.dropna(subset=[x_col, y_col]).copy()
+                    if pd.api.types.is_datetime64_any_dtype(plot_df[x_col]):
+                        plot_df = plot_df.sort_values(x_col)
+
+                    if series_col:
+                        series_limit = 20
+                        plot_df["_series_key"] = plot_df[series_col].astype("string").fillna("(null)")
+                        total_series = int(plot_df["_series_key"].nunique(dropna=False))
+                        if total_series > series_limit:
+                            top_keys = plot_df["_series_key"].value_counts(dropna=False).head(series_limit).index
+                            plot_df = plot_df[plot_df["_series_key"].isin(top_keys)].copy()
+                            st.caption(
+                                t(
+                                    "chart.series_trimmed",
+                                    shown=f"{series_limit}",
+                                    total=f"{total_series:,}",
+                                )
+                            )
+                        data_for_chart = plot_df.pivot_table(
+                            index=x_col,
+                            columns="_series_key",
+                            values=y_col,
+                            aggfunc="sum",
+                        )
+                    else:
+                        data_for_chart = plot_df.set_index(x_col)[y_col]
+
+                    if chart_type == "line":
+                        st.line_chart(data_for_chart)
+                    else:
+                        st.bar_chart(data_for_chart)
 
     with tab3:
         st.subheader(t("save.local_header"))

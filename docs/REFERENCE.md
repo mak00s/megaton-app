@@ -659,6 +659,23 @@ bq.dataset.tables              # ['table1', 'table2']
 
 ---
 
+## Streamlit UI Behavior
+
+### Query Execution UX
+
+- Clicking **Run** switches the button label to `Running...` and disables repeat clicks until completion
+- Sidebar shows a fetching status while query execution is in progress
+
+### Chart Tab
+
+- Supports `X Axis`, `Y Axis`, and optional `Series`
+- If a datetime-like column exists (for example `date`), it is preselected as default `X Axis`
+- `Y Axis` candidates are numeric columns only
+- When `Series` is set, chart data is pivoted (`index=X`, `columns=Series`, `values=Y`) with `sum` aggregation
+- If series cardinality is high, only top 20 series are shown (with an in-app notice)
+
+---
+
 ## Authentication
 
 ### Service Account JSON
