@@ -6,9 +6,6 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 - Expanded default credentials discovery in `megaton_lib.credentials`:
   - If `credentials/` is not found from CWD/parent traversal, fallback to package-parent `megaton-app/credentials/`
-- Added deterministic tests for package-parent credentials fallback in both APIs:
-  - `resolve_service_account_path()` success/error paths
-  - `list_service_account_paths()` success/empty paths
 - Updated authentication resolution docs in `docs/REFERENCE.md` to include full fallback order
 
 ### 2026-03-03 (v0.4.1) — Consolidated updates since last GitHub release
