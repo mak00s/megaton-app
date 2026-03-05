@@ -28,9 +28,11 @@ def _find_dir_upwards(dir_name: str, *, start: Path | None = None) -> Path | Non
 def _resolve_default_dir(default_dir: Path | str) -> Path:
     """Resolve default credentials directory.
 
-    If a relative ``default_dir`` does not exist, try to find it in parent dirs
-    (only for the standard 'credentials' default) so notebooks can run from
-    subdirectories without extra setup.
+    Resolution order:
+    1. Use ``default_dir`` directly if absolute or exists relative to CWD.
+    2. Walk up from CWD to find ``credentials/`` (for subdirectory execution).
+    3. Check relative to this package's parent (``megaton-app/credentials/``),
+       so external repos can use the CLI without setting env vars.
     """
     directory = Path(default_dir)
     if directory.is_absolute():
@@ -41,6 +43,10 @@ def _resolve_default_dir(default_dir: Path | str) -> Path:
         found = _find_dir_upwards(directory.name)
         if found is not None:
             return found
+        # Fallback: relative to this package's parent (megaton-app/)
+        pkg_creds = Path(__file__).resolve().parent.parent / directory.name
+        if pkg_creds.exists() and pkg_creds.is_dir():
+            return pkg_creds
     return directory
 
 

@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import megaton_lib.credentials as credentials_mod
 from megaton_lib.credentials import resolve_service_account_path, list_service_account_paths
 
 
@@ -54,6 +55,54 @@ class TestCredentials(unittest.TestCase):
                 with patch.dict(os.environ, {}, clear=True):
                     path = resolve_service_account_path()
                     self.assertEqual(str(Path(path).resolve()), str(cred_file.resolve()))
+            finally:
+                os.chdir(old_cwd)
+
+    def test_resolve_fallback_to_package_parent_credentials(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_app = Path(tmp) / "fake_app"
+            fake_pkg = fake_app / "megaton_lib"
+            fake_pkg.mkdir(parents=True)
+            fake_module_file = fake_pkg / "credentials.py"
+            fake_module_file.write_text("# test marker\n", encoding="utf-8")
+
+            fake_creds = fake_app / "credentials"
+            fake_creds.mkdir()
+            cred_file = fake_creds / "sa.json"
+            cred_file.write_text("{}", encoding="utf-8")
+
+            external = Path(tmp) / "other_repo"
+            external.mkdir()
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(external)
+                with patch.dict(os.environ, {}, clear=True):
+                    with patch.object(credentials_mod, "__file__", str(fake_module_file)):
+                        path = resolve_service_account_path()
+                        self.assertEqual(str(Path(path).resolve()), str(cred_file.resolve()))
+            finally:
+                os.chdir(old_cwd)
+
+    def test_resolve_fallback_to_package_parent_credentials_empty_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_app = Path(tmp) / "fake_app"
+            fake_pkg = fake_app / "megaton_lib"
+            fake_pkg.mkdir(parents=True)
+            fake_module_file = fake_pkg / "credentials.py"
+            fake_module_file.write_text("# test marker\n", encoding="utf-8")
+            (fake_app / "credentials").mkdir()
+
+            external = Path(tmp) / "other_repo"
+            external.mkdir()
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(external)
+                with patch.dict(os.environ, {}, clear=True):
+                    with patch.object(credentials_mod, "__file__", str(fake_module_file)):
+                        with self.assertRaises(FileNotFoundError):
+                            resolve_service_account_path()
             finally:
                 os.chdir(old_cwd)
 
@@ -130,6 +179,58 @@ class TestListServiceAccountPaths(unittest.TestCase):
                     paths = list_service_account_paths()
                     self.assertEqual(len(paths), 2)
                     self.assertEqual(paths, sorted(paths))
+            finally:
+                os.chdir(old_cwd)
+
+    def test_fallback_to_package_parent_credentials(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_app = Path(tmp) / "fake_app"
+            fake_pkg = fake_app / "megaton_lib"
+            fake_pkg.mkdir(parents=True)
+            fake_module_file = fake_pkg / "credentials.py"
+            fake_module_file.write_text("# test marker\n", encoding="utf-8")
+
+            fake_creds = fake_app / "credentials"
+            fake_creds.mkdir()
+            a = fake_creds / "a.json"
+            b = fake_creds / "b.json"
+            a.write_text("{}", encoding="utf-8")
+            b.write_text("{}", encoding="utf-8")
+
+            external = Path(tmp) / "other_repo"
+            external.mkdir()
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(external)
+                with patch.dict(os.environ, {}, clear=True):
+                    with patch.object(credentials_mod, "__file__", str(fake_module_file)):
+                        paths = list_service_account_paths()
+                        actual = sorted(str(Path(p).resolve()) for p in paths)
+                        expected = sorted([str(a.resolve()), str(b.resolve())])
+                        self.assertEqual(actual, expected)
+            finally:
+                os.chdir(old_cwd)
+
+    def test_fallback_to_package_parent_credentials_empty_returns_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_app = Path(tmp) / "fake_app"
+            fake_pkg = fake_app / "megaton_lib"
+            fake_pkg.mkdir(parents=True)
+            fake_module_file = fake_pkg / "credentials.py"
+            fake_module_file.write_text("# test marker\n", encoding="utf-8")
+            (fake_app / "credentials").mkdir()
+
+            external = Path(tmp) / "other_repo"
+            external.mkdir()
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(external)
+                with patch.dict(os.environ, {}, clear=True):
+                    with patch.object(credentials_mod, "__file__", str(fake_module_file)):
+                        paths = list_service_account_paths()
+                        self.assertEqual(paths, [])
             finally:
                 os.chdir(old_cwd)
 
