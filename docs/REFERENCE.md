@@ -674,7 +674,9 @@ bq.dataset.tables              # ['table1', 'table2']
 `get_ga4(property_id)` / `get_gsc(site_url)` auto-select credentials:
 1. `MEGATON_CREDS_PATH` points to a file → use that file
 2. `MEGATON_CREDS_PATH` points to a directory → `*.json` files (sorted by filename)
-3. Not set → search `credentials/*.json` (with parent directory traversal)
+3. Not set → use `credentials/` if it exists in current working directory
+4. If not found, walk up parent directories for `credentials/`
+5. If still not found, fallback to `credentials/` next to this package (`megaton-app/credentials/`)
 
 **BigQuery (native client):**
 
@@ -682,6 +684,7 @@ bq.dataset.tables              # ['table1', 'table2']
 1. `GOOGLE_APPLICATION_CREDENTIALS` if set
 2. Otherwise, select from `MEGATON_CREDS_PATH` / `credentials/*.json`
    - `creds_hint` parameter matches filename substring
+   - `credentials/` resolution follows the same order as GA4/GSC (CWD → parent walk → package-parent fallback)
    - Falls back to first candidate
 
 ### In Notebooks
