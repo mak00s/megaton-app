@@ -9,7 +9,7 @@ from megaton_lib.date_template import resolve_date, resolve_dates_in_params
 SCHEMA_VERSION = "1.0"
 MAX_LIMIT = 100000
 DEFAULT_LIMIT = 1000
-ALLOWED_SOURCES = {"ga4", "gsc", "bigquery"}
+ALLOWED_SOURCES = {"ga4", "gsc", "aa", "bigquery"}
 ALLOWED_SAVE_TARGETS = {"csv", "sheets", "bigquery"}
 ALLOWED_SAVE_MODES = {"overwrite", "append", "upsert"}
 
@@ -62,7 +62,7 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
         errors.append(
             _err(
                 "INVALID_SOURCE",
-                "source must be one of: ga4, gsc, bigquery",
+                "source must be one of: ga4, gsc, aa, bigquery",
                 "$.source",
                 "Set source to one valid value.",
             )
@@ -73,11 +73,13 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
     source_required = {
         "ga4": {"property_id", "date_range", "dimensions", "metrics"},
         "gsc": {"site_url", "date_range", "dimensions"},
+        "aa": {"company_id", "rsid", "date_range", "dimension", "metrics"},
         "bigquery": {"project_id", "sql"},
     }
     source_optional = {
         "ga4": {"filter_d", "limit", "pipeline", "save"},
         "gsc": {"filter", "limit", "pipeline", "save"},
+        "aa": {"site", "segment", "limit", "org_id", "pipeline", "save"},
         "bigquery": {"pipeline", "save"},
     }
 
@@ -159,7 +161,7 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
                 )
             )
 
-    if source == "ga4" and "metrics" in normalized:
+    if source in {"ga4", "aa"} and "metrics" in normalized:
         metrics = normalized["metrics"]
         if not isinstance(metrics, list) or not all(isinstance(v, str) and v for v in metrics):
             errors.append(
@@ -171,7 +173,18 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
                 )
             )
 
-    for key in ("property_id", "site_url", "project_id", "sql", "filter_d", "filter"):
+    for key in (
+        "property_id",
+        "site_url",
+        "company_id",
+        "rsid",
+        "dimension",
+        "project_id",
+        "sql",
+        "filter_d",
+        "filter",
+        "org_id",
+    ):
         if key in normalized and not isinstance(normalized[key], str):
             errors.append(
                 _err(
@@ -182,7 +195,22 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
                 )
             )
 
-    if source in {"ga4", "gsc"}:
+    if "segment" in normalized:
+        seg = normalized["segment"]
+        seg_ok = isinstance(seg, str) or (
+            isinstance(seg, list) and all(isinstance(v, str) and v.strip() for v in seg)
+        )
+        if not seg_ok:
+            errors.append(
+                _err(
+                    "INVALID_TYPE",
+                    "segment must be a string or string array",
+                    "$.segment",
+                    "Use \"segment_id\" or [\"segment_id1\", \"segment_id2\"].",
+                )
+            )
+
+    if source in {"ga4", "gsc", "aa"}:
         if "limit" not in normalized:
             normalized["limit"] = DEFAULT_LIMIT
         limit = normalized.get("limit")

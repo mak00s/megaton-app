@@ -13,6 +13,7 @@ pandas
 matplotlib
 japanize-matplotlib
 plotly
+requests
 
 streamlit
 streamlit-autorefresh

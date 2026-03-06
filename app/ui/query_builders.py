@@ -109,12 +109,19 @@ def build_agent_params(
     metrics: list[str] | None = None,
     filter_d: str = "",
     gsc_filter: str = "",
+    aa_company_id: str = "",
+    aa_rsid: str = "",
+    aa_dimension: str = "",
+    aa_metrics: list[str] | None = None,
+    aa_segment: list[str] | None = None,
     bq_project: str = "",
     sql: str = "",
 ) -> dict:
     """Build sidebar JSON params payload for AI agent handoff."""
     dimensions = dimensions or []
     metrics = metrics or []
+    aa_metrics = aa_metrics or []
+    aa_segment = aa_segment or []
 
     if source == "GA4":
         return {
@@ -141,6 +148,22 @@ def build_agent_params(
             "filter": gsc_filter,
             "limit": limit,
         }
+    if source == "AA":
+        out = {
+            "source": "aa",
+            "company_id": aa_company_id,
+            "rsid": aa_rsid,
+            "date_range": {
+                "start": start_date.strftime("%Y-%m-%d") if start_date else "",
+                "end": end_date.strftime("%Y-%m-%d") if end_date else "",
+            },
+            "dimension": aa_dimension,
+            "metrics": aa_metrics,
+            "limit": limit,
+        }
+        if aa_segment:
+            out["segment"] = aa_segment
+        return out
     return {
         "source": "bigquery",
         "project_id": bq_project,

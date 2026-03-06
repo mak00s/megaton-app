@@ -11,7 +11,7 @@
     },
     "source": {
       "type": "string",
-      "enum": ["ga4", "gsc", "bigquery"]
+      "enum": ["ga4", "gsc", "aa", "bigquery"]
     }
   },
   "$defs": {
@@ -114,6 +114,52 @@
             "items": { "type": "string", "minLength": 1 }
           },
           "filter": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100000 },
+          "pipeline": { "$ref": "#/$defs/pipeline" },
+          "save": { "$ref": "#/$defs/save" }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "source": { "const": "aa" }
+        }
+      },
+      "then": {
+        "type": "object",
+        "required": ["schema_version", "source", "company_id", "rsid", "date_range", "dimension", "metrics"],
+        "properties": {
+          "schema_version": { "type": "string", "const": "1.0" },
+          "source": { "type": "string", "const": "aa" },
+          "site": { "type": "string", "minLength": 1 },
+          "company_id": { "type": "string", "minLength": 1 },
+          "org_id": { "type": "string", "minLength": 1 },
+          "rsid": { "type": "string", "minLength": 1 },
+          "date_range": {
+            "type": "object",
+            "required": ["start", "end"],
+            "additionalProperties": false,
+            "properties": {
+              "start": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+              "end": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }
+            }
+          },
+          "dimension": { "type": "string", "minLength": 1 },
+          "metrics": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "segment": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 }
+              }
+            ]
+          },
           "limit": { "type": "integer", "minimum": 1, "maximum": 100000 },
           "pipeline": { "$ref": "#/$defs/pipeline" },
           "save": { "$ref": "#/$defs/save" }

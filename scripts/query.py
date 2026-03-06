@@ -46,6 +46,7 @@ from megaton_lib.megaton_client import (
     get_bq_datasets,
     query_ga4,
     query_gsc,
+    query_aa,
     query_bq,
     save_to_sheet,
     save_to_bq,
@@ -221,6 +222,13 @@ def resolve_site_alias(raw: dict) -> dict:
         raw["site_url"] = entry["gsc_site_url"]
     elif source == "ga4" and "property_id" not in raw:
         raw["property_id"] = entry["ga4_property_id"]
+    elif source == "aa":
+        if "rsid" not in raw and "aa_rsid" in entry:
+            raw["rsid"] = entry["aa_rsid"]
+        if "company_id" not in raw and "aa_company_id" in entry:
+            raw["company_id"] = entry["aa_company_id"]
+        if "org_id" not in raw and "aa_org_id" in entry:
+            raw["org_id"] = entry["aa_org_id"]
     del raw["site"]
     return raw
 
@@ -321,6 +329,39 @@ def execute_query_from_params(params: dict) -> tuple[object, list[str]]:
         ]
         if params.get("filter"):
             header_lines.append(f"フィルタ: {params['filter']}")
+        return df, header_lines
+
+    if source == "aa":
+        start_date = params["date_range"]["start"]
+        end_date = params["date_range"]["end"]
+
+        segment_raw = params.get("segment")
+        segment: list[str] | None = None
+        if isinstance(segment_raw, str):
+            segment = [s.strip() for s in segment_raw.split(",") if s.strip()] or None
+        elif isinstance(segment_raw, list):
+            segment = [str(s).strip() for s in segment_raw if str(s).strip()] or None
+
+        df = query_aa(
+            company_id=params["company_id"],
+            rsid=params["rsid"],
+            start_date=start_date,
+            end_date=end_date,
+            dimension=params["dimension"],
+            metrics=params["metrics"],
+            segment=segment,
+            limit=params.get("limit", 1000),
+            org_id=params.get("org_id"),
+        )
+        header_lines = [
+            f"期間: {start_date} 〜 {end_date}",
+            f"Company: {params['company_id']}",
+            f"RSID: {params['rsid']}",
+            f"Dimension: {params['dimension']}",
+            f"Metrics: {', '.join(params['metrics'])}",
+        ]
+        if segment:
+            header_lines.append(f"Segment: {', '.join(segment)}")
         return df, header_lines
 
     if source == "bigquery":

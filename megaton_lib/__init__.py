@@ -13,4 +13,7 @@ Core:
 
 Date utilities:
     date_utils       : month ranges + month parsing/current-month filtering helpers
+
+Audit:
+    audit            : reusable GTM/Adobe Tags + GA4/AA audit framework
 """
