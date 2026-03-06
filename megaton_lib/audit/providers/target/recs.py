@@ -258,19 +258,38 @@ def apply_recs(
 
 
 def _merge_design_sidecar(local: dict[str, Any], json_file: Path) -> dict[str, Any]:
-    """Merge sidecar script file (.vtl/.html/.js) back into design content."""
+    """Merge sidecar script file (.vtl/.html/.js) back into design content.
+
+    Searches for sidecar files in multiple locations/naming conventions:
+    1. ``<id>.<ext>`` in same directory (megaton_lib export layout)
+    2. ``<stem>.<ext>`` when JSON is named ``<id>_<slug>.json``
+    3. ``code/<stem>.<ext>`` in a ``code/`` subdirectory (at-recs layout)
+    """
     item_id = local.get("id") or json_file.stem
+    stem = json_file.stem  # e.g. "13628_default-template" or "13628"
     parent = json_file.parent
-    for ext in (".vtl", ".html", ".js"):
-        sidecar = parent / f"{item_id}{ext}"
-        if sidecar.exists():
-            try:
-                script = sidecar.read_text(encoding="utf-8")
-            except OSError:
-                continue
-            merged = dict(local)
-            merged["content"] = script
-            return merged
+
+    # Candidate (directory, basename) pairs, tried in order
+    candidates = [
+        (parent, str(item_id)),           # <dir>/<id>.ext
+        (parent, stem),                   # <dir>/<id>_<slug>.ext
+        (parent / "code", stem),          # <dir>/code/<id>_<slug>.ext
+        (parent / "code", str(item_id)),  # <dir>/code/<id>.ext
+    ]
+
+    for search_dir, base in candidates:
+        if not search_dir.is_dir():
+            continue
+        for ext in (".vtl", ".html", ".js"):
+            sidecar = search_dir / f"{base}{ext}"
+            if sidecar.exists():
+                try:
+                    script = sidecar.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                merged = dict(local)
+                merged["content"] = script
+                return merged
     return local
 
 

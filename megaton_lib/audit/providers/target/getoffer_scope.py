@@ -156,6 +156,9 @@ def export_getoffer_scope(
     output_root: str | Path,
     captures_dir: str | Path,
     custom_code_path: str | Path | None = None,
+    *,
+    include_designs: bool = False,
+    designs_name_regex: str | None = None,
 ) -> dict[str, Any]:
     """Detect current scope and export matching resources.
 
@@ -165,6 +168,8 @@ def export_getoffer_scope(
     output_root : root output directory
     captures_dir : directory with delivery-calls.json
     custom_code_path : path to getoffer.custom-code.js
+    include_designs : if True, always include designs in the export
+    designs_name_regex : optional regex to filter designs by name
 
     Returns
     -------
@@ -200,6 +205,16 @@ def export_getoffer_scope(
     # Always include criteria (primary scope) even if regex is empty
     if "criteria" not in scoped_resources:
         scoped_resources.append("criteria")
+
+    # Include designs when explicitly requested (delivery calls rarely expose
+    # design names, so the old shell script included them by default with a
+    # name regex like ``^(JSON99)$``).
+    if include_designs:
+        if "designs" not in scoped_resources:
+            scoped_resources.append("designs")
+        # Explicit designs_name_regex overrides auto-detected value
+        if designs_name_regex:
+            name_regex["designs"] = designs_name_regex
 
     export_summary = export_recs(
         client,

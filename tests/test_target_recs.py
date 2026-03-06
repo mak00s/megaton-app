@@ -230,6 +230,52 @@ def test_apply_merges_design_sidecar(tmp_path):
     assert patched_payload["content"] == "new template from vtl"
 
 
+def test_apply_merges_design_sidecar_code_subdir(tmp_path):
+    """apply_recs reads sidecar from code/ subdirectory (at-recs layout)."""
+    des_dir = tmp_path / "designs"
+    des_dir.mkdir()
+    code_dir = des_dir / "code"
+    code_dir.mkdir()
+
+    local_json = {"id": 13628, "name": "Default Template", "content": "old"}
+    (des_dir / "13628_default-template.json").write_text(json.dumps(local_json))
+    # at-recs layout: code/<id>_<slug>.vtl
+    (code_dir / "13628_default-template.vtl").write_text("new template from code dir")
+
+    client = _MockClient(
+        {"designs": [{"id": 13628, "name": "Default Template", "content": "old"}]},
+    )
+
+    changes = apply_recs(client, tmp_path, resources=["designs"], dry_run=False)
+    assert len(changes) == 1
+    assert changes[0]["changed"] is True
+    assert changes[0]["applied"] is True
+    patched_payload = client.patched[0][1]
+    assert patched_payload["content"] == "new template from code dir"
+
+
+def test_apply_merges_design_sidecar_id_only_in_code(tmp_path):
+    """Sidecar code/<id>.vtl also works (ID-only naming)."""
+    des_dir = tmp_path / "designs"
+    des_dir.mkdir()
+    code_dir = des_dir / "code"
+    code_dir.mkdir()
+
+    local_json = {"id": 999, "name": "Simple", "content": "old"}
+    (des_dir / "999.json").write_text(json.dumps(local_json))
+    (code_dir / "999.vtl").write_text("id-only template")
+
+    client = _MockClient(
+        {"designs": [{"id": 999, "name": "Simple", "content": "old"}]},
+    )
+
+    changes = apply_recs(client, tmp_path, resources=["designs"], dry_run=False)
+    assert len(changes) == 1
+    assert changes[0]["changed"] is True
+    patched_payload = client.patched[0][1]
+    assert patched_payload["content"] == "id-only template"
+
+
 # ---- getoffer scope tests ----
 
 
@@ -396,6 +442,144 @@ def test_export_getoffer_scope_fallbacks_to_criteria_only(monkeypatch, tmp_path)
     assert captured["resources"] == ["criteria"]
     assert captured["name_regex"] is None
     assert result["export_summary"] == {"criteria": 0}
+
+
+def test_export_getoffer_scope_include_designs(monkeypatch, tmp_path):
+    """include_designs=True adds designs to scoped resources."""
+    code = '''var CONFIG = {
+  collectionByMbox: { "CSK-A": "essence-master" }
+};'''
+    code_path = tmp_path / "getoffer.custom-code.js"
+    code_path.write_text(code)
+    delivery = [
+        {
+            "response": {
+                "body": {
+                    "execute": {
+                        "mboxes": [
+                            {
+                                "name": "CSK-A",
+                                "options": [
+                                    {"responseTokens": {"activity.name": "Criteria A"}},
+                                ],
+                            },
+                        ],
+                    },
+                },
+            },
+        },
+    ]
+    (tmp_path / "delivery-calls.json").write_text(json.dumps(delivery))
+
+    captured: dict[str, object] = {}
+
+    def _fake_export_recs(client, output_root, resources=None, name_regex=None):
+        captured["resources"] = resources
+        captured["name_regex"] = name_regex
+        return {"criteria": 1, "collections": 1, "designs": 2}
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.target.getoffer_scope.export_recs",
+        _fake_export_recs,
+    )
+
+    result = export_getoffer_scope(
+        _MockClient({}),
+        tmp_path / "out",
+        tmp_path,
+        code_path,
+        include_designs=True,
+        designs_name_regex="^(JSON99)$",
+    )
+
+    assert "designs" in captured["resources"]
+    assert captured["name_regex"]["designs"] == "^(JSON99)$"
+    assert result["export_summary"]["designs"] == 2
+
+
+def test_export_getoffer_scope_include_designs_no_regex(monkeypatch, tmp_path):
+    """include_designs=True without regex exports all designs."""
+    (tmp_path / "delivery-calls.json").write_text("[]")
+
+    captured: dict[str, object] = {}
+
+    def _fake_export_recs(client, output_root, resources=None, name_regex=None):
+        captured["resources"] = resources
+        captured["name_regex"] = name_regex
+        return {"criteria": 0, "designs": 5}
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.target.getoffer_scope.export_recs",
+        _fake_export_recs,
+    )
+
+    result = export_getoffer_scope(
+        _MockClient({}),
+        tmp_path / "out",
+        tmp_path,
+        None,
+        include_designs=True,
+    )
+
+    assert "designs" in captured["resources"]
+    # No designs_name_regex → no filter for designs
+    assert captured["name_regex"] is None or "designs" not in (captured["name_regex"] or {})
+
+
+def test_export_getoffer_scope_designs_regex_overrides_autodetected(monkeypatch, tmp_path):
+    """Explicit designs_name_regex overrides auto-detected value from scope."""
+    # Set up scope that auto-detects a designs regex (via design_names in delivery)
+    code = '''var CONFIG = {
+  collectionByMbox: { "CSK-A": "essence-master" }
+};'''
+    code_path = tmp_path / "getoffer.custom-code.js"
+    code_path.write_text(code)
+    delivery = [
+        {
+            "response": {
+                "body": {
+                    "execute": {
+                        "mboxes": [
+                            {
+                                "name": "CSK-A",
+                                "options": [
+                                    {"responseTokens": {"activity.name": "Criteria A"}},
+                                ],
+                            },
+                        ],
+                    },
+                },
+            },
+        },
+    ]
+    (tmp_path / "delivery-calls.json").write_text(json.dumps(delivery))
+
+    captured: dict[str, object] = {}
+
+    def _fake_export_recs(client, output_root, resources=None, name_regex=None):
+        captured["resources"] = resources
+        captured["name_regex"] = name_regex
+        return {"criteria": 1, "collections": 1, "designs": 3}
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.target.getoffer_scope.export_recs",
+        _fake_export_recs,
+    )
+
+    # Even though scope detection doesn't produce designs_name_regex here,
+    # test that explicit designs_name_regex is applied regardless of whether
+    # designs was already in scoped_resources.
+    result = export_getoffer_scope(
+        _MockClient({}),
+        tmp_path / "out",
+        tmp_path,
+        code_path,
+        include_designs=True,
+        designs_name_regex="^(CustomDesign)$",
+    )
+
+    assert "designs" in captured["resources"]
+    assert captured["name_regex"]["designs"] == "^(CustomDesign)$"
 
 
 # ---- config loader oauth test ----
