@@ -108,24 +108,51 @@ def detect_getoffer_scope(
                     if not isinstance(option, dict):
                         continue
 
+                    # --- responseTokens (highest priority) ---
                     meta = option.get("responseTokens", {})
                     if not isinstance(meta, dict):
-                        continue
+                        meta = {}
 
-                    # Extract criteria/algorithm info
-                    criteria = meta.get("recommendation.criteria.title", "")
+                    # --- option.content → recs.activity (fallback) ---
+                    # Delivery call content may be a JSON string with nested
+                    # recs.activity containing criteria/algorithm details.
+                    recs_activity: dict[str, Any] = {}
+                    content_raw = option.get("content")
+                    if isinstance(content_raw, str):
+                        try:
+                            parsed = json.loads(content_raw)
+                        except (json.JSONDecodeError, ValueError):
+                            parsed = None
+                    elif isinstance(content_raw, dict):
+                        parsed = content_raw
+                    else:
+                        parsed = None
+                    if isinstance(parsed, dict):
+                        recs = parsed.get("recs", {})
+                        if isinstance(recs, dict):
+                            act = recs.get("activity", {})
+                            if isinstance(act, dict):
+                                recs_activity = act
+
+                    # Extract criteria/algorithm info (responseTokens → content fallback)
+                    criteria = (
+                        meta.get("recommendation.criteria.title")
+                        or recs_activity.get("criteria.title")
+                        or ""
+                    )
                     if criteria:
                         criteria_names.add(criteria)
 
-                    algo = meta.get("recommendation.algorithm.name", "")
+                    algo = (
+                        meta.get("recommendation.algorithm.name")
+                        or recs_activity.get("algorithm.name")
+                        or ""
+                    )
                     if algo:
                         criteria_names.add(algo)
 
-                    act_name = meta.get("activity.name", "")
-                    if act_name:
-                        criteria_names.add(act_name)
-
-                    act_id = meta.get("activity.id")
+                    # activity.id from responseTokens or content
+                    act_id = meta.get("activity.id") or recs_activity.get("campaign.id")
                     if act_id is not None:
                         try:
                             activity_ids.add(int(act_id))
@@ -202,10 +229,6 @@ def export_getoffer_scope(
         name_regex["designs"] = scope["designs_name_regex"]
         scoped_resources.append("designs")
 
-    # Always include criteria (primary scope) even if regex is empty
-    if "criteria" not in scoped_resources:
-        scoped_resources.append("criteria")
-
     # Include designs when explicitly requested (delivery calls rarely expose
     # design names, so the old shell script included them by default with a
     # name regex like ``^(JSON99)$``).
@@ -216,10 +239,18 @@ def export_getoffer_scope(
         if designs_name_regex:
             name_regex["designs"] = designs_name_regex
 
+    # No filters detected and designs not explicitly requested:
+    # skip export rather than exporting unscoped resources.
+    if not scoped_resources:
+        return {
+            "scope": scope,
+            "export_summary": {},
+        }
+
     export_summary = export_recs(
         client,
         root,
-        resources=scoped_resources if scoped_resources else None,
+        resources=scoped_resources,
         name_regex=name_regex if name_regex else None,
     )
 

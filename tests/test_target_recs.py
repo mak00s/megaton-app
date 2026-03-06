@@ -298,6 +298,7 @@ def test_detect_getoffer_scope_reads_response_body(tmp_path):
                                         "responseTokens": {
                                             "activity.id": 12345,
                                             "activity.name": "Test Activity",
+                                            "recommendation.criteria.title": "Top Sellers",
                                         },
                                     },
                                 ],
@@ -312,7 +313,54 @@ def test_detect_getoffer_scope_reads_response_body(tmp_path):
 
     scope = detect_getoffer_scope(tmp_path)
     assert 12345 in scope["activity_ids"]
-    assert "Test Activity" in scope["criteria_names"]
+    assert "Top Sellers" in scope["criteria_names"]
+
+
+def test_detect_getoffer_scope_parses_option_content(tmp_path):
+    """Scope detection parses option.content JSON for recs.activity info."""
+    content_json = json.dumps({
+        "recs": {
+            "activity": {
+                "criteria.title": "CSK Demo: 疾患が会員情報と合致",
+                "algorithm.name": "CSK Demo: 項目：類似疾患",
+                "campaign.id": 803269,
+                "campaign.name": "CSK A：疾患が会員情報と合致",
+            },
+        },
+    })
+    delivery = [
+        {
+            "response": {
+                "status": 200,
+                "body": {
+                    "execute": {
+                        "mboxes": [
+                            {
+                                "name": "CSK-A",
+                                "options": [
+                                    {
+                                        "responseTokens": {
+                                            "activity.id": 803269,
+                                            "activity.name": "CSK A：疾患が会員情報と合致",
+                                        },
+                                        "content": content_json,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            },
+        },
+    ]
+    (tmp_path / "delivery-calls.json").write_text(json.dumps(delivery))
+
+    scope = detect_getoffer_scope(tmp_path)
+    assert 803269 in scope["activity_ids"]
+    assert "CSK Demo: 疾患が会員情報と合致" in scope["criteria_names"]
+    assert "CSK Demo: 項目：類似疾患" in scope["criteria_names"]
+    # activity.name should NOT be in criteria_names (it's not a criteria)
+    assert "CSK A：疾患が会員情報と合致" not in scope["criteria_names"]
 
 
 def test_detect_getoffer_scope_flat_structure(tmp_path):
@@ -369,6 +417,9 @@ def test_export_getoffer_scope_passes_only_scoped_resources(monkeypatch, tmp_pat
 };'''
     code_path = tmp_path / "getoffer.custom-code.js"
     code_path.write_text(code)
+    content_json = json.dumps({
+        "recs": {"activity": {"criteria.title": "Criteria A", "algorithm.name": "Algo A"}},
+    })
     delivery = [
         {
             "response": {
@@ -378,7 +429,10 @@ def test_export_getoffer_scope_passes_only_scoped_resources(monkeypatch, tmp_pat
                             {
                                 "name": "CSK-A",
                                 "options": [
-                                    {"responseTokens": {"activity.name": "Criteria A"}},
+                                    {
+                                        "responseTokens": {"activity.id": 100},
+                                        "content": content_json,
+                                    },
                                 ],
                             },
                         ],
@@ -408,7 +462,7 @@ def test_export_getoffer_scope_passes_only_scoped_resources(monkeypatch, tmp_pat
         code_path,
     )
 
-    assert captured["resources"] == ["criteria", "collections"]
+    assert set(captured["resources"]) == {"criteria", "collections"}
     assert isinstance(captured["name_regex"], dict)
     assert "criteria" in captured["name_regex"]
     assert "collections" in captured["name_regex"]
@@ -416,16 +470,12 @@ def test_export_getoffer_scope_passes_only_scoped_resources(monkeypatch, tmp_pat
     assert result["export_summary"] == {"criteria": 1, "collections": 1}
 
 
-def test_export_getoffer_scope_fallbacks_to_criteria_only(monkeypatch, tmp_path):
-    """When no scope filters exist, export_getoffer_scope still scopes to criteria."""
+def test_export_getoffer_scope_skips_export_when_no_scope_filters(monkeypatch, tmp_path):
+    """When no scope filters exist, export_getoffer_scope skips export."""
     (tmp_path / "delivery-calls.json").write_text("[]")
 
-    captured: dict[str, object] = {}
-
     def _fake_export_recs(client, output_root, resources=None, name_regex=None):
-        captured["resources"] = resources
-        captured["name_regex"] = name_regex
-        return {"criteria": 0}
+        raise AssertionError("export_recs should not be called when scope is empty")
 
     monkeypatch.setattr(
         "megaton_lib.audit.providers.target.getoffer_scope.export_recs",
@@ -439,9 +489,7 @@ def test_export_getoffer_scope_fallbacks_to_criteria_only(monkeypatch, tmp_path)
         None,
     )
 
-    assert captured["resources"] == ["criteria"]
-    assert captured["name_regex"] is None
-    assert result["export_summary"] == {"criteria": 0}
+    assert result["export_summary"] == {}
 
 
 def test_export_getoffer_scope_include_designs(monkeypatch, tmp_path):
