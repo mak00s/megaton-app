@@ -240,18 +240,18 @@ def check_file_updated():
     return True, params, mtime, errors
 
 # === Imports ===
-from megaton_lib.megaton_client import (
-    get_megaton,
-    get_ga4_properties as _get_ga4_properties,
-    query_ga4,
-    get_gsc_sites as _get_gsc_sites,
-    query_gsc,
-    query_aa,
-    get_bq_datasets as _get_bq_datasets,
-    query_bq,
-    save_to_sheet,
-    save_to_bq,
-)
+import megaton_lib.megaton_client as _megaton_client
+
+get_megaton = _megaton_client.get_megaton
+_get_ga4_properties = _megaton_client.get_ga4_properties
+query_ga4 = _megaton_client.query_ga4
+_get_gsc_sites = _megaton_client.get_gsc_sites
+query_gsc = _megaton_client.query_gsc
+query_aa = getattr(_megaton_client, "query_aa", None)
+_get_bq_datasets = _megaton_client.get_bq_datasets
+query_bq = _megaton_client.query_bq
+save_to_sheet = _megaton_client.save_to_sheet
+save_to_bq = _megaton_client.save_to_bq
 from megaton_lib.params_diff import canonicalize_json
 from megaton_lib.params_validator import validate_params
 from megaton_lib.result_inspector import apply_pipeline, SUPPORTED_AGG_FUNCS, parse_transforms
@@ -300,6 +300,11 @@ def execute_gsc_query(site_url, start_date, end_date, dimensions, limit, dimensi
 
 @st.cache_data(ttl=60)
 def execute_aa_query(company_id, rsid, start_date, end_date, dimension, metrics, segment, limit, org_id=""):
+    if query_aa is None:
+        raise RuntimeError(
+            "AA query function is not available in megaton_lib.megaton_client. "
+            "Please restart Streamlit and ensure the latest code is loaded."
+        )
     return query_aa(
         company_id=company_id,
         rsid=rsid,
