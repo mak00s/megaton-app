@@ -106,14 +106,24 @@ def test_export_max_items(tmp_path):
 
 
 def test_export_designs_extracts_script(tmp_path):
+    """Design script extraction works with both 'script' and 'content' fields."""
+    # Real Target API uses "script" field
     client = _MockClient(
         {"designs": [{"id": 201, "name": "JSON99"}]},
-        detail_data={"designs/201": {"id": 201, "name": "JSON99", "content": '{"items": []}'}},
+        detail_data={"designs/201": {"id": 201, "name": "JSON99", "script": '{"items": []}'}},
     )
 
     export_recs(client, tmp_path, resources=["designs"])
     # Content starts with '{', so should be .vtl
     assert (tmp_path / "designs" / "201.vtl").exists()
+
+    # Also works with legacy "content" field
+    client2 = _MockClient(
+        {"designs": [{"id": 202, "name": "HTML1"}]},
+        detail_data={"designs/202": {"id": 202, "name": "HTML1", "content": '<div>test</div>'}},
+    )
+    export_recs(client2, tmp_path, resources=["designs"])
+    assert (tmp_path / "designs" / "202.html").exists()
 
 
 def test_export_per_resource_filters(tmp_path):
@@ -209,25 +219,26 @@ def test_strip_metadata_actual_api_keys():
 
 
 def test_apply_merges_design_sidecar(tmp_path):
-    """apply_recs reads .vtl sidecar and merges content into JSON before PATCH."""
+    """apply_recs reads .vtl sidecar and merges script into JSON before PATCH."""
     des_dir = tmp_path / "designs"
     des_dir.mkdir()
-    local_json = {"id": 201, "name": "D1", "content": "old template"}
+    # Real Target API uses "script" field for designs
+    local_json = {"id": 201, "name": "D1", "script": "old template"}
     (des_dir / "201.json").write_text(json.dumps(local_json))
     # Sidecar with updated template
     (des_dir / "201.vtl").write_text("new template from vtl")
 
     client = _MockClient(
-        {"designs": [{"id": 201, "name": "D1", "content": "old template"}]},
+        {"designs": [{"id": 201, "name": "D1", "script": "old template"}]},
     )
 
     changes = apply_recs(client, tmp_path, resources=["designs"], dry_run=False)
     assert len(changes) == 1
     assert changes[0]["changed"] is True
     assert changes[0]["applied"] is True
-    # Verify the PATCH payload has merged sidecar content
+    # Verify the PATCH payload has merged sidecar into "script" field
     patched_payload = client.patched[0][1]
-    assert patched_payload["content"] == "new template from vtl"
+    assert patched_payload["script"] == "new template from vtl"
 
 
 def test_apply_merges_design_sidecar_code_subdir(tmp_path):
