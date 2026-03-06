@@ -10,6 +10,8 @@ from collections.abc import Mapping, Sequence
 from megaton import start
 import pandas as pd
 from typing import Optional, TypedDict, TypeAlias
+from megaton_lib.audit.config import AdobeAnalyticsConfig
+from megaton_lib.audit.providers.analytics.aa import AdobeAnalyticsClient
 from megaton_lib.credentials import list_service_account_paths
 
 logger = logging.getLogger(__name__)
@@ -95,6 +97,47 @@ def _normalize_fields(
             f"{name} items must be str or tuple[str, str]. got={item!r}"
         )
     return normalized
+
+
+def _normalize_aa_dimension(dimension: FieldSpec) -> tuple[str, str]:
+    """Normalize AA dimension spec to (api_name, alias)."""
+    if isinstance(dimension, str):
+        dim = dimension.strip()
+        if not dim:
+            raise ValueError("dimension contains an empty field name.")
+        alias = dim.removeprefix("variables/")
+        return dim, alias
+
+    if (
+        isinstance(dimension, tuple)
+        and len(dimension) == 2
+        and all(isinstance(v, str) and v.strip() for v in dimension)
+    ):
+        return dimension[0].strip(), dimension[1].strip()
+
+    raise TypeError(f"dimension must be str or tuple[str, str]. got={dimension!r}")
+
+
+def _normalize_aa_metrics(metrics: Sequence[FieldSpec]) -> list[tuple[str, str]]:
+    """Normalize AA metric specs to list[(api_name, alias)]."""
+    normalized = _normalize_fields(metrics, name="metrics")
+    out: list[tuple[str, str]] = []
+    for metric in normalized:
+        if isinstance(metric, str):
+            name = metric.strip()
+            out.append((name, name.removeprefix("metrics/")))
+        else:
+            out.append((metric[0], metric[1]))
+    return out
+
+
+def _pick_column(candidates: Sequence[str], target: str) -> str | None:
+    target_norm = target.lower().replace("/", "").replace("_", "")
+    for col in candidates:
+        col_norm = str(col).lower().replace("/", "").replace("_", "")
+        if col_norm == target_norm or col_norm.endswith(target_norm):
+            return str(col)
+    return None
 
 
 def _normalize_gsc_dimension_filter(
@@ -438,6 +481,92 @@ def query_gsc(
         from urllib.parse import urlparse
         df["page"] = df["page"].apply(lambda u: urlparse(u).path)
     return df
+
+
+# === Adobe Analytics ===
+
+def query_aa(
+    *,
+    company_id: str,
+    rsid: str,
+    start_date: str,
+    end_date: str,
+    dimension: FieldSpec,
+    metrics: Sequence[FieldSpec],
+    segment: str | Sequence[str] | None = None,
+    limit: int = 10000,
+    org_id: str | None = None,
+    token_cache_file: str | None = None,
+) -> pd.DataFrame:
+    """Execute Adobe Analytics query via built-in REST client.
+
+    Args:
+        company_id: Adobe global company id.
+        rsid: Report suite id.
+        start_date: Start date (YYYY-MM-DD).
+        end_date: End date (YYYY-MM-DD, inclusive).
+        dimension: Dimension name or (name, alias).
+        metrics: Metric names or (name, alias) list.
+        segment: Optional segment id or list of segment ids.
+        limit: Max rows per API page.
+        org_id: Optional Adobe org id override.
+        token_cache_file: Optional token cache file path.
+    """
+    dim_name, dim_alias = _normalize_aa_dimension(dimension)
+    metric_specs = _normalize_aa_metrics(metrics)
+    if not metric_specs:
+        raise ValueError("metrics must contain at least one metric")
+
+    end_exclusive = (pd.to_datetime(end_date) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    aa_cfg = AdobeAnalyticsConfig(
+        company_id=str(company_id).strip(),
+        rsid=str(rsid).strip(),
+        dimension=dim_name,
+        # `metric` exists on audit config for convenience helpers.
+        # Actual query metrics are passed explicitly to `get_report(metrics=...)` below.
+        metric=metric_specs[0][0],
+        org_id=str(org_id).strip() if org_id else None,
+        token_cache_file=token_cache_file or "credentials/.adobe_token_cache.json",
+    )
+    client = AdobeAnalyticsClient(aa_cfg)
+    df = client.get_report(
+        rsid=aa_cfg.rsid,
+        dimension=dim_name,
+        metrics=[spec[0] for spec in metric_specs],
+        date_from=start_date,
+        date_to=end_exclusive,
+        limit=limit,
+        segment=segment,
+    )
+    if df.empty:
+        return pd.DataFrame(columns=[dim_alias, *[alias for _, alias in metric_specs]])
+
+    rename_map: dict[str, str] = {}
+    dim_col_target = dim_name if dim_name.startswith("variables/") else f"variables/{dim_name}"
+    dim_col = _pick_column(list(df.columns), dim_col_target)
+    if dim_col:
+        rename_map[dim_col] = dim_alias
+
+    metric_aliases: list[str] = []
+    for metric_name, metric_alias in metric_specs:
+        metric_col_target = metric_name if metric_name.startswith("metrics/") else f"metrics/{metric_name}"
+        metric_col = _pick_column(list(df.columns), metric_col_target)
+        if metric_col:
+            rename_map[metric_col] = metric_alias
+            metric_aliases.append(metric_alias)
+
+    out = df.rename(columns=rename_map)
+    if dim_alias not in out.columns:
+        out[dim_alias] = ""
+    out[dim_alias] = out[dim_alias].fillna("").astype(str)
+
+    for metric_alias in metric_aliases:
+        out[metric_alias] = pd.to_numeric(out[metric_alias], errors="coerce")
+
+    columns = [dim_alias, *metric_aliases]
+    if "itemId" in out.columns:
+        columns.append("itemId")
+    return out[columns]
 
 
 # === BigQuery ===

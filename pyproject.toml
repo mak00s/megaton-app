@@ -5,6 +5,7 @@ requires-python = ">=3.11"
 dependencies = [
     "megaton>=1.0.0",
     "pandas",
+    "requests",
 ]
 
 [tool.setuptools.packages.find]

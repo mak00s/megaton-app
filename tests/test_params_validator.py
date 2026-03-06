@@ -41,6 +41,37 @@ class TestParamsValidator(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(normalized["source"], "bigquery")
 
+    def test_valid_aa(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "aa",
+            "company_id": "wacoal1",
+            "rsid": "wacoal-all",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimension": "daterangeday",
+            "metrics": ["revenue"],
+            "segment": ["s123"],
+            "limit": 50000,
+        }
+        normalized, errors = validate_params(data)
+        self.assertEqual(errors, [])
+        self.assertEqual(normalized["source"], "aa")
+
+    def test_invalid_aa_segment_type(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "aa",
+            "company_id": "wacoal1",
+            "rsid": "wacoal-all",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimension": "daterangeday",
+            "metrics": ["revenue"],
+            "segment": 123,
+        }
+        normalized, errors = validate_params(data)
+        self.assertIsNone(normalized)
+        self.assertTrue(any(err["error_code"] == "INVALID_TYPE" and err["path"] == "$.segment" for err in errors))
+
     def test_missing_schema_version(self):
         data = {
             "source": "ga4",

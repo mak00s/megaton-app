@@ -1,0 +1,31 @@
+{
+  "project_id": "example",
+  "metadata": {
+    "note": "Reusable (1-9) scope only. Keep project-specific logic in each analysis repo."
+  },
+  "tag_source": {
+    "source": "gtm",
+    "gtm": {
+      "container_public_id": "GTM-XXXXXXX",
+      "variable_name": "Site Name"
+    }
+  },
+  "ga4": {
+    "property_id": "123456789",
+    "site_dimension": "customEvent:site",
+    "host_dimension": "hostName",
+    "page_dimension": "pagePath",
+    "sessions_metric": "sessions"
+  },
+  "aa": {
+    "company_id": "exampleco",
+    "rsid": "example-rsid",
+    "dimension": "evar96",
+    "metric": "occurrences",
+    "org_id_env": "ADOBE_ORG_ID",
+    "client_id_env": "ADOBE_CLIENT_ID",
+    "client_secret_env": "ADOBE_CLIENT_SECRET",
+    "token_cache_file": "credentials/.adobe_token_cache.json"
+  },
+  "fallback_mapping_path": "data/site_mapping.md"
+}

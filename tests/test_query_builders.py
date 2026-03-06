@@ -107,6 +107,25 @@ class TestAgentParams(unittest.TestCase):
         params = build_agent_params(source="BigQuery", bq_project="p1", sql="select 1")
         self.assertEqual(params, {"source": "bigquery", "project_id": "p1", "sql": "select 1"})
 
+    def test_build_aa_params(self):
+        params = build_agent_params(
+            source="AA",
+            start_date=date(2026, 2, 17),
+            end_date=date(2026, 2, 17),
+            limit=50000,
+            aa_company_id="wacoal1",
+            aa_rsid="wacoal-all",
+            aa_dimension="daterangeday",
+            aa_metrics=["revenue", "orders"],
+            aa_segment=["s123"],
+        )
+        self.assertEqual(params["source"], "aa")
+        self.assertEqual(params["company_id"], "wacoal1")
+        self.assertEqual(params["rsid"], "wacoal-all")
+        self.assertEqual(params["dimension"], "daterangeday")
+        self.assertEqual(params["metrics"], ["revenue", "orders"])
+        self.assertEqual(params["segment"], ["s123"])
+
 
 if __name__ == "__main__":
     unittest.main()

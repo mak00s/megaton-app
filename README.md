@@ -1,6 +1,6 @@
 # megaton-app
 
-A toolkit for fetching and analyzing data from GA4, Search Console, and BigQuery.
+A toolkit for fetching and analyzing data from GA4, Search Console, Adobe Analytics, and BigQuery.
 Three interfaces — **Streamlit UI**, **CLI**, and **Jupyter Notebook** — share the same library, so you can explore interactively and automate with the same code.
 AI agents can drive the entire workflow through a simple JSON file, with no MCP server or special protocol required.
 
@@ -9,6 +9,7 @@ AI agents can drive the entire workflow through a simple JSON file, with no MCP 
 - **AI Agent ready** — File-based integration works with any agent; zero context overhead
 - **Streamlit UI** — Browse GA4/GSC/BQ data with filtering, table/chart tabs, and CSV export
 - **CLI** — Run queries from JSON, async jobs, batch execution, and result pipelines
+- **Audit CLI** — Reusable audits for GTM/Adobe Tags + GA4/AA (`scripts/audit.py`)
 - **Notebook** — Develop analyses interactively, then run them as scheduled jobs
 
 ![Streamlit UI](docs/images/megaton-app.png)
@@ -50,6 +51,9 @@ streamlit run app/streamlit_app.py
 # CLI
 python scripts/query.py --params input/params.json
 
+# Audit CLI (shared 1-9 features)
+python scripts/audit.py site-mapping --project example --config-root configs/audit/projects --output output/audit
+
 # Tests
 python -m pytest -q
 ```
@@ -67,7 +71,7 @@ python -m pytest -q
 ```
 megaton-app/
 ├── megaton_lib/        # Shared library (reusable via pip install -e)
-├── scripts/            # CLI tools (query.py, run_notebook.py)
+├── scripts/            # CLI tools (query.py, run_notebook.py, audit.py)
 ├── app/                # Streamlit UI
 ├── credentials/        # Service account JSON (.gitignore)
 ├── input/              # AI Agent <-> UI parameter handoff
@@ -83,3 +87,9 @@ megaton-app/
 |---|---|
 | [megaton](https://github.com/mak00s/megaton) | GA4/GSC/Sheets API wrapper (PyPI package) |
 | megaton-notebooks | Notebook collection for scheduled reporting (private) |
+
+## Audit Scope
+
+- `megaton-app` keeps reusable audit features `1-9` (providers, runner, common tasks, CLI).
+- Project-specific audit logic `10-12` stays in each analysis repository.
+- See `configs/audit/projects/README.md` for boundaries and config examples.

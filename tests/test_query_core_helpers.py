@@ -119,6 +119,24 @@ class TestExecuteQueryFromParams(unittest.TestCase):
         self.assertIn("プロジェクト: p", headers)
         mock_q.assert_called_once_with("p", "select 1")
 
+    def test_aa_branch(self):
+        params = {
+            "source": "aa",
+            "company_id": "wacoal1",
+            "rsid": "wacoal-all",
+            "date_range": {"start": "2026-02-17", "end": "2026-02-17"},
+            "dimension": "daterangeday",
+            "metrics": ["revenue"],
+            "segment": "s123,s456",
+            "limit": 50000,
+        }
+        df = pd.DataFrame([{"daterangeday": "Feb 17, 2026", "revenue": 17034810}])
+        with patch.object(query_cli, "query_aa", return_value=df) as mock_q:
+            out_df, headers = query_cli.execute_query_from_params(params)
+        self.assertEqual(len(out_df), 1)
+        self.assertTrue(any("RSID: wacoal-all" in h for h in headers))
+        mock_q.assert_called_once()
+
     def test_unknown_source_raises(self):
         with self.assertRaises(ValueError):
             query_cli.execute_query_from_params({"source": "unknown"})

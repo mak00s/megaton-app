@@ -87,6 +87,70 @@ Success:
 }
 ```
 
+---
+
+## Audit CLI (`scripts/audit.py`)
+
+Reusable audit runner for shared features `1-9`:
+
+1. project config model
+2. common runner
+3. GTM extraction
+4. Adobe Tags extraction
+5. GA4 extraction
+6. AA extraction
+7. site mapping audit
+8. JSON/CSV reporting
+9. unified CLI
+
+Project-specific logic (`10-12`) should stay in each analysis repository.
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `site-mapping` | Tag mapping vs GA4/AA observed values |
+| `export-tag-config` | Export current tag mapping snapshot |
+
+### Common options
+
+| Option | Description |
+|---|---|
+| `--project` | Project ID or config path |
+| `--config-root` | Config directory (default: `configs/audit/projects`) |
+| `--output` | Output directory |
+| `--json` | JSON output |
+
+### `site-mapping` options
+
+| Option | Description |
+|---|---|
+| `--days` | Period length when start/end are omitted |
+| `--start-date` | Start date (`YYYY-MM-DD`) |
+| `--end-date` | End date (`YYYY-MM-DD`) |
+| `--with-aa` | Include Adobe Analytics comparison |
+
+### Project config
+
+- Directory: `configs/audit/projects/`
+- Example: `configs/audit/projects/example.json`
+- Keys:
+  - `tag_source` (`gtm` or `adobe_tags`)
+  - `ga4` (`property_id`, dimensions, metrics)
+  - optional `aa` (`company_id`, `rsid`, `dimension`, `metric`)
+  - optional `fallback_mapping_path` (markdown table fallback)
+
+### Audit Runtime Environment Variables
+
+| Area | Variables |
+|---|---|
+| Adobe Tags | `ADOBE_TAGS_API_KEY`, `ADOBE_TAGS_BEARER_TOKEN`, optional `ADOBE_TAGS_IMS_ORG_ID` |
+| Adobe Analytics | `ADOBE_CLIENT_ID`, `ADOBE_CLIENT_SECRET`, `ADOBE_ORG_ID` |
+
+Notes:
+- AA integration uses a built-in Adobe Analytics 2.0 REST client (OAuth + retry/backoff + paging).
+- GTM access uses service-account credentials resolved by `MEGATON_CREDS_PATH` / `credentials/`.
+
 - With `pipeline` in params.json: `data.pipeline` includes `input_rows` / `output_rows`
 - `--result` jobs: use CLI args (`--where` / `--sort` etc.)
 
@@ -158,16 +222,21 @@ python scripts/query.py --batch configs/weekly/ --json
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `schema_version` | string | ✓ | `"1.0"` |
-| `source` | string | ✓ | `"ga4"`, `"gsc"`, `"bigquery"` |
+| `source` | string | ✓ | `"ga4"`, `"gsc"`, `"aa"`, `"bigquery"` |
 | `site` | string | - | Site alias defined in `configs/sites.json` |
 | `property_id` | string | GA4 | GA4 property ID |
 | `site_url` | string | GSC | Search Console site URL |
+| `company_id` | string | AA | Adobe global company ID |
+| `org_id` | string | - | Adobe Org ID (optional override) |
+| `rsid` | string | AA | Adobe report suite ID |
+| `dimension` | string | AA | Adobe dimension (e.g. `daterangeday`) |
 | `project_id` | string | BQ | GCP project ID |
 | `sql` | string | BQ | SQL to execute |
-| `date_range.start` | string | GA4/GSC | Start date (YYYY-MM-DD or template) |
-| `date_range.end` | string | GA4/GSC | End date (YYYY-MM-DD or template) |
+| `date_range.start` | string | GA4/GSC/AA | Start date (YYYY-MM-DD or template) |
+| `date_range.end` | string | GA4/GSC/AA | End date (YYYY-MM-DD or template) |
 | `dimensions` | array | - | Dimension list |
-| `metrics` | array | GA4 | Metric list |
+| `metrics` | array | GA4/AA | Metric list |
+| `segment` | string/array | - | Adobe segment ID(s) |
 | `filter_d` | string | - | GA4 filter (`field==value` format) |
 | `filter` | string | - | GSC filter (`dim:op:expr` format) |
 | `limit` | number | - | Row limit (max 100,000) |
@@ -177,6 +246,7 @@ python scripts/query.py --batch configs/weekly/ --json
 `site` is resolved by CLI before validation.
 - `source: "ga4"`: `site` -> `property_id`
 - `source: "gsc"`: `site` -> `site_url`
+- `source: "aa"`: `site` -> `rsid` / `company_id` (if configured in `configs/sites.json`)
 - If `property_id` / `site_url` is already set, it takes precedence over `site`.
 
 ### Examples
@@ -218,6 +288,21 @@ python scripts/query.py --batch configs/weekly/ --json
   "dimensions": ["query"],
   "filter": "query:contains:keyword",
   "limit": 1000
+}
+```
+
+**Adobe Analytics (AA):**
+```json
+{
+  "schema_version": "1.0",
+  "source": "aa",
+  "company_id": "wacoal1",
+  "rsid": "wacoal-all",
+  "date_range": {"start": "2026-02-17", "end": "2026-02-17"},
+  "dimension": "daterangeday",
+  "metrics": ["revenue", "orders"],
+  "segment": ["s1234567890"],
+  "limit": 50000
 }
 ```
 

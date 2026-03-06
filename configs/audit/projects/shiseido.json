@@ -1,0 +1,21 @@
+{
+  "project_id": "shiseido",
+  "tag_source": {
+    "source": "gtm",
+    "gtm": {
+      "container_public_id": "GTM-TJKK7S5",
+      "variable_name": "Site Name"
+    }
+  },
+  "ga4": {
+    "property_id": "334854563",
+    "site_dimension": "customEvent:site",
+    "host_dimension": "hostName",
+    "page_dimension": "pagePath",
+    "sessions_metric": "sessions"
+  },
+  "fallback_mapping_path": "/Users/maks/Repos/shiseido-analysis/sites.md",
+  "metadata": {
+    "owner_repo": "shiseido-analysis"
+  }
+}

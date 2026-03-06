@@ -1,10 +1,10 @@
 # 使い方ガイド
 
-GA4 / Search Console / BigQuery のデータを取得・加工・可視化するためのツールキット。
+GA4 / Search Console / Adobe Analytics / BigQuery のデータを取得・加工・可視化するためのツールキット。
 3つのインターフェースから同じデータにアクセスできる。
 
 ```
-              GA4 / GSC / BigQuery
+              GA4 / GSC / AA / BigQuery
                      |
               megaton ライブラリ
                      |
@@ -85,6 +85,29 @@ python scripts/query.py --params output/ga4_quickstart.json --json
 ```
 
 `--json` 実行時は machine-readable な JSON のみを出力し、警告メッセージは `data.warnings` に格納される。
+
+### 監査CLIを実行する（共通機能 1-9）
+
+`scripts/audit.py` は GTM / Adobe Tags の設定抽出と GA4 / AA の実績を横断して監査する共通CLI。
+
+```bash
+# site mapping 監査
+python scripts/audit.py site-mapping \
+  --project example \
+  --config-root configs/audit/projects \
+  --days 30 \
+  --output output/audit
+
+# タグ設定（mapping）だけをエクスポート
+python scripts/audit.py export-tag-config \
+  --project example \
+  --config-root configs/audit/projects \
+  --output output/audit
+```
+
+- 共通部分（1-9）は `megaton-app` 側に実装
+- 案件固有（10-12）は各分析 repo 側で実装
+- 設定ファイルは `configs/audit/projects/` を参照
 
 ### Notebook で分析する
 
@@ -345,7 +368,7 @@ AI Agent がノートブックを直接編集すると壊れやすいため、Ju
 
 ## CLI の詳しい使い方
 
-`scripts/query.py` がデータソースを自動判別して GA4 / GSC / BigQuery を実行する。
+`scripts/query.py` がデータソースを自動判別して GA4 / GSC / AA / BigQuery を実行する。
 
 ### 基本コマンド
 
@@ -401,7 +424,7 @@ streamlit run app/streamlit_app.py
 
 ### 主な機能
 
-- データソース選択（GA4 / GSC / BigQuery）
+- データソース選択（GA4 / GSC / AA / BigQuery）
 - プロパティ / サイトの動的取得・選択
 - 日付範囲、フィルタ、集計の設定
 - テーブル / チャート / 保存タブで結果を確認・出力

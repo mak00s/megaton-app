@@ -33,6 +33,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "gsc.dimensions": "ディメンション",
         "gsc.filter": "フィルタ条件",
 
+        # --- Sidebar: Adobe Analytics ---
+        "aa.company_id": "Company ID",
+        "aa.org_id": "Org ID（任意）",
+        "aa.rsid": "RSID",
+        "aa.dimension": "ディメンション",
+        "aa.metrics": "メトリクス",
+        "aa.segment": "セグメントID（カンマ区切り）",
+
         # --- Sidebar: BigQuery ---
         "bq.project_id": "プロジェクトID",
         "bq.sql": "SQL",
@@ -72,6 +80,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "msg.error": "エラー: {error}",
         "msg.enter_project_id": "プロジェクトIDを入力してください",
         "msg.enter_sql": "SQLを入力してください",
+        "msg.enter_aa_company_id": "AA Company IDを入力してください",
+        "msg.enter_aa_rsid": "AA RSIDを入力してください",
+        "msg.enter_aa_dimension": "AAディメンションを入力してください",
+        "msg.enter_aa_metrics": "AAメトリクスを1つ以上選択してください",
         "msg.pipeline_error": "パイプラインエラー: {error}",
         "msg.rows_summary": "📊 {total} 行",
         "msg.rows_filtered": "📊 {total} 行 → {filtered} 行",
@@ -172,6 +184,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "gsc.dimensions": "Dimensions",
         "gsc.filter": "Filters",
 
+        # --- Sidebar: Adobe Analytics ---
+        "aa.company_id": "Company ID",
+        "aa.org_id": "Org ID (optional)",
+        "aa.rsid": "RSID",
+        "aa.dimension": "Dimension",
+        "aa.metrics": "Metrics",
+        "aa.segment": "Segment IDs (comma-separated)",
+
         # --- Sidebar: BigQuery ---
         "bq.project_id": "Project ID",
         "bq.sql": "SQL",
@@ -211,6 +231,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "msg.error": "Error: {error}",
         "msg.enter_project_id": "Enter a Project ID",
         "msg.enter_sql": "Enter SQL",
+        "msg.enter_aa_company_id": "Enter Adobe Analytics company ID",
+        "msg.enter_aa_rsid": "Enter Adobe Analytics RSID",
+        "msg.enter_aa_dimension": "Enter Adobe Analytics dimension",
+        "msg.enter_aa_metrics": "Select at least one Adobe Analytics metric",
         "msg.pipeline_error": "Pipeline error: {error}",
         "msg.rows_summary": "📊 {total} rows",
         "msg.rows_filtered": "📊 {total} → {filtered} rows",

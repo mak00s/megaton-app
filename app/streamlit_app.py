@@ -87,7 +87,7 @@ def apply_params_to_session(params):
     if "dimensions" in params:
         if source == "gsc":
             st.session_state["w_gsc_dimensions"] = params["dimensions"]
-        else:
+        elif source == "ga4":
             st.session_state["w_ga4_dimensions"] = params["dimensions"]
 
     # GA4 specific
@@ -103,6 +103,24 @@ def apply_params_to_session(params):
         if "site_url" in params:
             st.session_state["w_gsc_site"] = params["site_url"]
         st.session_state["w_gsc_filter"] = params.get("filter", "")
+
+    # AA specific
+    if source == "aa":
+        if "company_id" in params:
+            st.session_state["w_aa_company_id"] = params["company_id"]
+        if "org_id" in params:
+            st.session_state["w_aa_org_id"] = params["org_id"]
+        if "rsid" in params:
+            st.session_state["w_aa_rsid"] = params["rsid"]
+        if "dimension" in params:
+            st.session_state["w_aa_dimension"] = params["dimension"]
+        if "metrics" in params:
+            st.session_state["w_aa_metrics"] = params["metrics"]
+        segment_val = params.get("segment", "")
+        if isinstance(segment_val, list):
+            st.session_state["w_aa_segment"] = ",".join(str(x).strip() for x in segment_val if str(x).strip())
+        elif isinstance(segment_val, str):
+            st.session_state["w_aa_segment"] = segment_val
 
     # BigQuery specific
     if source == "bigquery":
@@ -228,6 +246,7 @@ from megaton_lib.megaton_client import (
     query_ga4,
     get_gsc_sites as _get_gsc_sites,
     query_gsc,
+    query_aa,
     get_bq_datasets as _get_bq_datasets,
     query_bq,
     save_to_sheet,
@@ -278,6 +297,20 @@ def execute_ga4_query(property_id, start_date, end_date, dimensions, metrics, fi
 @st.cache_data(ttl=60)
 def execute_gsc_query(site_url, start_date, end_date, dimensions, limit, dimension_filter=None):
     return query_gsc(site_url, start_date, end_date, dimensions, limit, dimension_filter)
+
+@st.cache_data(ttl=60)
+def execute_aa_query(company_id, rsid, start_date, end_date, dimension, metrics, segment, limit, org_id=""):
+    return query_aa(
+        company_id=company_id,
+        rsid=rsid,
+        start_date=start_date,
+        end_date=end_date,
+        dimension=dimension,
+        metrics=metrics,
+        segment=segment,
+        limit=limit,
+        org_id=org_id or None,
+    )
 
 def execute_bq_query(project_id, sql):
     return query_bq(project_id, sql)
@@ -388,10 +421,15 @@ with st.sidebar:
         st.session_state["params_applied"] = False
 
     # Data source selection
-    source_map = {"ga4": "GA4", "gsc": "GSC", "bigquery": "BigQuery"}
+    source_map = {"ga4": "GA4", "gsc": "GSC", "aa": "AA", "bigquery": "BigQuery"}
     default_source = source_map.get(lp.get("source", "ga4").lower(), "GA4")
-    source = st.radio(t("sidebar.source"), ["GA4", "GSC", "BigQuery"], horizontal=True,
-                      index=["GA4", "GSC", "BigQuery"].index(default_source))
+    source_options = ["GA4", "GSC", "AA", "BigQuery"]
+    source = st.radio(
+        t("sidebar.source"),
+        source_options,
+        horizontal=True,
+        index=source_options.index(default_source),
+    )
 
     st.divider()
 
@@ -534,6 +572,56 @@ with st.sidebar:
 
             if gsc_filter:
                 st.caption(f"📝 `{gsc_filter}`")
+
+    elif source == "AA":
+        if "w_aa_company_id" not in st.session_state:
+            st.session_state["w_aa_company_id"] = lp.get("company_id", "") if lp.get("source", "").lower() == "aa" else ""
+        if "w_aa_org_id" not in st.session_state:
+            st.session_state["w_aa_org_id"] = lp.get("org_id", "") if lp.get("source", "").lower() == "aa" else ""
+        if "w_aa_rsid" not in st.session_state:
+            st.session_state["w_aa_rsid"] = lp.get("rsid", "") if lp.get("source", "").lower() == "aa" else ""
+        if "w_aa_dimension" not in st.session_state:
+            st.session_state["w_aa_dimension"] = lp.get("dimension", "daterangeday") if lp.get("source", "").lower() == "aa" else "daterangeday"
+        if "w_aa_metrics" not in st.session_state:
+            default_aa_metrics = lp.get("metrics", ["occurrences"]) if lp.get("source", "").lower() == "aa" else ["occurrences"]
+            st.session_state["w_aa_metrics"] = default_aa_metrics
+        if "w_aa_segment" not in st.session_state:
+            loaded_segment = lp.get("segment", "") if lp.get("source", "").lower() == "aa" else ""
+            if isinstance(loaded_segment, list):
+                loaded_segment = ",".join(str(x).strip() for x in loaded_segment if str(x).strip())
+            st.session_state["w_aa_segment"] = loaded_segment
+
+        aa_col1, aa_col2 = st.columns(2)
+        with aa_col1:
+            company_id = st.text_input(t("aa.company_id"), key="w_aa_company_id")
+            rsid = st.text_input(t("aa.rsid"), key="w_aa_rsid")
+        with aa_col2:
+            org_id = st.text_input(t("aa.org_id"), key="w_aa_org_id")
+            dimension = st.text_input(t("aa.dimension"), key="w_aa_dimension")
+
+        aa_metric_options = [
+            "occurrences",
+            "revenue",
+            "orders",
+            "units",
+            "visits",
+            "pageviews",
+            "visitors",
+            "uniquevisitors",
+        ]
+        metrics = st.multiselect(
+            t("aa.metrics"),
+            aa_metric_options,
+            key="w_aa_metrics",
+            accept_new_options=True,
+            max_selections=20,
+        )
+        aa_segment_raw = st.text_input(
+            t("aa.segment"),
+            key="w_aa_segment",
+            placeholder="s12345,s67890",
+        )
+        aa_segments = [s.strip() for s in re.split(r"[,\\n;]", aa_segment_raw) if s.strip()]
 
     else:
         # BigQuery settings
@@ -681,6 +769,31 @@ if st.session_state.get("execute_requested") and st.session_state.get("is_execut
                     limit,
                     gsc_dimension_filter
                 )
+            elif source == "AA":
+                if not company_id.strip():
+                    st.error(t("msg.enter_aa_company_id"))
+                    df = None
+                elif not rsid.strip():
+                    st.error(t("msg.enter_aa_rsid"))
+                    df = None
+                elif not dimension.strip():
+                    st.error(t("msg.enter_aa_dimension"))
+                    df = None
+                elif not metrics:
+                    st.error(t("msg.enter_aa_metrics"))
+                    df = None
+                else:
+                    df = execute_aa_query(
+                        company_id.strip(),
+                        rsid.strip(),
+                        start_date.strftime("%Y-%m-%d"),
+                        end_date.strftime("%Y-%m-%d"),
+                        dimension.strip(),
+                        metrics,
+                        aa_segments if 'aa_segments' in dir() else [],
+                        limit,
+                        org_id.strip() if 'org_id' in dir() else "",
+                    )
             else:
                 # BigQuery
                 if not bq_project:
@@ -1062,6 +1175,11 @@ with st.sidebar:
             metrics=metrics if 'metrics' in dir() else [],
             filter_d=filter_d if 'filter_d' in dir() else "",
             gsc_filter=gsc_filter if 'gsc_filter' in dir() else "",
+            aa_company_id=company_id if 'company_id' in dir() else "",
+            aa_rsid=rsid if 'rsid' in dir() else "",
+            aa_dimension=dimension if 'dimension' in dir() else "",
+            aa_metrics=metrics if source == "AA" and 'metrics' in dir() else [],
+            aa_segment=aa_segments if 'aa_segments' in dir() else [],
             bq_project=bq_project if 'bq_project' in dir() else "",
             sql=sql if 'sql' in dir() else "",
         )
