@@ -43,11 +43,21 @@ class _DummySession:
         return self._responses.pop(0)
 
 
+def _mock_token_post(*args, **kwargs):
+    """Stub for adobe_auth.requests.post (token endpoint)."""
+    return _DummyResponse(200, {"access_token": "tok", "expires_in": 3600})
+
+
 @pytest.fixture
 def aa_env(monkeypatch, tmp_path):
     monkeypatch.setenv("ADOBE_CLIENT_ID", "client-id")
     monkeypatch.setenv("ADOBE_CLIENT_SECRET", "client-secret")
     monkeypatch.setenv("ADOBE_ORG_ID", "ORG@AdobeOrg")
+    # Stub token request in adobe_auth module
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.adobe_auth.requests.post",
+        _mock_token_post,
+    )
     return tmp_path
 
 
@@ -64,7 +74,6 @@ def _config(tmp_path: Path) -> AdobeAnalyticsConfig:
 def test_get_report_paging(aa_env, monkeypatch):
     cfg = _config(aa_env)
     responses = [
-        _DummyResponse(200, {"access_token": "tok", "expires_in": 3600}),
         _DummyResponse(
             200,
             {
@@ -105,7 +114,6 @@ def test_get_report_paging(aa_env, monkeypatch):
 def test_get_report_retry_429(aa_env, monkeypatch):
     cfg = _config(aa_env)
     responses = [
-        _DummyResponse(200, {"access_token": "tok", "expires_in": 3600}),
         _DummyResponse(429, {"error_code": "429050", "error": "too many requests"}, {"Retry-After": "0"}),
         _DummyResponse(
             200,
@@ -140,7 +148,6 @@ def test_get_report_retry_429(aa_env, monkeypatch):
 def test_fetch_dimension_metric_shape(aa_env, monkeypatch):
     cfg = _config(aa_env)
     responses = [
-        _DummyResponse(200, {"access_token": "tok", "expires_in": 3600}),
         _DummyResponse(
             200,
             {
@@ -172,7 +179,6 @@ def test_fetch_dimension_metric_shape(aa_env, monkeypatch):
 def test_list_dimensions_accepts_array_payload(aa_env, monkeypatch):
     cfg = _config(aa_env)
     responses = [
-        _DummyResponse(200, {"access_token": "tok", "expires_in": 3600}),
         _DummyResponse(
             200,
             [
@@ -196,7 +202,6 @@ def test_list_dimensions_accepts_array_payload(aa_env, monkeypatch):
 def test_list_metrics_accepts_array_payload(aa_env, monkeypatch):
     cfg = _config(aa_env)
     responses = [
-        _DummyResponse(200, {"access_token": "tok", "expires_in": 3600}),
         _DummyResponse(
             200,
             [
@@ -217,10 +222,38 @@ def test_list_metrics_accepts_array_payload(aa_env, monkeypatch):
     assert [m["id"] for m in out] == ["metrics/revenue", "metrics/orders"]
 
 
+def test_list_segments_accepts_content_payload(aa_env, monkeypatch):
+    cfg = _config(aa_env)
+    responses = [
+        _DummyResponse(
+            200,
+            {
+                "content": [
+                    {"id": "s123", "name": "Segment A"},
+                    {"id": "s456", "name": "Segment B"},
+                ],
+                "lastPage": True,
+                "number": 0,
+                "totalPages": 1,
+            },
+        ),
+    ]
+    dummy = _DummySession(responses)
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.aa.requests.Session",
+        lambda: dummy,
+    )
+
+    client = AdobeAnalyticsClient(cfg)
+    out = client.list_segments(rsid=cfg.rsid)
+
+    assert [s["id"] for s in out] == ["s123", "s456"]
+    assert dummy.calls[-1]["params"]["includeType"] == "all"
+
+
 def test_list_report_suites_uses_total_pages_when_last_page_missing(aa_env, monkeypatch):
     cfg = _config(aa_env)
     responses = [
-        _DummyResponse(200, {"access_token": "tok", "expires_in": 3600}),
         _DummyResponse(
             200,
             {
@@ -253,7 +286,6 @@ def test_list_report_suites_uses_total_pages_when_last_page_missing(aa_env, monk
 def test_list_companies_does_not_send_proxy_company_header(aa_env, monkeypatch):
     cfg = _config(aa_env)
     responses = [
-        _DummyResponse(200, {"access_token": "tok", "expires_in": 3600}),
         _DummyResponse(200, {"imsOrgs": [{"companies": [{"globalCompanyId": "wacoal1"}]}]}),
     ]
     dummy = _DummySession(responses)

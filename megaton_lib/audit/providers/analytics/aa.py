@@ -10,9 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 import email.utils
-import json
-import os
-from pathlib import Path
 import random
 import time
 from typing import Any
@@ -21,6 +18,7 @@ import pandas as pd
 import requests
 
 from megaton_lib.audit.config import AdobeAnalyticsConfig
+from megaton_lib.audit.providers.adobe_auth import AdobeOAuthClient
 
 
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
@@ -36,14 +34,9 @@ class AdobeAnalyticsClient:
     jitter: float = 0.2
     timeout_sec: float = 60.0
 
-    token_cache_file: Path = field(init=False)
-    access_token: str = field(init=False)
+    _auth: AdobeOAuthClient = field(init=False, repr=False)
     session: requests.Session = field(init=False)
-    _client_id_val: str = field(init=False)
-    _client_secret_val: str = field(init=False)
-    _org_id_val: str = field(init=False)
 
-    IMS_TOKEN_URL = "https://ims-na1.adobelogin.com/ims/token/v3"
     AA_API_BASE = "https://analytics.adobe.io/api"
 
     def __post_init__(self) -> None:
@@ -54,96 +47,32 @@ class AdobeAnalyticsClient:
         if not (0 <= self.jitter < 1):
             raise ValueError("jitter must be in [0, 1)")
 
-        self._client_id_val = os.getenv(self.config.client_id_env, "").strip()
-        if not self._client_id_val:
-            raise RuntimeError(f"Adobe client id is missing: env {self.config.client_id_env}")
-
-        self._client_secret_val = os.getenv(self.config.client_secret_env, "").strip()
-        if not self._client_secret_val:
-            raise RuntimeError(f"Adobe client secret is missing: env {self.config.client_secret_env}")
-
-        self._org_id_val = self.config.org_id or os.getenv(self.config.org_id_env, "").strip()
-        if not self._org_id_val:
-            raise RuntimeError(
-                "Adobe org_id is missing. "
-                f"Set aa.org_id in config or env {self.config.org_id_env}.",
-            )
-
-        self.token_cache_file = Path(self.config.token_cache_file)
-        self.token_cache_file.parent.mkdir(parents=True, exist_ok=True)
+        self._auth = AdobeOAuthClient(
+            client_id_env=self.config.client_id_env,
+            client_secret_env=self.config.client_secret_env,
+            org_id=self.config.org_id or "",
+            org_id_env=self.config.org_id_env,
+            scopes=self.config.scopes,
+            token_cache_file=self.config.token_cache_file,
+        )
         self.session = requests.Session()
-        self.access_token = self._ensure_access_token()
 
-    def _ensure_access_token(self, force_refresh: bool = False) -> str:
-        if not force_refresh:
-            cached = self._load_cached_token()
-            if cached:
-                return cached
-        token_info = self._request_token()
-        self._save_token(token_info)
-        return str(token_info["access_token"])
+    @property
+    def access_token(self) -> str:
+        """Current access token (delegated to shared OAuth client)."""
+        return self._auth.access_token
 
     def refresh_access_token(self) -> str:
-        self.access_token = self._ensure_access_token(force_refresh=True)
-        return self.access_token
-
-    def _load_cached_token(self) -> str | None:
-        if not self.token_cache_file.exists():
-            return None
-        try:
-            payload = json.loads(self.token_cache_file.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return None
-
-        expires_at = float(payload.get("expires_at", 0))
-        if expires_at - 60 <= time.time():
-            return None
-
-        token = payload.get("access_token")
-        if isinstance(token, str) and token.strip():
-            return token
-        return None
-
-    def _save_token(self, token_info: dict[str, Any]) -> None:
-        payload = {
-            "access_token": token_info.get("access_token"),
-            "expires_at": time.time() + float(token_info.get("expires_in", 3600)),
-        }
-        self.token_cache_file.write_text(json.dumps(payload), encoding="utf-8")
-
-    def _request_token(self) -> dict[str, Any]:
-        data = {
-            "client_id": self._client_id_val,
-            "client_secret": self._client_secret_val,
-            "grant_type": "client_credentials",
-            "scope": self.config.scopes,
-        }
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
-        }
-        payload = self._request_json(
-            method="POST",
-            url=self.IMS_TOKEN_URL,
-            headers=headers,
-            data=data,
-            authenticated=False,
-            retry_on_401=False,
-        )
-        if "access_token" not in payload:
-            raise RuntimeError("Invalid Adobe token response")
-        return payload
+        return self._auth.refresh_access_token()
 
     def _api_headers(self, *, include_company: bool = True) -> dict[str, str]:
-        headers = {
-            "Authorization": f"Bearer {self.access_token}",
-            "x-api-key": self._client_id_val,
-            "x-gw-ims-org-id": self._org_id_val,
+        extra: dict[str, str] = {
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
         if include_company and self.config.company_id.strip():
-            headers["x-proxy-global-company-id"] = self.config.company_id
-        return headers
+            extra["x-proxy-global-company-id"] = self.config.company_id
+        return self._auth.get_headers(extra=extra)
 
     def _compute_wait(self, attempt_index: int, retry_after_sec: float | None) -> float:
         if retry_after_sec is not None and retry_after_sec >= 0:
@@ -502,8 +431,9 @@ class AdobeAnalyticsClient:
         endpoint_name: str,
         rsid: str,
         limit: int,
+        extra_params: dict[str, Any] | None = None,
     ) -> list[dict[str, str]]:
-        """List AA catalog items (dimensions/metrics) for the given RSID."""
+        """List AA catalog items (dimensions/metrics/segments) for the given RSID."""
         if limit < 1:
             raise ValueError("limit must be >= 1")
 
@@ -515,11 +445,14 @@ class AdobeAnalyticsClient:
         seen: set[str] = set()
 
         while True:
+            params = {"rsid": rsid, "limit": page_size, "page": page}
+            if extra_params:
+                params.update(extra_params)
             response = self._request_json(
                 method="GET",
                 url=endpoint,
                 headers=self._api_headers(),
-                params={"rsid": rsid, "limit": page_size, "page": page},
+                params=params,
                 authenticated=True,
                 retry_on_401=True,
                 allow_array_json=True,
@@ -578,6 +511,15 @@ class AdobeAnalyticsClient:
             endpoint_name="metrics",
             rsid=rsid,
             limit=limit,
+        )
+
+    def list_segments(self, *, rsid: str, limit: int = 2000) -> list[dict[str, str]]:
+        """List available segments for the given RSID."""
+        return self._list_catalog_items(
+            endpoint_name="segments",
+            rsid=rsid,
+            limit=limit,
+            extra_params={"includeType": "all"},
         )
 
     def fetch_dimension_metric(

@@ -559,6 +559,26 @@ def get_aa_metrics(
     return sorted(metrics, key=lambda x: (x.get("name", ""), x.get("id", "")))
 
 
+def get_aa_segments(
+    *,
+    company_id: str,
+    rsid: str,
+    org_id: str | None = None,
+    token_cache_file: str | None = None,
+    limit: int = 2000,
+) -> list[dict[str, str]]:
+    """List AA segments for an RSID."""
+    aa_cfg = _build_aa_config(
+        company_id=company_id,
+        rsid=rsid,
+        org_id=org_id,
+        token_cache_file=token_cache_file,
+    )
+    client = AdobeAnalyticsClient(aa_cfg)
+    segments = client.list_segments(rsid=aa_cfg.rsid, limit=limit)
+    return sorted(segments, key=lambda x: (x.get("name", ""), x.get("id", "")))
+
+
 def get_aa_report_suites(
     *,
     company_id: str,

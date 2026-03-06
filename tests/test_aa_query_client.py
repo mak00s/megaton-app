@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pandas as pd
 
-from megaton_lib.megaton_client import get_aa_companies, get_aa_report_suites, query_aa
+from megaton_lib.megaton_client import (
+    get_aa_companies,
+    get_aa_report_suites,
+    get_aa_segments,
+    query_aa,
+)
 
 
 def test_query_aa_normalizes_columns_and_end_date(monkeypatch):
@@ -76,3 +81,21 @@ def test_get_aa_companies_sorted(monkeypatch):
 
     companies = get_aa_companies()
     assert [c["company_id"] for c in companies] == ["aaa", "bbb"]
+
+
+def test_get_aa_segments_sorted(monkeypatch):
+    class _DummyClient:
+        def __init__(self, config):
+            self.config = config
+
+        def list_segments(self, **kwargs):
+            _ = kwargs
+            return [
+                {"id": "s2", "name": "B Segment"},
+                {"id": "s1", "name": "A Segment"},
+            ]
+
+    monkeypatch.setattr("megaton_lib.megaton_client.AdobeAnalyticsClient", _DummyClient)
+
+    segments = get_aa_segments(company_id="wacoal1", rsid="wacoal-all")
+    assert [s["id"] for s in segments] == ["s1", "s2"]
