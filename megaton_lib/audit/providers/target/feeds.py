@@ -14,7 +14,7 @@ from megaton_lib.audit.providers.target.client import AdobeTargetClient
 
 # Sensitive keys whose values are redacted during export
 _SENSITIVE_KEYS = re.compile(
-    r"(password|passwd|secret|token|api_key|apikey|auth|credential)",
+    r"(password|passwd|secret|token|api_key|apikey|auth|credential|username)",
     re.IGNORECASE,
 )
 _REDACTED = "***REDACTED***"

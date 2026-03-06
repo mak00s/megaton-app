@@ -13,6 +13,10 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
   - `recs.py` — `export_recs()` and `apply_recs()` with per-resource filters, design sidecar merge, metadata stripping
   - `feeds.py` — `export_feeds()` with sensitive field auto-redaction
   - `getoffer_scope.py` — getOffer scope detection from delivery captures + scoped export logic
+- Refined Target export/scope behavior:
+  - `getoffer_scope.detect_getoffer_scope()` now parses `option.content` JSON (`recs.activity`) as fallback for criteria/algorithm/activity ID extraction
+  - `export_getoffer_scope()` now skips unscoped export when no scope filters are detected (returns empty `export_summary`)
+  - `feeds.export_feeds()` redaction now includes `username` keys
 - Fixed Target getOffer scoped export behavior:
   - `export_getoffer_scope(..., include_designs=True, designs_name_regex=...)` now always applies explicit `designs_name_regex` as override when provided
 - Expanded Target design apply compatibility:
