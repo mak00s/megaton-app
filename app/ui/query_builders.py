@@ -114,6 +114,7 @@ def build_agent_params(
     aa_dimension: str = "",
     aa_metrics: list[str] | None = None,
     aa_segment: list[str] | None = None,
+    column_types: dict[str, str] | None = None,
     bq_project: str = "",
     sql: str = "",
 ) -> dict:
@@ -122,9 +123,10 @@ def build_agent_params(
     metrics = metrics or []
     aa_metrics = aa_metrics or []
     aa_segment = aa_segment or []
+    column_types = column_types or {}
 
     if source == "GA4":
-        return {
+        out = {
             "source": "ga4",
             "property_id": property_id,
             "date_range": {
@@ -136,8 +138,11 @@ def build_agent_params(
             "filter_d": filter_d,
             "limit": limit,
         }
+        if column_types:
+            out["column_types"] = column_types
+        return out
     if source == "GSC":
-        return {
+        out = {
             "source": "gsc",
             "site_url": site_url,
             "date_range": {
@@ -148,6 +153,9 @@ def build_agent_params(
             "filter": gsc_filter,
             "limit": limit,
         }
+        if column_types:
+            out["column_types"] = column_types
+        return out
     if source == "AA":
         out = {
             "source": "aa",
@@ -163,9 +171,14 @@ def build_agent_params(
         }
         if aa_segment:
             out["segment"] = aa_segment
+        if column_types:
+            out["column_types"] = column_types
         return out
-    return {
+    out = {
         "source": "bigquery",
         "project_id": bq_project,
         "sql": sql,
     }
+    if column_types:
+        out["column_types"] = column_types
+    return out

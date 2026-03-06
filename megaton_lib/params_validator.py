@@ -12,6 +12,7 @@ DEFAULT_LIMIT = 1000
 ALLOWED_SOURCES = {"ga4", "gsc", "aa", "bigquery"}
 ALLOWED_SAVE_TARGETS = {"csv", "sheets", "bigquery"}
 ALLOWED_SAVE_MODES = {"overwrite", "append", "upsert"}
+ALLOWED_COLUMN_TYPES = {"date", "int", "float", "currency", "percent", "text"}
 
 
 def _err(code: str, message: str, path: str, hint: str) -> dict[str, str]:
@@ -77,10 +78,10 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
         "bigquery": {"project_id", "sql"},
     }
     source_optional = {
-        "ga4": {"filter_d", "limit", "pipeline", "save"},
-        "gsc": {"filter", "limit", "pipeline", "save"},
-        "aa": {"site", "segment", "limit", "org_id", "pipeline", "save"},
-        "bigquery": {"pipeline", "save"},
+        "ga4": {"filter_d", "limit", "pipeline", "save", "column_types"},
+        "gsc": {"filter", "limit", "pipeline", "save", "column_types"},
+        "aa": {"site", "segment", "limit", "org_id", "pipeline", "save", "column_types"},
+        "bigquery": {"pipeline", "save", "column_types"},
     }
 
     required_keys = common_required | source_required[source]
@@ -209,6 +210,54 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
                     "Use \"segment_id\" or [\"segment_id1\", \"segment_id2\"].",
                 )
             )
+
+    if "column_types" in normalized:
+        ct = normalized["column_types"]
+        if not isinstance(ct, dict):
+            errors.append(
+                _err(
+                    "INVALID_TYPE",
+                    "column_types must be an object",
+                    "$.column_types",
+                    "Use {\"column_name\": \"date|int|float|currency|percent|text\"}.",
+                )
+            )
+        else:
+            normalized_ct: dict[str, str] = {}
+            for key, value in ct.items():
+                if not isinstance(key, str) or not key.strip():
+                    errors.append(
+                        _err(
+                            "INVALID_TYPE",
+                            "column_types keys must be non-empty strings",
+                            "$.column_types",
+                            "Set column names as object keys.",
+                        )
+                    )
+                    continue
+                if not isinstance(value, str):
+                    errors.append(
+                        _err(
+                            "INVALID_TYPE",
+                            "column_types values must be strings",
+                            f"$.column_types.{key}",
+                            "Use one of: date, int, float, currency, percent, text.",
+                        )
+                    )
+                    continue
+                normalized_type = value.strip().lower()
+                if normalized_type not in ALLOWED_COLUMN_TYPES:
+                    errors.append(
+                        _err(
+                            "INVALID_VALUE",
+                            f"Unsupported column type: {value}",
+                            f"$.column_types.{key}",
+                            "Use one of: date, int, float, currency, percent, text.",
+                        )
+                    )
+                    continue
+                normalized_ct[key.strip()] = normalized_type
+            normalized["column_types"] = normalized_ct
 
     if source in {"ga4", "gsc", "aa"}:
         if "limit" not in normalized:

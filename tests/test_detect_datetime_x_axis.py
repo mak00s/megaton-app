@@ -1,38 +1,8 @@
-"""Tests for detect_datetime_x_axis (defined in app/streamlit_app.py).
-
-The function is pure (no Streamlit dependency) but lives in a module with
-heavy Streamlit imports.  Rather than mocking the entire import chain, we
-extract the function source at import time.
-"""
-
-import importlib.util
-import textwrap
-import types
+"""Tests for detect_datetime_x_axis."""
 
 import pandas as pd
 
-
-def _load_detect_datetime_x_axis():
-    """Extract detect_datetime_x_axis from streamlit_app.py without importing the module."""
-    import ast
-    from pathlib import Path
-
-    src = (Path(__file__).parent.parent / "app" / "streamlit_app.py").read_text()
-    tree = ast.parse(src)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "detect_datetime_x_axis":
-            func_src = textwrap.dedent(ast.get_source_segment(src, node))
-            break
-    else:
-        raise RuntimeError("detect_datetime_x_axis not found in streamlit_app.py")
-
-    ns: dict = {"pd": pd}
-    exec(compile(func_src, "<detect_datetime_x_axis>", "exec"), ns)
-    return ns["detect_datetime_x_axis"]
-
-
-detect_datetime_x_axis = _load_detect_datetime_x_axis()
-
+from app.ui.table_format import detect_datetime_x_axis
 
 # --- empty / trivial inputs ---
 

@@ -39,7 +39,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "aa.rsid": "RSID",
         "aa.dimension": "ディメンション",
         "aa.metrics": "メトリクス",
-        "aa.segment": "セグメントID（カンマ区切り）",
+        "aa.segment": "セグメントID",
 
         # --- Sidebar: BigQuery ---
         "bq.project_id": "プロジェクトID",
@@ -117,6 +117,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # --- Table ---
         "table.stats": "統計情報",
+        "table.format_header": "表示フォーマット",
+        "table.date_format": "日付表示形式",
+        "table.date_fmt_ymd": "2026-03-12",
+        "table.date_fmt_mdy": "Mar 12, 2026",
+        "table.thousands_sep": "整数に3桁区切りを使う",
+        "table.decimals": "小数桁数",
+        "table.column_types": "列型ヒント（JSON）",
+        "table.column_types_help": "{\"date\":\"date\",\"revenue\":\"currency\",\"orders\":\"int\"}",
+        "msg.column_types_error": "列型ヒントエラー: {error}",
 
         # --- Chart ---
         "chart.x_axis": "X軸",
@@ -134,6 +143,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "save.csv_download": "📥 CSV ダウンロード",
         "save.save_to_output": "💾 output/ に保存",
         "save.saved": "保存しました: {path}",
+        "save.format_raw": "生値（推奨）",
+        "save.format_formatted": "表示フォーマット値",
+        "save.local_format": "ローカルCSVの保存形式",
 
         # --- Save: Google Sheets ---
         "save.sheets_header": "Google Sheets に保存",
@@ -148,6 +160,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "save.enter_sheet_url": "スプレッドシートURLを入力してください",
         "save.select_keys": "キー列を選択してください",
         "save.sheets_saved": "✓ シート「{name}」に保存しました",
+        "save.sheets_format": "Sheets書き込み形式",
 
         # --- Save: BigQuery ---
         "save.bq_header": "BigQuery に保存",
@@ -158,6 +171,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "save.bq_button": "📤 BigQuery に保存",
         "save.bq_enter_all": "プロジェクトID、データセット、テーブルを入力してください",
         "save.bq_saved": "✓ {dest} に保存しました",
+        "save.bq_raw_only": "BigQuery には常に生値を書き込みます（表示フォーマットは非適用）",
     },
     "en": {
         # --- Page ---
@@ -190,7 +204,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "aa.rsid": "RSID",
         "aa.dimension": "Dimension",
         "aa.metrics": "Metrics",
-        "aa.segment": "Segment IDs (comma-separated)",
+        "aa.segment": "Segment IDs",
 
         # --- Sidebar: BigQuery ---
         "bq.project_id": "Project ID",
@@ -268,6 +282,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # --- Table ---
         "table.stats": "Statistics",
+        "table.format_header": "Display Format",
+        "table.date_format": "Date Format",
+        "table.date_fmt_ymd": "2026-03-12",
+        "table.date_fmt_mdy": "Mar 12, 2026",
+        "table.thousands_sep": "Use thousands separators for integers",
+        "table.decimals": "Decimal Places",
+        "table.column_types": "Column Type Hints (JSON)",
+        "table.column_types_help": "{\"date\":\"date\",\"revenue\":\"currency\",\"orders\":\"int\"}",
+        "msg.column_types_error": "Column type hint error: {error}",
 
         # --- Chart ---
         "chart.x_axis": "X Axis",
@@ -285,6 +308,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "save.csv_download": "📥 Download CSV",
         "save.save_to_output": "💾 Save to output/",
         "save.saved": "Saved: {path}",
+        "save.format_raw": "Raw values (Recommended)",
+        "save.format_formatted": "Formatted display values",
+        "save.local_format": "Local CSV output format",
 
         # --- Save: Google Sheets ---
         "save.sheets_header": "Save to Google Sheets",
@@ -299,6 +325,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "save.enter_sheet_url": "Enter a spreadsheet URL",
         "save.select_keys": "Select key columns",
         "save.sheets_saved": "✓ Saved to sheet \"{name}\"",
+        "save.sheets_format": "Sheets write format",
 
         # --- Save: BigQuery ---
         "save.bq_header": "Save to BigQuery",
@@ -309,6 +336,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "save.bq_button": "📤 Save to BigQuery",
         "save.bq_enter_all": "Enter Project ID, dataset, and table",
         "save.bq_saved": "✓ Saved to {dest}",
+        "save.bq_raw_only": "BigQuery always writes raw values (display formatting is not applied)",
     },
 }
 

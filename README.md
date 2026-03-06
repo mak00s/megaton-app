@@ -73,19 +73,30 @@ python -m pytest -q
 - Keep `configs/sites.json` / `configs/sites.local.json` as local files (gitignored)
 - CLI resolves aliases with layered precedence:
   - `sites.example.json` < `sites.json` < `sites.local.json`
+- Optional table display hints template: `configs/column_types.example.json`
 
 ## Structure
 
 ```
 megaton-app/
 ├── megaton_lib/        # Shared library (reusable via pip install -e)
+│   ├── megaton_client.py   # GA4/GSC/BQ/AA query execution (core)
+│   ├── ga4_helpers.py      # GA4 report helpers
+│   ├── gsc_utils.py        # GSC aggregation helpers
+│   └── audit/              # Reusable audit framework
+│       ├── config.py           # Project config model & loader
+│       └── providers/
+│           ├── adobe_auth.py   # Shared Adobe IMS OAuth
+│           ├── analytics/      # AA & GA4 audit providers
+│           ├── tag_config/     # Adobe Tags & GTM providers
+│           └── target/         # Adobe Target Recs API (export/apply/scope)
 ├── scripts/            # CLI tools (query.py, run_notebook.py, audit.py)
 ├── app/                # Streamlit UI
 ├── credentials/        # Service account JSON (.gitignore)
 ├── input/              # AI Agent <-> UI parameter handoff
 ├── output/             # Query results and job artifacts
-├── configs/            # Batch execution JSON configs
-├── tests/              # pytest
+├── configs/            # Site aliases, batch configs, audit project configs
+├── tests/              # pytest (489 tests)
 └── docs/               # Documentation
 ```
 

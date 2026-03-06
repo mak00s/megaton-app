@@ -1,0 +1,6 @@
+{
+  "date": "date",
+  "revenue": "currency",
+  "orders": "int",
+  "conversionRate": "percent"
+}

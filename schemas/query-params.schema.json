@@ -46,6 +46,13 @@
           "items": { "type": "string" }
         }
       }
+    },
+    "column_types": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "enum": ["date", "int", "float", "currency", "percent", "text"]
+      }
     }
   },
   "allOf": [
@@ -81,6 +88,7 @@
           },
           "filter_d": { "type": "string" },
           "limit": { "type": "integer", "minimum": 1, "maximum": 100000 },
+          "column_types": { "$ref": "#/$defs/column_types" },
           "pipeline": { "$ref": "#/$defs/pipeline" },
           "save": { "$ref": "#/$defs/save" }
         },
@@ -115,6 +123,7 @@
           },
           "filter": { "type": "string" },
           "limit": { "type": "integer", "minimum": 1, "maximum": 100000 },
+          "column_types": { "$ref": "#/$defs/column_types" },
           "pipeline": { "$ref": "#/$defs/pipeline" },
           "save": { "$ref": "#/$defs/save" }
         },
@@ -161,6 +170,7 @@
             ]
           },
           "limit": { "type": "integer", "minimum": 1, "maximum": 100000 },
+          "column_types": { "$ref": "#/$defs/column_types" },
           "pipeline": { "$ref": "#/$defs/pipeline" },
           "save": { "$ref": "#/$defs/save" }
         },
@@ -181,6 +191,7 @@
           "source": { "type": "string", "const": "bigquery" },
           "project_id": { "type": "string", "minLength": 1 },
           "sql": { "type": "string", "minLength": 1 },
+          "column_types": { "$ref": "#/$defs/column_types" },
           "pipeline": { "$ref": "#/$defs/pipeline" },
           "save": { "$ref": "#/$defs/save" }
         },

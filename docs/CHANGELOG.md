@@ -4,6 +4,18 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ### 2026-03-06 (v0.5.0)
 
+- Added shared Adobe IMS OAuth layer (`megaton_lib/audit/providers/adobe_auth.py`):
+  - `AdobeOAuthClient` handles `client_credentials` token flow with disk cache and auto-refresh
+  - Shared by Adobe Analytics, Adobe Tags (Reactor), and Adobe Target clients
+  - AA client (`aa.py`) refactored to delegate auth to `AdobeOAuthClient`
+- Added Adobe Target Recommendations API client (`megaton_lib/audit/providers/target/`):
+  - `client.py` — `AdobeTargetClient` with GET/PATCH, pagination, retry, 401 re-auth
+  - `recs.py` — `export_recs()` and `apply_recs()` with per-resource filters, design sidecar merge, metadata stripping
+  - `feeds.py` — `export_feeds()` with sensitive field auto-redaction
+  - `getoffer_scope.py` — `detect_getoffer_scope()` for delivery-call-based scope detection and scoped export
+- Extended Adobe Tags (Reactor) auth to support OAuth alongside legacy bearer token:
+  - `AdobeTagsConfig.oauth` field added; config loader supports dict and `oauth: true` shorthand
+- Added `app/ui/table_format.py` — table display formatting engine extracted from Streamlit main
 - Expanded Adobe Analytics support in Streamlit:
   - Company ID and RSID are now auto-discovered and selectable from dropdowns
   - Dimension and metric options are fetched from AA metadata APIs (with manual input fallback)
