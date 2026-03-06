@@ -2,20 +2,29 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-### 2026-03-06 (v0.5.0)
+### 2026-03-06 (v0.6.0)
 
 - Added shared Adobe IMS OAuth layer (`megaton_lib/audit/providers/adobe_auth.py`):
   - `AdobeOAuthClient` handles `client_credentials` token flow with disk cache and auto-refresh
   - Shared by Adobe Analytics, Adobe Tags (Reactor), and Adobe Target clients
   - AA client (`aa.py`) refactored to delegate auth to `AdobeOAuthClient`
-- Added Adobe Target Recommendations API client (`megaton_lib/audit/providers/target/`):
+- Added Adobe Target Recommendations provider set (`megaton_lib/audit/providers/target/`):
   - `client.py` — `AdobeTargetClient` with GET/PATCH, pagination, retry, 401 re-auth
   - `recs.py` — `export_recs()` and `apply_recs()` with per-resource filters, design sidecar merge, metadata stripping
   - `feeds.py` — `export_feeds()` with sensitive field auto-redaction
-  - `getoffer_scope.py` — `detect_getoffer_scope()` for delivery-call-based scope detection and scoped export
+  - `getoffer_scope.py` — getOffer scope detection from delivery captures + scoped export logic
 - Extended Adobe Tags (Reactor) auth to support OAuth alongside legacy bearer token:
-  - `AdobeTagsConfig.oauth` field added; config loader supports dict and `oauth: true` shorthand
-- Added `app/ui/table_format.py` — table display formatting engine extracted from Streamlit main
+  - `AdobeTagsConfig.oauth` field added
+  - Config loader supports both `oauth: { ... }` and `oauth: true` shorthand
+- Improved Streamlit table UX:
+  - Extracted table/date formatting logic into `app/ui/table_format.py`
+  - Added configurable table display options (date format, thousands separators, decimals, per-column type hints)
+  - Added `column_types` support in params schema/validator/query builder
+  - Added config templates and ignore rules for local column-type hints
+- Added and expanded tests for Adobe OAuth, Target providers, table formatting, and datetime axis detection
+
+### 2026-03-06 (v0.5.0)
+
 - Expanded Adobe Analytics support in Streamlit:
   - Company ID and RSID are now auto-discovered and selectable from dropdowns
   - Dimension and metric options are fetched from AA metadata APIs (with manual input fallback)
