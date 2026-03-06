@@ -240,6 +240,7 @@ python scripts/query.py --batch configs/weekly/ --json
 | `filter_d` | string | - | GA4 filter (`field==value` format) |
 | `filter` | string | - | GSC filter (`dim:op:expr` format) |
 | `limit` | number | - | Row limit (max 100,000) |
+| `column_types` | object | - | Table display hints (`date`, `int`, `float`, `currency`, `percent`, `text`) |
 | `pipeline` | object | - | Post-fetch pipeline (see below) |
 | `save` | object | - | Save destination (see below) |
 

@@ -8,6 +8,8 @@ credentials/*.json
 # Site alias (public repo対策)
 configs/sites.json
 configs/sites.local.json
+configs/column_types.json
+configs/column_types.local.json
 
 # Python
 __pycache__/

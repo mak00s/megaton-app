@@ -63,6 +63,14 @@ streamlit run app/streamlit_app.py
 ブラウザでデータソース（GA4 / GSC / AA / BQ）を選び、対象と日付を指定して「実行」。
 AA では Company ID / RSID / Dimension / Metrics をAPIメタデータから選択できる（必要なら手入力も可）。
 
+テーブルタブでは表示フォーマットを調整できる:
+- 日付表示形式（`YYYY-MM-DD` / `Mon DD, YYYY`）
+- 整数の3桁区切り
+- 小数桁数
+- 列型ヒント（`column_types` JSON）
+
+保存タブでは保存先ごとに `Raw` / `Formatted` を選択できる（BigQuery は常に Raw）。
+
 ### CLI で GA4 データを取得する
 
 1. パラメータ JSON を用意:
@@ -79,6 +87,7 @@ AA では Company ID / RSID / Dimension / Metrics をAPIメタデータから選
 ```
 
 `site` は `configs/sites.local.json`（またはローカルの `configs/sites.json`）の alias。テンプレートは `configs/sites.example.json`。`property_id` を直接指定してもよい。
+列型ヒントのテンプレートは `configs/column_types.example.json`。
 
 2. 実行:
 

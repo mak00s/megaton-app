@@ -126,6 +126,18 @@ class TestAgentParams(unittest.TestCase):
         self.assertEqual(params["metrics"], ["revenue", "orders"])
         self.assertEqual(params["segment"], ["s123"])
 
+    def test_build_params_with_column_types(self):
+        params = build_agent_params(
+            source="GA4",
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            property_id="123",
+            dimensions=["date"],
+            metrics=["sessions"],
+            column_types={"date": "date", "sessions": "int"},
+        )
+        self.assertEqual(params["column_types"], {"date": "date", "sessions": "int"})
+
 
 if __name__ == "__main__":
     unittest.main()

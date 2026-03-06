@@ -102,6 +102,14 @@ def apply_params_to_session(params):
     if "limit" in params:
         st.session_state["w_limit"] = params["limit"]
 
+    # Table column type hints
+    if "column_types" in params and isinstance(params["column_types"], dict):
+        st.session_state["w_table_column_types_json"] = json.dumps(
+            params["column_types"],
+            ensure_ascii=False,
+            indent=2,
+        )
+
     # Dimensions
     if "dimensions" in params:
         if source == "gsc":
@@ -137,9 +145,9 @@ def apply_params_to_session(params):
             st.session_state["w_aa_metrics"] = params["metrics"]
         segment_val = params.get("segment", "")
         if isinstance(segment_val, list):
-            st.session_state["w_aa_segment"] = ",".join(str(x).strip() for x in segment_val if str(x).strip())
+            st.session_state["w_aa_segments"] = [str(x).strip() for x in segment_val if str(x).strip()]
         elif isinstance(segment_val, str):
-            st.session_state["w_aa_segment"] = segment_val
+            st.session_state["w_aa_segments"] = [s.strip() for s in re.split(r"[,\n;]", segment_val) if s.strip()]
 
     # BigQuery specific
     if source == "bigquery":
@@ -270,6 +278,7 @@ query_aa = getattr(_megaton_client, "query_aa", None)
 _get_aa_companies = getattr(_megaton_client, "get_aa_companies", None)
 _get_aa_dimensions = getattr(_megaton_client, "get_aa_dimensions", None)
 _get_aa_metrics = getattr(_megaton_client, "get_aa_metrics", None)
+_get_aa_segments = getattr(_megaton_client, "get_aa_segments", None)
 _get_aa_report_suites = getattr(_megaton_client, "get_aa_report_suites", None)
 _get_bq_datasets = _megaton_client.get_bq_datasets
 query_bq = _megaton_client.query_bq
@@ -299,6 +308,7 @@ from app.ui.query_builders import (
     build_agent_params,
 )
 from app.ui.ga4_fields import ALL_DIMENSIONS, ALL_METRICS
+from app.ui.table_format import build_table_view_df, detect_datetime_x_axis
 
 # Streamlit cached wrappers
 @st.cache_data(ttl=300)
@@ -351,6 +361,17 @@ def get_aa_metrics(company_id, rsid, org_id=""):
         limit=2000,
     )
 
+@st.cache_data(ttl=300)
+def get_aa_segments(company_id, rsid, org_id=""):
+    if _get_aa_segments is None:
+        return []
+    return _get_aa_segments(
+        company_id=str(company_id).strip(),
+        rsid=str(rsid).strip(),
+        org_id=str(org_id).strip() or None,
+        limit=2000,
+    )
+
 @st.cache_data(ttl=60)
 def execute_ga4_query(property_id, start_date, end_date, dimensions, metrics, filter_d, limit):
     return query_ga4(property_id, start_date, end_date, dimensions, metrics, filter_d, limit)
@@ -387,37 +408,54 @@ def validate_params(raw_params):
     return _params_validator.validate_params(raw_params)
 
 
-def detect_datetime_x_axis(df: pd.DataFrame) -> tuple[str | None, pd.Series | None]:
-    """Pick a datetime-like column for chart X-axis when available."""
-    if df.empty:
-        return None, None
+TABLE_COLUMN_TYPE_OPTIONS = frozenset(_params_validator.ALLOWED_COLUMN_TYPES)
 
-    if "date" in df.columns:
-        parsed = pd.to_datetime(df["date"], errors="coerce")
-        if parsed.notna().any():
-            return "date", parsed
 
-    for col in df.columns:
-        if pd.api.types.is_datetime64_any_dtype(df[col]):
-            parsed = pd.to_datetime(df[col], errors="coerce")
-            if parsed.notna().any():
-                return col, parsed
-
-    time_name_hints = ("date", "day", "time", "month", "week")
-    hinted = [c for c in df.columns if any(h in str(c).lower() for h in time_name_hints)]
-    others = [c for c in df.columns if c not in hinted]
-
-    for col in [*hinted, *others]:
-        series = df[col]
-        if pd.api.types.is_numeric_dtype(series):
+def load_column_type_hints_from_configs() -> dict[str, str]:
+    """Load optional table column-type hints from local config files."""
+    config_dir = PROJECT_ROOT / "configs"
+    merged: dict[str, str] = {}
+    for filename in ("column_types.json", "column_types.local.json"):
+        path = config_dir / filename
+        if not path.exists():
             continue
-        parsed = pd.to_datetime(series, errors="coerce")
-        if len(parsed) == 0:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+        except Exception:
             continue
-        if float(parsed.notna().mean()) >= 0.8:
-            return col, parsed
+        if not isinstance(payload, dict):
+            continue
+        for k, v in payload.items():
+            if isinstance(k, str) and isinstance(v, str):
+                merged[k.strip()] = v.strip().lower()
+    return {k: v for k, v in merged.items() if k and v in TABLE_COLUMN_TYPE_OPTIONS}
 
-    return None, None
+
+def parse_column_types_json(raw: str) -> tuple[dict[str, str], str]:
+    """Parse JSON text into validated column type hints."""
+    text = str(raw or "").strip()
+    if not text:
+        return {}, ""
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as e:
+        return {}, f"Invalid JSON: {e}"
+    if not isinstance(payload, dict):
+        return {}, "column_types must be a JSON object."
+
+    out: dict[str, str] = {}
+    for key, value in payload.items():
+        if not isinstance(key, str) or not key.strip():
+            return {}, "column_types keys must be non-empty strings."
+        if not isinstance(value, str):
+            return {}, f"column_types[{key}] must be a string."
+        normalized = value.strip().lower()
+        if normalized not in TABLE_COLUMN_TYPE_OPTIONS:
+            allowed = ", ".join(sorted(TABLE_COLUMN_TYPE_OPTIONS))
+            return {}, f"column_types[{key}] must be one of: {allowed}"
+        out[key.strip()] = normalized
+    return out, ""
 
 
 # === UI ===
@@ -439,6 +477,22 @@ if "execute_requested" not in st.session_state:
     st.session_state["execute_requested"] = False
 if "is_executing" not in st.session_state:
     st.session_state["is_executing"] = False
+if "w_table_date_format" not in st.session_state:
+    st.session_state["w_table_date_format"] = "%Y-%m-%d"
+if "w_table_thousands_sep" not in st.session_state:
+    st.session_state["w_table_thousands_sep"] = True
+if "w_table_decimals" not in st.session_state:
+    st.session_state["w_table_decimals"] = 2
+if "w_table_column_types_json" not in st.session_state:
+    st.session_state["w_table_column_types_json"] = json.dumps(
+        load_column_type_hints_from_configs(),
+        ensure_ascii=False,
+        indent=2,
+    )
+if "w_save_local_format" not in st.session_state:
+    st.session_state["w_save_local_format"] = "raw"
+if "w_save_sheets_format" not in st.session_state:
+    st.session_state["w_save_sheets_format"] = "raw"
 
 # Recover from stale validation errors retained in session state.
 if st.session_state.get("params_validation_errors"):
@@ -664,11 +718,14 @@ with st.sidebar:
         if "w_aa_metrics" not in st.session_state:
             default_aa_metrics = lp.get("metrics", ["occurrences"]) if lp.get("source", "").lower() == "aa" else ["occurrences"]
             st.session_state["w_aa_metrics"] = default_aa_metrics
-        if "w_aa_segment" not in st.session_state:
+        if "w_aa_segments" not in st.session_state:
             loaded_segment = lp.get("segment", "") if lp.get("source", "").lower() == "aa" else ""
             if isinstance(loaded_segment, list):
-                loaded_segment = ",".join(str(x).strip() for x in loaded_segment if str(x).strip())
-            st.session_state["w_aa_segment"] = loaded_segment
+                st.session_state["w_aa_segments"] = [str(x).strip() for x in loaded_segment if str(x).strip()]
+            elif isinstance(loaded_segment, str):
+                st.session_state["w_aa_segments"] = [s.strip() for s in re.split(r"[,\n;]", loaded_segment) if s.strip()]
+            else:
+                st.session_state["w_aa_segments"] = []
 
         aa_org_id = st.session_state.get("w_aa_org_id", "")
         aa_companies: list[dict[str, str]] = []
@@ -759,8 +816,10 @@ with st.sidebar:
 
         aa_dimensions_meta: list[dict[str, str]] = []
         aa_metrics_meta: list[dict[str, str]] = []
+        aa_segments_meta: list[dict[str, str]] = []
         aa_dimensions_error = ""
         aa_metrics_error = ""
+        aa_segments_error = ""
         if company_id.strip() and rsid.strip():
             try:
                 aa_dimensions_meta = get_aa_dimensions(
@@ -778,6 +837,14 @@ with st.sidebar:
                 )
             except Exception as e:
                 aa_metrics_error = str(e)
+            try:
+                aa_segments_meta = get_aa_segments(
+                    company_id.strip(),
+                    rsid.strip(),
+                    aa_org_id.strip(),
+                )
+            except Exception as e:
+                aa_segments_error = str(e)
 
         dimension_options: list[str] = []
         dimension_labels: dict[str, str] = {}
@@ -860,12 +927,36 @@ with st.sidebar:
         )
         if aa_metrics_error:
             st.caption(t("msg.error", error=aa_metrics_error))
-        aa_segment_raw = st.text_input(
+        segment_options: list[str] = []
+        segment_labels: dict[str, str] = {}
+        for segment in aa_segments_meta:
+            seg_id = str(segment.get("id", "")).strip()
+            if not seg_id:
+                continue
+            seg_name = str(segment.get("name", "")).strip()
+            segment_options.append(seg_id)
+            segment_labels[seg_id] = (
+                f"{seg_name} ({seg_id})"
+                if seg_name and seg_name != seg_id
+                else seg_id
+            )
+
+        current_segments = [str(s).strip() for s in st.session_state.get("w_aa_segments", []) if str(s).strip()]
+        for seg_id in current_segments:
+            if seg_id not in segment_options:
+                segment_options.append(seg_id)
+                segment_labels[seg_id] = f"{seg_id} (custom)"
+
+        aa_segments = st.multiselect(
             t("aa.segment"),
-            key="w_aa_segment",
-            placeholder="s12345,s67890",
+            segment_options,
+            format_func=lambda value: segment_labels.get(value, value),
+            key="w_aa_segments",
+            accept_new_options=True,
+            max_selections=20,
         )
-        aa_segments = [s.strip() for s in re.split(r"[,\\n;]", aa_segment_raw) if s.strip()]
+        if aa_segments_error:
+            st.caption(t("msg.error", error=aa_segments_error))
 
     else:
         # BigQuery settings
@@ -1206,9 +1297,55 @@ if "df" in st.session_state:
 
     # Tabs
     tab1, tab2, tab3 = st.tabs(t_options(["tab.table", "tab.chart", "tab.save"]))
+    table_df = display_df.copy()
+    table_column_types: dict[str, str] = {}
+    table_column_types_error = ""
 
     with tab1:
-        st.dataframe(display_df, width="stretch", height=400)
+        with st.expander(t("table.format_header"), expanded=False):
+            date_fmt_map = t_option_map(
+                {
+                    "table.date_fmt_ymd": "%Y-%m-%d",
+                    "table.date_fmt_mdy": "%b %d, %Y",
+                }
+            )
+            date_fmt_labels = list(date_fmt_map.keys())
+            date_fmt_current = st.session_state.get("w_table_date_format", "%Y-%m-%d")
+            date_fmt_default_index = 0
+            for idx, label in enumerate(date_fmt_labels):
+                if date_fmt_map[label] == date_fmt_current:
+                    date_fmt_default_index = idx
+                    break
+            date_fmt_label = st.selectbox(
+                t("table.date_format"),
+                date_fmt_labels,
+                index=date_fmt_default_index,
+            )
+            st.session_state["w_table_date_format"] = date_fmt_map[date_fmt_label]
+
+            st.checkbox(t("table.thousands_sep"), key="w_table_thousands_sep")
+            st.slider(t("table.decimals"), min_value=0, max_value=6, key="w_table_decimals")
+            st.text_area(
+                t("table.column_types"),
+                key="w_table_column_types_json",
+                height=120,
+                placeholder=t("table.column_types_help"),
+            )
+
+            table_column_types, table_column_types_error = parse_column_types_json(
+                st.session_state.get("w_table_column_types_json", "")
+            )
+            if table_column_types_error:
+                st.warning(t("msg.column_types_error", error=table_column_types_error))
+
+        table_df = build_table_view_df(
+            display_df,
+            date_format=st.session_state.get("w_table_date_format", "%Y-%m-%d"),
+            thousands_sep=bool(st.session_state.get("w_table_thousands_sep", True)),
+            decimals=int(st.session_state.get("w_table_decimals", 2)),
+            column_types=table_column_types,
+        )
+        st.dataframe(table_df, width="stretch", height=400)
 
         # Statistics
         with st.expander(t("table.stats")):
@@ -1303,6 +1440,28 @@ if "df" in st.session_state:
 
     with tab3:
         st.subheader(t("save.local_header"))
+        save_format_map = t_option_map(
+            {
+                "save.format_raw": "raw",
+                "save.format_formatted": "formatted",
+            }
+        )
+        save_format_labels = list(save_format_map.keys())
+        local_current_mode = st.session_state.get("w_save_local_format", "raw")
+        local_default_index = 0
+        for idx, label in enumerate(save_format_labels):
+            if save_format_map[label] == local_current_mode:
+                local_default_index = idx
+                break
+        local_mode_label = st.selectbox(
+            t("save.local_format"),
+            save_format_labels,
+            index=local_default_index,
+        )
+        local_mode = save_format_map[local_mode_label]
+        st.session_state["w_save_local_format"] = local_mode
+        local_export_df = display_df if local_mode == "raw" else table_df
+
         save_filename = st.text_input(
             t("save.filename"),
             value=f"result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
@@ -1310,7 +1469,7 @@ if "df" in st.session_state:
         )
         col1, col2 = st.columns(2)
         with col1:
-            csv = display_df.to_csv(index=False).encode('utf-8-sig')
+            csv = local_export_df.to_csv(index=False).encode('utf-8-sig')
             st.download_button(
                 t("save.csv_download"),
                 csv,
@@ -1322,11 +1481,25 @@ if "df" in st.session_state:
             if st.button(t("save.save_to_output"), width="stretch"):
                 os.makedirs("output", exist_ok=True)
                 filepath = f"output/{save_filename}"
-                display_df.to_csv(filepath, index=False, encoding='utf-8-sig')
+                local_export_df.to_csv(filepath, index=False, encoding='utf-8-sig')
                 st.success(t("save.saved", path=filepath))
 
         st.divider()
         st.subheader(t("save.sheets_header"))
+        sheets_current_mode = st.session_state.get("w_save_sheets_format", "raw")
+        sheets_default_index = 0
+        for idx, label in enumerate(save_format_labels):
+            if save_format_map[label] == sheets_current_mode:
+                sheets_default_index = idx
+                break
+        sheets_mode_label = st.selectbox(
+            t("save.sheets_format"),
+            save_format_labels,
+            index=sheets_default_index,
+        )
+        sheets_mode = save_format_map[sheets_mode_label]
+        st.session_state["w_save_sheets_format"] = sheets_mode
+        sheets_export_df = display_df if sheets_mode == "raw" else table_df
 
         sheet_url = st.text_input(
             t("save.sheet_url"),
@@ -1363,13 +1536,20 @@ if "df" in st.session_state:
                     if save_mode == "upsert" and not key_cols:
                         st.error(t("save.select_keys"))
                     else:
-                        save_to_sheet(sheet_url, sheet_name, display_df, mode=save_mode, keys=key_cols if save_mode == "upsert" else None)
+                        save_to_sheet(
+                            sheet_url,
+                            sheet_name,
+                            sheets_export_df,
+                            mode=save_mode,
+                            keys=key_cols if save_mode == "upsert" else None,
+                        )
                         st.success(t("save.sheets_saved", name=sheet_name))
                 except Exception as e:
                     st.error(t("msg.error", error=str(e)))
 
         st.divider()
         st.subheader(t("save.bq_header"))
+        st.caption(t("save.bq_raw_only"))
 
         bq_project = st.text_input(
             t("save.bq_project"),
@@ -1408,6 +1588,7 @@ if "df" in st.session_state:
 # JSON params display (AI Agent integration)
 with st.sidebar:
     with st.expander(t("agent.json_header")):
+        agent_column_types, _ = parse_column_types_json(st.session_state.get("w_table_column_types_json", ""))
         params = build_agent_params(
             source=source,
             start_date=start_date if 'start_date' in dir() else None,
@@ -1424,6 +1605,7 @@ with st.sidebar:
             aa_dimension=dimension if 'dimension' in dir() else "",
             aa_metrics=metrics if source == "AA" and 'metrics' in dir() else [],
             aa_segment=aa_segments if 'aa_segments' in dir() else [],
+            column_types=agent_column_types,
             bq_project=bq_project if 'bq_project' in dir() else "",
             sql=sql if 'sql' in dir() else "",
         )

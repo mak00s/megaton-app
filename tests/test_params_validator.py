@@ -432,6 +432,51 @@ class TestParamsValidator(unittest.TestCase):
         self.assertIn("pipeline", normalized)
         self.assertIn("save", normalized)
 
+    def test_valid_column_types(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "ga4",
+            "property_id": "254477007",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimensions": ["date"],
+            "metrics": ["sessions"],
+            "column_types": {"date": "DATE", "sessions": "int", "revenue": "currency"},
+        }
+        normalized, errors = validate_params(data)
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            normalized["column_types"],
+            {"date": "date", "sessions": "int", "revenue": "currency"},
+        )
+
+    def test_column_types_reject_non_object(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "gsc",
+            "site_url": "https://example.com/",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimensions": ["query"],
+            "column_types": ["date"],
+        }
+        normalized, errors = validate_params(data)
+        self.assertIsNone(normalized)
+        self.assertTrue(any(e["error_code"] == "INVALID_TYPE" and e["path"] == "$.column_types" for e in errors))
+
+    def test_column_types_reject_unknown_type(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "aa",
+            "company_id": "wacoal1",
+            "rsid": "wacoal-all",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimension": "daterangeday",
+            "metrics": ["revenue"],
+            "column_types": {"revenue": "money"},
+        }
+        normalized, errors = validate_params(data)
+        self.assertIsNone(normalized)
+        self.assertTrue(any(e["error_code"] == "INVALID_VALUE" for e in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

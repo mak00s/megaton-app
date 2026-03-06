@@ -1,46 +1,67 @@
 # megaton-app
 
-Toolkit for fetching, processing, and visualizing data from GA4, Search Console, and BigQuery.
+Toolkit for fetching, processing, and visualizing data from GA4, Search Console, Adobe Analytics, and BigQuery.
 
 ## Directory Structure
 
 ```
 megaton-app/
-├── megaton_lib/           # Shared library (used by other repos via pip install -e)
-│   ├── megaton_client.py  #   GA4/GSC/BQ init & query execution (core module)
-│   ├── credentials.py     #   Service account auto-detection
-│   ├── ga4_helpers.py     #   GA4 report execution & DataFrame helpers
-│   ├── gsc_utils.py       #   GSC aggregation / dedup / threshold helpers
-│   ├── table_utils.py     #   Pattern map/classification helpers
-│   ├── traffic.py         #   Source normalization and channel reclassification
-│   ├── sheets.py          #   Google Sheets read/write & group-key replace helpers
-│   ├── analysis.py        #   show() and analysis utilities
-│   ├── params_validator.py#   JSON parameter schema validation
-│   ├── job_manager.py     #   Async job management
-│   ├── batch_runner.py    #   Batch execution
-│   ├── result_inspector.py#   Pipeline processing (where/sort/group etc.)
-│   ├── date_template.py   #   Date template resolution (today-7d etc.)
-│   ├── periods.py         #   Period utilities
-│   ├── date_utils.py      #   Month range / timezone / month parsing helpers
-│   ├── params_diff.py     #   params.json diff detection
-│   └── notebook.py        #   Notebook initialization helper
+├── megaton_lib/               # Shared library (used by other repos via pip install -e)
+│   ├── megaton_client.py      #   GA4/GSC/BQ/AA init & query execution (core module)
+│   ├── credentials.py         #   Service account auto-detection
+│   ├── ga4_helpers.py         #   GA4 report execution & DataFrame helpers
+│   ├── gsc_utils.py           #   GSC aggregation / dedup / threshold helpers
+│   ├── table_utils.py         #   Pattern map/classification helpers
+│   ├── traffic.py             #   Source normalization and channel reclassification
+│   ├── sheets.py              #   Google Sheets read/write & group-key replace helpers
+│   ├── analysis.py            #   show() and analysis utilities
+│   ├── params_validator.py    #   JSON parameter schema validation
+│   ├── job_manager.py         #   Async job management
+│   ├── batch_runner.py        #   Batch execution
+│   ├── result_inspector.py    #   Pipeline processing (where/sort/group etc.)
+│   ├── date_template.py       #   Date template resolution (today-7d etc.)
+│   ├── periods.py             #   Period utilities
+│   ├── date_utils.py          #   Month range / timezone / month parsing helpers
+│   ├── params_diff.py         #   params.json diff detection
+│   ├── notebook.py            #   Notebook initialization helper
+│   └── audit/                 #   Reusable audit framework
+│       ├── config.py          #     Project config model & YAML/JSON loader
+│       ├── runner.py          #     Audit orchestration
+│       ├── reporters.py       #     Report generation
+│       ├── tasks/
+│       │   └── site_mapping.py#     Site-mapping audit task
+│       └── providers/
+│           ├── adobe_auth.py  #     Shared Adobe IMS OAuth (AA/Reactor/Target)
+│           ├── analytics/
+│           │   ├── aa.py      #     Adobe Analytics API client
+│           │   └── ga4.py     #     GA4 audit provider
+│           ├── tag_config/
+│           │   ├── adobe_tags.py#   Adobe Tags (Reactor) API client
+│           │   └── gtm.py     #     GTM audit provider
+│           └── target/
+│               ├── client.py  #     Adobe Target API client
+│               ├── recs.py    #     Target Recommendations export/apply
+│               ├── feeds.py   #     Target feeds export
+│               └── getoffer_scope.py# getOffer scope detection
 ├── scripts/
-│   ├── query.py           # Unified CLI (auto-routes GA4/GSC/BQ by source)
-│   └── run_notebook.py    # Run notebooks from CLI with parameter override
+│   ├── query.py               # Unified CLI (auto-routes GA4/GSC/BQ/AA by source)
+│   ├── run_notebook.py        # Run notebooks from CLI with parameter override
+│   └── audit.py               # Audit CLI (site-mapping etc.)
 ├── app/
-│   ├── streamlit_app.py   # Streamlit UI main
-│   ├── i18n.py            # JA/EN translation (t() function)
-│   └── ui/                # UI components
-│       ├── params_utils.py    # Filter row DataFrame operations
-│       ├── query_builders.py  # params.json builder
-│       └── ga4_fields.py      # GA4 dimension/metric definitions
-├── schemas/               # JSON schema
-├── credentials/           # Service account JSON (.gitignore)
-├── input/                 # params.json (Streamlit UI <-> Agent handoff ONLY)
-├── output/                # Query results & job artifacts
-├── configs/               # Batch execution JSON configs
-├── tests/                 # pytest (337 tests)
-└── docs/                  # USAGE.md, REFERENCE.md, CHANGELOG.md
+│   ├── streamlit_app.py       # Streamlit UI main
+│   ├── i18n.py                # JA/EN translation (t() function)
+│   └── ui/                    # UI components
+│       ├── params_utils.py    #   Filter row DataFrame operations
+│       ├── query_builders.py  #   params.json builder
+│       ├── table_format.py    #   Table display formatting & datetime detection
+│       └── ga4_fields.py      #   GA4 dimension/metric definitions
+├── schemas/                   # JSON schema
+├── credentials/               # Service account JSON (.gitignore)
+├── input/                     # params.json (Streamlit UI <-> Agent handoff ONLY)
+├── output/                    # Query results & job artifacts
+├── configs/                   # Site aliases, batch configs, audit project configs
+├── tests/                     # pytest (489 tests)
+└── docs/                      # USAGE.md, REFERENCE.md, CHANGELOG.md
 ```
 
 ## Available Resources
@@ -301,12 +322,18 @@ To find the spike date first, use `"dimensions": ["date"]` without `"query"`.
 ## Tests
 
 ```bash
-python -m pytest -q                    # All tests (337 passed)
+python -m pytest -q                    # All tests (489 passed)
 python -m pytest -q -m unit           # Unit only
 python -m pytest -q --cov=scripts.query --cov-report=term-missing  # Coverage
 ```
 
 Tests use API mocks (SimpleNamespace pattern) with no external dependencies.
+
+### Adobe API auth
+
+AA, Adobe Tags (Reactor), and Target share `AdobeOAuthClient` in `megaton_lib/audit/providers/adobe_auth.py`.
+Set `ADOBE_CLIENT_ID`, `ADOBE_CLIENT_SECRET`, `ADOBE_ORG_ID` environment variables.
+Tokens are cached to disk and auto-refreshed on expiry or 401.
 
 ## Documentation
 
