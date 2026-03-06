@@ -143,7 +143,7 @@ def _export_resource(
 
 def _extract_design_script(design: dict[str, Any], out_dir: Path, item_id: Any) -> None:
     """Extract design script/template to a separate file."""
-    content = design.get("content", "")
+    content = design.get("script") or design.get("content") or ""
     if not isinstance(content, str) or not content.strip():
         return
 
@@ -288,7 +288,9 @@ def _merge_design_sidecar(local: dict[str, Any], json_file: Path) -> dict[str, A
                 except OSError:
                     continue
                 merged = dict(local)
-                merged["content"] = script
+                # Target API uses "script" for designs, not "content"
+                field = "script" if "script" in local else "content"
+                merged[field] = script
                 return merged
     return local
 
