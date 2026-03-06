@@ -4,7 +4,8 @@ from pathlib import Path
 
 # Ensure project root is on sys.path so `app.*` / `megaton_lib.*` resolve
 # when invoked as `streamlit run app/streamlit_app.py`.
-sys.path.insert(0, str(Path(__file__).parent.parent))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
@@ -12,6 +13,7 @@ import pandas as pd
 import json
 import os
 import re
+import time
 from datetime import datetime, timedelta
 
 from app.i18n import (
@@ -34,33 +36,50 @@ st.set_page_config(
 
 # === Parameter file watching ===
 
-PARAMS_FILE = Path("input/params.json")
+PARAMS_FILE = PROJECT_ROOT / "input" / "params.json"
 
 def load_params_from_file():
     """Load parameters from external JSON file"""
     if not PARAMS_FILE.exists():
         return None, None, [], None
-    try:
-        mtime = PARAMS_FILE.stat().st_mtime
-        with open(PARAMS_FILE, "r", encoding="utf-8") as f:
-            raw_params = json.load(f)
-        canonical = canonicalize_json(raw_params)
-        params, errors = validate_params(raw_params)
-        return params, mtime, errors, canonical
-    except json.JSONDecodeError as e:
+    last_json_error = None
+    last_io_error = None
+    last_schema_errors: list[dict] = []
+
+    # absorb transient read/validate failures while file is being rewritten
+    for attempt in range(3):
+        try:
+            mtime = PARAMS_FILE.stat().st_mtime
+            with open(PARAMS_FILE, "r", encoding="utf-8") as f:
+                raw_params = json.load(f)
+            canonical = canonicalize_json(raw_params)
+            params, errors = validate_params(raw_params)
+            if params:
+                return params, mtime, [], canonical
+            last_schema_errors = errors
+        except json.JSONDecodeError as e:
+            last_json_error = e
+        except IOError as e:
+            last_io_error = e
+
+        if attempt < 2:
+            time.sleep(0.12)
+
+    if last_schema_errors:
+        return None, None, last_schema_errors, None
+    if last_json_error is not None:
         return None, None, [{
             "error_code": "INVALID_JSON",
-            "message": f"Invalid JSON: {e}",
+            "message": f"Invalid JSON: {last_json_error}",
             "path": "$",
             "hint": "Fix JSON syntax in input/params.json."
         }], None
-    except IOError as e:
-        return None, None, [{
-            "error_code": "FILE_IO_ERROR",
-            "message": f"Failed to read params.json: {e}",
-            "path": "$",
-            "hint": "Check file permissions and file path."
-        }], None
+    return None, None, [{
+        "error_code": "FILE_IO_ERROR",
+        "message": f"Failed to read params.json: {last_io_error}",
+        "path": "$",
+        "hint": "Check file permissions and file path."
+    }], None
 
 def apply_params_to_session(params):
     """Apply loaded parameters to session state (including widget keys)"""
@@ -248,12 +267,16 @@ query_ga4 = _megaton_client.query_ga4
 _get_gsc_sites = _megaton_client.get_gsc_sites
 query_gsc = _megaton_client.query_gsc
 query_aa = getattr(_megaton_client, "query_aa", None)
+_get_aa_companies = getattr(_megaton_client, "get_aa_companies", None)
+_get_aa_dimensions = getattr(_megaton_client, "get_aa_dimensions", None)
+_get_aa_metrics = getattr(_megaton_client, "get_aa_metrics", None)
+_get_aa_report_suites = getattr(_megaton_client, "get_aa_report_suites", None)
 _get_bq_datasets = _megaton_client.get_bq_datasets
 query_bq = _megaton_client.query_bq
 save_to_sheet = _megaton_client.save_to_sheet
 save_to_bq = _megaton_client.save_to_bq
 from megaton_lib.params_diff import canonicalize_json
-from megaton_lib.params_validator import validate_params
+import megaton_lib.params_validator as _params_validator
 from megaton_lib.result_inspector import apply_pipeline, SUPPORTED_AGG_FUNCS, parse_transforms
 from app.ui.params_utils import (
     GA4_OPERATORS,
@@ -290,6 +313,44 @@ def get_gsc_sites():
 def get_bq_datasets(project_id):
     return _get_bq_datasets(project_id)
 
+@st.cache_data(ttl=300)
+def get_aa_companies(org_id=""):
+    if _get_aa_companies is None:
+        return []
+    return _get_aa_companies(org_id=str(org_id).strip() or None)
+
+@st.cache_data(ttl=300)
+def get_aa_report_suites(company_id, org_id=""):
+    if _get_aa_report_suites is None:
+        return []
+    return _get_aa_report_suites(
+        company_id=str(company_id).strip(),
+        org_id=str(org_id).strip() or None,
+        limit=1000,
+    )
+
+@st.cache_data(ttl=300)
+def get_aa_dimensions(company_id, rsid, org_id=""):
+    if _get_aa_dimensions is None:
+        return []
+    return _get_aa_dimensions(
+        company_id=str(company_id).strip(),
+        rsid=str(rsid).strip(),
+        org_id=str(org_id).strip() or None,
+        limit=2000,
+    )
+
+@st.cache_data(ttl=300)
+def get_aa_metrics(company_id, rsid, org_id=""):
+    if _get_aa_metrics is None:
+        return []
+    return _get_aa_metrics(
+        company_id=str(company_id).strip(),
+        rsid=str(rsid).strip(),
+        org_id=str(org_id).strip() or None,
+        limit=2000,
+    )
+
 @st.cache_data(ttl=60)
 def execute_ga4_query(property_id, start_date, end_date, dimensions, metrics, filter_d, limit):
     return query_ga4(property_id, start_date, end_date, dimensions, metrics, filter_d, limit)
@@ -319,6 +380,11 @@ def execute_aa_query(company_id, rsid, start_date, end_date, dimension, metrics,
 
 def execute_bq_query(project_id, sql):
     return query_bq(project_id, sql)
+
+
+def validate_params(raw_params):
+    """Validate params via the imported validator module."""
+    return _params_validator.validate_params(raw_params)
 
 
 def detect_datetime_x_axis(df: pd.DataFrame) -> tuple[str | None, pd.Series | None]:
@@ -373,6 +439,14 @@ if "execute_requested" not in st.session_state:
     st.session_state["execute_requested"] = False
 if "is_executing" not in st.session_state:
     st.session_state["is_executing"] = False
+
+# Recover from stale validation errors retained in session state.
+if st.session_state.get("params_validation_errors"):
+    _current_params, _current_mtime, _current_errors, _current_canonical = load_params_from_file()
+    if _current_params and not _current_errors:
+        st.session_state["params_validation_errors"] = []
+        st.session_state["last_params_mtime"] = _current_mtime
+        st.session_state["last_params_canonical"] = _current_canonical
 
 # Auto-refresh (file watching: every 2s)
 if st.session_state.get("auto_watch", True):
@@ -596,15 +670,163 @@ with st.sidebar:
                 loaded_segment = ",".join(str(x).strip() for x in loaded_segment if str(x).strip())
             st.session_state["w_aa_segment"] = loaded_segment
 
+        aa_org_id = st.session_state.get("w_aa_org_id", "")
+        aa_companies: list[dict[str, str]] = []
+        aa_companies_error = ""
+        try:
+            aa_companies = get_aa_companies(aa_org_id.strip())
+        except Exception as e:
+            aa_companies_error = str(e)
+
         aa_col1, aa_col2 = st.columns(2)
         with aa_col1:
-            company_id = st.text_input(t("aa.company_id"), key="w_aa_company_id")
-            rsid = st.text_input(t("aa.rsid"), key="w_aa_rsid")
-        with aa_col2:
-            org_id = st.text_input(t("aa.org_id"), key="w_aa_org_id")
-            dimension = st.text_input(t("aa.dimension"), key="w_aa_dimension")
+            company_options: list[str] = []
+            company_labels: dict[str, str] = {}
+            for company in aa_companies:
+                company_id_value = str(company.get("company_id", "")).strip()
+                if not company_id_value:
+                    continue
+                company_name = str(company.get("name", "")).strip()
+                company_options.append(company_id_value)
+                company_labels[company_id_value] = (
+                    f"{company_name} ({company_id_value})"
+                    if company_name and company_name != company_id_value
+                    else company_id_value
+                )
 
-        aa_metric_options = [
+            current_company = st.session_state.get("w_aa_company_id", "").strip()
+            if current_company and current_company not in company_options:
+                company_options.insert(0, current_company)
+                company_labels[current_company] = f"{current_company} (custom)"
+
+            if company_options:
+                default_company = (
+                    current_company if current_company in company_options else company_options[0]
+                )
+                company_id = st.selectbox(
+                    t("aa.company_id"),
+                    company_options,
+                    index=company_options.index(default_company),
+                    format_func=lambda value: company_labels.get(value, value),
+                )
+                st.session_state["w_aa_company_id"] = company_id
+            else:
+                company_id = st.text_input(t("aa.company_id"), key="w_aa_company_id")
+                if aa_companies_error:
+                    st.caption(t("msg.error", error=aa_companies_error))
+
+        aa_suites: list[dict[str, str]] = []
+        aa_suites_error = ""
+        if company_id.strip():
+            try:
+                aa_suites = get_aa_report_suites(company_id.strip(), aa_org_id.strip())
+            except Exception as e:
+                aa_suites_error = str(e)
+
+        with aa_col2:
+            rsid_options: list[str] = []
+            rsid_labels: dict[str, str] = {}
+            for suite in aa_suites:
+                rsid_value = str(suite.get("rsid", "")).strip()
+                if not rsid_value:
+                    continue
+                suite_name = str(suite.get("name", "")).strip()
+                rsid_options.append(rsid_value)
+                rsid_labels[rsid_value] = (
+                    f"{suite_name} ({rsid_value})"
+                    if suite_name and suite_name != rsid_value
+                    else rsid_value
+                )
+
+            current_rsid = st.session_state.get("w_aa_rsid", "").strip()
+            if current_rsid and current_rsid not in rsid_options:
+                rsid_options.insert(0, current_rsid)
+                rsid_labels[current_rsid] = f"{current_rsid} (custom)"
+
+            if rsid_options:
+                default_rsid = current_rsid if current_rsid in rsid_options else rsid_options[0]
+                rsid = st.selectbox(
+                    t("aa.rsid"),
+                    rsid_options,
+                    index=rsid_options.index(default_rsid),
+                    format_func=lambda value: rsid_labels.get(value, value),
+                )
+                st.session_state["w_aa_rsid"] = rsid
+            else:
+                rsid = st.text_input(t("aa.rsid"), key="w_aa_rsid")
+                if aa_suites_error:
+                    st.caption(t("msg.error", error=aa_suites_error))
+
+        aa_dimensions_meta: list[dict[str, str]] = []
+        aa_metrics_meta: list[dict[str, str]] = []
+        aa_dimensions_error = ""
+        aa_metrics_error = ""
+        if company_id.strip() and rsid.strip():
+            try:
+                aa_dimensions_meta = get_aa_dimensions(
+                    company_id.strip(),
+                    rsid.strip(),
+                    aa_org_id.strip(),
+                )
+            except Exception as e:
+                aa_dimensions_error = str(e)
+            try:
+                aa_metrics_meta = get_aa_metrics(
+                    company_id.strip(),
+                    rsid.strip(),
+                    aa_org_id.strip(),
+                )
+            except Exception as e:
+                aa_metrics_error = str(e)
+
+        dimension_options: list[str] = []
+        dimension_labels: dict[str, str] = {}
+        for dim in aa_dimensions_meta:
+            dim_id = str(dim.get("id", "")).strip()
+            if not dim_id:
+                continue
+            dim_name = str(dim.get("name", "")).strip()
+            dimension_options.append(dim_id)
+            dimension_labels[dim_id] = (
+                f"{dim_name} ({dim_id})" if dim_name and dim_name != dim_id else dim_id
+            )
+
+        current_dimension = st.session_state.get("w_aa_dimension", "").strip()
+        if current_dimension and current_dimension not in dimension_options:
+            dimension_options.insert(0, current_dimension)
+            dimension_labels[current_dimension] = f"{current_dimension} (custom)"
+
+        if dimension_options:
+            default_dimension = (
+                current_dimension if current_dimension in dimension_options else dimension_options[0]
+            )
+            dimension = st.selectbox(
+                t("aa.dimension"),
+                dimension_options,
+                index=dimension_options.index(default_dimension),
+                format_func=lambda value: dimension_labels.get(value, value),
+            )
+            st.session_state["w_aa_dimension"] = dimension
+        else:
+            dimension = st.text_input(t("aa.dimension"), key="w_aa_dimension")
+            if aa_dimensions_error:
+                st.caption(t("msg.error", error=aa_dimensions_error))
+
+        aa_metric_options: list[str] = []
+        metric_labels: dict[str, str] = {}
+        for metric in aa_metrics_meta:
+            metric_id = str(metric.get("id", "")).strip()
+            if not metric_id:
+                continue
+            metric_name = str(metric.get("name", "")).strip()
+            aa_metric_options.append(metric_id)
+            metric_labels[metric_id] = (
+                f"{metric_name} ({metric_id})"
+                if metric_name and metric_name != metric_id
+                else metric_id
+            )
+
+        static_metric_fallback = [
             "occurrences",
             "revenue",
             "orders",
@@ -614,13 +836,30 @@ with st.sidebar:
             "visitors",
             "uniquevisitors",
         ]
+        normalized_metric_ids: set[str] = set()
+        for metric in aa_metric_options:
+            raw_metric = str(metric).strip()
+            if not raw_metric:
+                continue
+            normalized_metric_ids.add(raw_metric)
+            normalized_metric_ids.add(raw_metric.removeprefix("metrics/"))
+
+        for metric in static_metric_fallback:
+            if metric not in normalized_metric_ids and f"metrics/{metric}" not in normalized_metric_ids:
+                aa_metric_options.append(metric)
+                normalized_metric_ids.add(metric)
+                normalized_metric_ids.add(f"metrics/{metric}")
+
         metrics = st.multiselect(
             t("aa.metrics"),
             aa_metric_options,
+            format_func=lambda value: metric_labels.get(value, value),
             key="w_aa_metrics",
             accept_new_options=True,
             max_selections=20,
         )
+        if aa_metrics_error:
+            st.caption(t("msg.error", error=aa_metrics_error))
         aa_segment_raw = st.text_input(
             t("aa.segment"),
             key="w_aa_segment",
@@ -797,7 +1036,7 @@ if st.session_state.get("execute_requested") and st.session_state.get("is_execut
                         metrics,
                         aa_segments if 'aa_segments' in dir() else [],
                         limit,
-                        org_id.strip() if 'org_id' in dir() else "",
+                        aa_org_id.strip(),
                     )
             else:
                 # BigQuery

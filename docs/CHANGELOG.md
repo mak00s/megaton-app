@@ -2,6 +2,25 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+### 2026-03-06 (v0.5.0)
+
+- Expanded Adobe Analytics support in Streamlit:
+  - Company ID and RSID are now auto-discovered and selectable from dropdowns
+  - Dimension and metric options are fetched from AA metadata APIs (with manual input fallback)
+  - Removed Org ID input from the UI (uses runtime config/env as internal auth context)
+- Hardened AA API handling in the shared client:
+  - Added support for array-style JSON payloads from `/dimensions` and `/metrics`
+  - Improved paging stop conditions (`lastPage` default handling + `totalPages/number` fallback)
+  - Discovery requests no longer require proxy company header
+  - Refactored duplicated dimension/metric catalog fetch logic into a shared implementation
+- Reduced Streamlit validation side effects by removing per-rerun `importlib.reload()` of the params validator
+- Updated site alias configuration for public-repo safety:
+  - Added `configs/sites.example.json` template
+  - Switched CLI alias loading to layered config resolution:
+    `sites.example.json` < `sites.json` < `sites.local.json`
+  - Stopped tracking `configs/sites.json` in Git; treat `sites.json` / `sites.local.json` as local files
+- Updated docs (`README.md`, `docs/USAGE.md`, `docs/REFERENCE.md`, `AGENTS.md`) to reflect AA UI behavior and local alias config policy
+
 ### 2026-03-05 (v0.4.2)
 
 - Expanded default credentials discovery in `megaton_lib.credentials`:

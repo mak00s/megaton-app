@@ -1,0 +1,8 @@
+{
+  "sample": {
+    "gsc_site_url": "https://example.com/",
+    "ga4_property_id": "123456789",
+    "aa_company_id": "example-company",
+    "aa_rsid": "example-rsid"
+  }
+}

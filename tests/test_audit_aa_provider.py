@@ -11,7 +11,7 @@ from megaton_lib.audit.providers.analytics.aa import AdobeAnalyticsClient
 
 
 class _DummyResponse:
-    def __init__(self, status_code: int, payload: dict, headers: dict | None = None):
+    def __init__(self, status_code: int, payload, headers: dict | None = None):
         self.status_code = status_code
         self._payload = payload
         self.headers = headers or {}
@@ -167,3 +167,104 @@ def test_fetch_dimension_metric_shape(aa_env, monkeypatch):
     assert list(out.columns) == ["site", "metric_value"]
     assert out.iloc[0]["site"] == "Feb 17, 2026"
     assert int(round(out.iloc[0]["metric_value"])) == 17034810
+
+
+def test_list_dimensions_accepts_array_payload(aa_env, monkeypatch):
+    cfg = _config(aa_env)
+    responses = [
+        _DummyResponse(200, {"access_token": "tok", "expires_in": 3600}),
+        _DummyResponse(
+            200,
+            [
+                {"id": "variables/page", "name": "Page"},
+                {"id": "variables/evar1", "name": "Site Name"},
+            ],
+        ),
+    ]
+    dummy = _DummySession(responses)
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.aa.requests.Session",
+        lambda: dummy,
+    )
+
+    client = AdobeAnalyticsClient(cfg)
+    out = client.list_dimensions(rsid=cfg.rsid)
+
+    assert [d["id"] for d in out] == ["variables/page", "variables/evar1"]
+
+
+def test_list_metrics_accepts_array_payload(aa_env, monkeypatch):
+    cfg = _config(aa_env)
+    responses = [
+        _DummyResponse(200, {"access_token": "tok", "expires_in": 3600}),
+        _DummyResponse(
+            200,
+            [
+                {"id": "metrics/revenue", "name": "Revenue"},
+                {"id": "metrics/orders", "name": "Orders"},
+            ],
+        ),
+    ]
+    dummy = _DummySession(responses)
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.aa.requests.Session",
+        lambda: dummy,
+    )
+
+    client = AdobeAnalyticsClient(cfg)
+    out = client.list_metrics(rsid=cfg.rsid)
+
+    assert [m["id"] for m in out] == ["metrics/revenue", "metrics/orders"]
+
+
+def test_list_report_suites_uses_total_pages_when_last_page_missing(aa_env, monkeypatch):
+    cfg = _config(aa_env)
+    responses = [
+        _DummyResponse(200, {"access_token": "tok", "expires_in": 3600}),
+        _DummyResponse(
+            200,
+            {
+                "content": [{"rsid": "suite-a", "name": "Suite A"}],
+                "number": 0,
+                "totalPages": 2,
+            },
+        ),
+        _DummyResponse(
+            200,
+            {
+                "content": [{"rsid": "suite-b", "name": "Suite B"}],
+                "number": 1,
+                "totalPages": 2,
+            },
+        ),
+    ]
+    dummy = _DummySession(responses)
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.aa.requests.Session",
+        lambda: dummy,
+    )
+
+    client = AdobeAnalyticsClient(cfg)
+    suites = client.list_report_suites(limit=1000)
+
+    assert [s["rsid"] for s in suites] == ["suite-a", "suite-b"]
+
+
+def test_list_companies_does_not_send_proxy_company_header(aa_env, monkeypatch):
+    cfg = _config(aa_env)
+    responses = [
+        _DummyResponse(200, {"access_token": "tok", "expires_in": 3600}),
+        _DummyResponse(200, {"imsOrgs": [{"companies": [{"globalCompanyId": "wacoal1"}]}]}),
+    ]
+    dummy = _DummySession(responses)
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.aa.requests.Session",
+        lambda: dummy,
+    )
+
+    client = AdobeAnalyticsClient(cfg)
+    _ = client.list_companies()
+
+    discovery_call = dummy.calls[-1]
+    headers = discovery_call.get("headers") or {}
+    assert "x-proxy-global-company-id" not in headers

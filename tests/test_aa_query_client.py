@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from megaton_lib.megaton_client import query_aa
+from megaton_lib.megaton_client import get_aa_companies, get_aa_report_suites, query_aa
 
 
 def test_query_aa_normalizes_columns_and_end_date(monkeypatch):
@@ -41,3 +41,38 @@ def test_query_aa_normalizes_columns_and_end_date(monkeypatch):
     assert int(out.iloc[0]["orders"]) == 1587
     assert captured["date_to"] == "2026-02-18"
     assert captured["metrics"] == ["revenue", "orders"]
+
+
+def test_get_aa_report_suites_sorted(monkeypatch):
+    class _DummyClient:
+        def __init__(self, config):
+            self.config = config
+
+        def list_report_suites(self, **kwargs):
+            _ = kwargs
+            return [
+                {"rsid": "bbb", "name": "B Suite"},
+                {"rsid": "aaa", "name": "A Suite"},
+            ]
+
+    monkeypatch.setattr("megaton_lib.megaton_client.AdobeAnalyticsClient", _DummyClient)
+
+    suites = get_aa_report_suites(company_id="wacoal1")
+    assert [s["rsid"] for s in suites] == ["aaa", "bbb"]
+
+
+def test_get_aa_companies_sorted(monkeypatch):
+    class _DummyClient:
+        def __init__(self, config):
+            self.config = config
+
+        def list_companies(self):
+            return [
+                {"company_id": "bbb", "name": "B Company"},
+                {"company_id": "aaa", "name": "A Company"},
+            ]
+
+    monkeypatch.setattr("megaton_lib.megaton_client.AdobeAnalyticsClient", _DummyClient)
+
+    companies = get_aa_companies()
+    assert [c["company_id"] for c in companies] == ["aaa", "bbb"]

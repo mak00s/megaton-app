@@ -28,6 +28,7 @@ GA4 / Search Console / Adobe Analytics / BigQuery のデータを取得・加工
 
 - Python 3.10+
 - GCP サービスアカウント JSON（GA4 / GSC / BQ の API アクセス権限付き）
+- Adobe Analytics 利用時は `ADOBE_CLIENT_ID` / `ADOBE_CLIENT_SECRET` / `ADOBE_ORG_ID`
 
 ### インストール
 
@@ -59,7 +60,8 @@ streamlit run app/streamlit_app.py
 # → http://localhost:8501
 ```
 
-ブラウザでデータソース（GA4 / GSC / BQ）を選び、プロパティと日付を指定して「実行」。
+ブラウザでデータソース（GA4 / GSC / AA / BQ）を選び、対象と日付を指定して「実行」。
+AA では Company ID / RSID / Dimension / Metrics をAPIメタデータから選択できる（必要なら手入力も可）。
 
 ### CLI で GA4 データを取得する
 
@@ -76,7 +78,7 @@ streamlit run app/streamlit_app.py
 }
 ```
 
-`site` は `configs/sites.json` の alias（`corp`, `shibuya` など）。`property_id` を直接指定してもよい。
+`site` は `configs/sites.local.json`（またはローカルの `configs/sites.json`）の alias。テンプレートは `configs/sites.example.json`。`property_id` を直接指定してもよい。
 
 2. 実行:
 

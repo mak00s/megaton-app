@@ -485,6 +485,99 @@ def query_gsc(
 
 # === Adobe Analytics ===
 
+def _build_aa_config(
+    *,
+    company_id: str,
+    rsid: str,
+    org_id: str | None = None,
+    token_cache_file: str | None = None,
+) -> AdobeAnalyticsConfig:
+    """Build AA config for query/metadata APIs with shared auth defaults."""
+    return AdobeAnalyticsConfig(
+        company_id=str(company_id).strip(),
+        rsid=str(rsid).strip(),
+        dimension="daterangeday",
+        metric="occurrences",
+        org_id=str(org_id).strip() if org_id else None,
+        token_cache_file=token_cache_file or "credentials/.adobe_token_cache.json",
+    )
+
+def get_aa_companies(
+    *,
+    org_id: str | None = None,
+    token_cache_file: str | None = None,
+) -> list[dict[str, str]]:
+    """List accessible AA companies for current credentials."""
+    aa_cfg = _build_aa_config(
+        company_id="",
+        rsid="",
+        org_id=org_id,
+        token_cache_file=token_cache_file,
+    )
+    client = AdobeAnalyticsClient(aa_cfg)
+    companies = client.list_companies()
+    return sorted(companies, key=lambda x: (x.get("name", ""), x.get("company_id", "")))
+
+
+def get_aa_dimensions(
+    *,
+    company_id: str,
+    rsid: str,
+    org_id: str | None = None,
+    token_cache_file: str | None = None,
+    limit: int = 2000,
+) -> list[dict[str, str]]:
+    """List AA dimensions for an RSID."""
+    aa_cfg = _build_aa_config(
+        company_id=company_id,
+        rsid=rsid,
+        org_id=org_id,
+        token_cache_file=token_cache_file,
+    )
+    client = AdobeAnalyticsClient(aa_cfg)
+    dimensions = client.list_dimensions(rsid=aa_cfg.rsid, limit=limit)
+    return sorted(dimensions, key=lambda x: (x.get("name", ""), x.get("id", "")))
+
+
+def get_aa_metrics(
+    *,
+    company_id: str,
+    rsid: str,
+    org_id: str | None = None,
+    token_cache_file: str | None = None,
+    limit: int = 2000,
+) -> list[dict[str, str]]:
+    """List AA metrics for an RSID."""
+    aa_cfg = _build_aa_config(
+        company_id=company_id,
+        rsid=rsid,
+        org_id=org_id,
+        token_cache_file=token_cache_file,
+    )
+    client = AdobeAnalyticsClient(aa_cfg)
+    metrics = client.list_metrics(rsid=aa_cfg.rsid, limit=limit)
+    return sorted(metrics, key=lambda x: (x.get("name", ""), x.get("id", "")))
+
+
+def get_aa_report_suites(
+    *,
+    company_id: str,
+    org_id: str | None = None,
+    token_cache_file: str | None = None,
+    limit: int = 1000,
+) -> list[dict[str, str]]:
+    """List available AA report suites for the company."""
+    aa_cfg = _build_aa_config(
+        company_id=company_id,
+        rsid="",
+        org_id=org_id,
+        token_cache_file=token_cache_file,
+    )
+    client = AdobeAnalyticsClient(aa_cfg)
+    suites = client.list_report_suites(limit=limit)
+    return sorted(suites, key=lambda x: (x.get("name", ""), x.get("rsid", "")))
+
+
 def query_aa(
     *,
     company_id: str,

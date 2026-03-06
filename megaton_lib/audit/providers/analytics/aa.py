@@ -133,15 +133,17 @@ class AdobeAnalyticsClient:
             raise RuntimeError("Invalid Adobe token response")
         return payload
 
-    def _api_headers(self) -> dict[str, str]:
-        return {
+    def _api_headers(self, *, include_company: bool = True) -> dict[str, str]:
+        headers = {
             "Authorization": f"Bearer {self.access_token}",
             "x-api-key": self._client_id_val,
             "x-gw-ims-org-id": self._org_id_val,
-            "x-proxy-global-company-id": self.config.company_id,
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
+        if include_company and self.config.company_id.strip():
+            headers["x-proxy-global-company-id"] = self.config.company_id
+        return headers
 
     def _compute_wait(self, attempt_index: int, retry_after_sec: float | None) -> float:
         if retry_after_sec is not None and retry_after_sec >= 0:
@@ -175,19 +177,22 @@ class AdobeAnalyticsClient:
         return max(0.0, (dt - now).total_seconds())
 
     @staticmethod
-    def _safe_json(response: requests.Response) -> dict[str, Any] | None:
+    def _safe_json(response: requests.Response) -> dict[str, Any] | list[Any] | None:
         try:
             payload = response.json()
         except Exception:
             return None
-        if isinstance(payload, dict):
+        if isinstance(payload, (dict, list)):
             return payload
         return None
 
     @staticmethod
-    def _extract_status(response: requests.Response, payload: dict[str, Any] | None) -> int:
+    def _extract_status(
+        response: requests.Response,
+        payload: dict[str, Any] | list[Any] | None,
+    ) -> int:
         status = int(response.status_code)
-        if payload is None:
+        if payload is None or not isinstance(payload, dict):
             return status
         pseudo = payload.get("status_code")
         if isinstance(pseudo, int) and status < 400:
@@ -210,6 +215,7 @@ class AdobeAnalyticsClient:
         data: dict[str, Any] | None = None,
         authenticated: bool,
         retry_on_401: bool,
+        allow_array_json: bool = False,
     ) -> dict[str, Any]:
         refreshed = False
 
@@ -235,8 +241,10 @@ class AdobeAnalyticsClient:
             status = self._extract_status(response, payload)
 
             if 200 <= status < 300:
-                if payload is not None:
+                if isinstance(payload, dict):
                     return payload
+                if allow_array_json and isinstance(payload, list):
+                    return {"content": payload, "lastPage": True, "number": 0, "totalPages": 1}
                 raise RuntimeError(f"Adobe API returned non-JSON response: HTTP {status}")
 
             if authenticated and retry_on_401 and status == 401 and not refreshed:
@@ -349,8 +357,20 @@ class AdobeAnalyticsClient:
             if len(all_rows) >= max_rows:
                 break
 
-            last_page = bool(response.get("lastPage", True))
+            if not page_rows:
+                break
+
+            last_page = bool(response.get("lastPage", False))
             if last_page:
+                break
+
+            total_pages = response.get("totalPages")
+            current_page = response.get("number")
+            if (
+                isinstance(total_pages, int)
+                and isinstance(current_page, int)
+                and current_page + 1 >= total_pages
+            ):
                 break
             page += 1
 
@@ -378,6 +398,187 @@ class AdobeAnalyticsClient:
 
         df = pd.DataFrame(records)
         return df
+
+    def list_report_suites(self, *, limit: int = 1000) -> list[dict[str, str]]:
+        """List accessible report suites for the configured company."""
+        if limit < 1:
+            raise ValueError("limit must be >= 1")
+
+        endpoint = f"{self.AA_API_BASE}/{self.config.company_id}/collections/suites"
+        page = 0
+        max_page_size = 200
+        page_size = min(int(limit), max_page_size)
+        suites: list[dict[str, str]] = []
+        seen: set[str] = set()
+
+        while True:
+            response = self._request_json(
+                method="GET",
+                url=endpoint,
+                headers=self._api_headers(),
+                params={"limit": page_size, "page": page},
+                authenticated=True,
+                retry_on_401=True,
+            )
+
+            content = response.get("content", [])
+            if not isinstance(content, list):
+                raise RuntimeError(
+                    f"Unexpected Adobe suites format: content={type(content)}",
+                )
+
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                rsid = str(item.get("rsid") or item.get("id") or "").strip()
+                if not rsid or rsid in seen:
+                    continue
+                seen.add(rsid)
+                suites.append(
+                    {
+                        "rsid": rsid,
+                        "name": str(item.get("name") or rsid).strip(),
+                    }
+                )
+                if len(suites) >= limit:
+                    return suites
+
+            if not content:
+                break
+
+            if bool(response.get("lastPage", False)):
+                break
+
+            total_pages = response.get("totalPages")
+            current_page = response.get("number")
+            if (
+                isinstance(total_pages, int)
+                and isinstance(current_page, int)
+                and current_page + 1 >= total_pages
+            ):
+                break
+
+            page += 1
+
+        return suites
+
+    def list_companies(self) -> list[dict[str, str]]:
+        """List accessible Adobe Analytics companies from discovery API."""
+        response = self._request_json(
+            method="GET",
+            url="https://analytics.adobe.io/discovery/me",
+            headers=self._api_headers(include_company=False),
+            authenticated=True,
+            retry_on_401=True,
+        )
+        orgs = response.get("imsOrgs", [])
+        if not isinstance(orgs, list):
+            raise RuntimeError(f"Unexpected Adobe discovery format: imsOrgs={type(orgs)}")
+
+        companies: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for org in orgs:
+            if not isinstance(org, dict):
+                continue
+            for company in org.get("companies", []) or []:
+                if not isinstance(company, dict):
+                    continue
+                company_id = str(company.get("globalCompanyId") or "").strip()
+                if not company_id or company_id in seen:
+                    continue
+                seen.add(company_id)
+                companies.append(
+                    {
+                        "company_id": company_id,
+                        "name": str(company.get("companyName") or company_id).strip(),
+                    }
+                )
+
+        return companies
+
+    def _list_catalog_items(
+        self,
+        *,
+        endpoint_name: str,
+        rsid: str,
+        limit: int,
+    ) -> list[dict[str, str]]:
+        """List AA catalog items (dimensions/metrics) for the given RSID."""
+        if limit < 1:
+            raise ValueError("limit must be >= 1")
+
+        endpoint = f"{self.AA_API_BASE}/{self.config.company_id}/{endpoint_name}"
+        page = 0
+        max_page_size = 200
+        page_size = min(int(limit), max_page_size)
+        items: list[dict[str, str]] = []
+        seen: set[str] = set()
+
+        while True:
+            response = self._request_json(
+                method="GET",
+                url=endpoint,
+                headers=self._api_headers(),
+                params={"rsid": rsid, "limit": page_size, "page": page},
+                authenticated=True,
+                retry_on_401=True,
+                allow_array_json=True,
+            )
+            content = response.get("content", [])
+            if not isinstance(content, list):
+                raise RuntimeError(
+                    f"Unexpected Adobe {endpoint_name} format: content={type(content)}",
+                )
+
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                item_id = str(item.get("id") or "").strip()
+                if not item_id or item_id in seen:
+                    continue
+                seen.add(item_id)
+                items.append(
+                    {
+                        "id": item_id,
+                        "name": str(item.get("name") or item_id).strip(),
+                    }
+                )
+                if len(items) >= limit:
+                    return items
+
+            if not content:
+                break
+            if bool(response.get("lastPage", False)):
+                break
+
+            total_pages = response.get("totalPages")
+            current_page = response.get("number")
+            if (
+                isinstance(total_pages, int)
+                and isinstance(current_page, int)
+                and current_page + 1 >= total_pages
+            ):
+                break
+
+            page += 1
+
+        return items
+
+    def list_dimensions(self, *, rsid: str, limit: int = 2000) -> list[dict[str, str]]:
+        """List report dimensions for the given RSID."""
+        return self._list_catalog_items(
+            endpoint_name="dimensions",
+            rsid=rsid,
+            limit=limit,
+        )
+
+    def list_metrics(self, *, rsid: str, limit: int = 2000) -> list[dict[str, str]]:
+        """List report metrics for the given RSID."""
+        return self._list_catalog_items(
+            endpoint_name="metrics",
+            rsid=rsid,
+            limit=limit,
+        )
 
     def fetch_dimension_metric(
         self,

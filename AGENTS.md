@@ -92,15 +92,13 @@ Credentials in `credentials/` provide access to the following. To refresh:
 
 ## Site Aliases
 
-Instead of remembering full URLs and property IDs, use short aliases defined in `configs/sites.json`:
+Instead of remembering full URLs and property IDs, use short aliases defined in `configs/sites.local.json` (or `configs/sites.json` if you manage it locally). Use `configs/sites.example.json` as the template:
 
 ```json
 {"schema_version":"1.0","source":"gsc","site":"corp","date_range":{"start":"today-7d","end":"today"},"dimensions":["query"]}
 ```
 
 The `"site"` field auto-resolves to `site_url` (GSC) or `property_id` (GA4).
-
-Available aliases: `corp`, `shibuya`, `shibuya-gr`, `shinjuku`, `yokohama`, `namba`, `hakata`, `umeda`, `tenjin`, `ikebukuro`, `yaesu`, `sendai`, `sapporo`
 
 ## How to Fetch Data
 

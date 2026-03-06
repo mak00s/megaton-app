@@ -186,23 +186,32 @@ _sites_cache: dict | None = None
 
 
 def _load_sites() -> dict:
-    """Load site alias definitions from configs/sites.json."""
+    """Load site alias definitions from config files.
+
+    Precedence (later wins): sites.example.json < sites.json < sites.local.json.
+    """
     global _sites_cache
     if _sites_cache is not None:
         return _sites_cache
-    sites_path = Path(__file__).parent.parent / "configs" / "sites.json"
-    if sites_path.exists():
+    config_dir = Path(__file__).parent.parent / "configs"
+    merged: dict = {}
+    for filename in ("sites.example.json", "sites.json", "sites.local.json"):
+        sites_path = config_dir / filename
+        if not sites_path.exists():
+            continue
         with open(sites_path, "r", encoding="utf-8") as f:
-            _sites_cache = json.load(f)
-    else:
-        _sites_cache = {}
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError(f"{sites_path} must be a JSON object")
+        merged.update(data)
+    _sites_cache = merged
     return _sites_cache
 
 
 def resolve_site_alias(raw: dict) -> dict:
     """Expand ``site`` alias to ``site_url`` / ``property_id``.
 
-    If ``site`` is present, look it up in configs/sites.json and inject the
+    If ``site`` is present, look it up in configs/sites*.json and inject the
     appropriate field for the source type. The ``site`` key is removed so the
     validator won't reject it as an unknown field.
     """
@@ -241,7 +250,7 @@ def _validate_raw(raw: dict) -> tuple[dict | None, dict | None]:
         return None, {
             "error_code": "INVALID_SITE_ALIAS",
             "message": str(e),
-            "hint": "Check configs/sites.json for available aliases.",
+            "hint": "Check configs/sites.local.json or configs/sites.example.json.",
         }
     params, errors = validate_params(raw)
     if errors:
