@@ -7,7 +7,7 @@ AI agents can drive the entire workflow through a simple JSON file, with no MCP 
 ## Features
 
 - **AI Agent ready** — File-based integration works with any agent; zero context overhead
-- **Streamlit UI** — Browse GA4/GSC/BQ data with filtering, table/chart tabs, and CSV export
+- **Streamlit UI** — Browse GA4/GSC/AA/BQ data with filtering, table/chart tabs, and CSV export
 - **CLI** — Run queries from JSON, async jobs, batch execution, and result pipelines
 - **Audit CLI** — Reusable audits for GTM/Adobe Tags + GA4/AA (`scripts/audit.py`)
 - **Notebook** — Develop analyses interactively, then run them as scheduled jobs
@@ -40,6 +40,7 @@ Unlike MCP-based integrations, this file-based approach requires no server setup
 ```bash
 pip install -r requirements.txt
 # Place service account JSON file(s) in credentials/
+# For Adobe Analytics, set ADOBE_CLIENT_ID / ADOBE_CLIENT_SECRET / ADOBE_ORG_ID
 ```
 
 ## Quick Start
@@ -65,6 +66,13 @@ python -m pytest -q
 | [docs/USAGE.md](docs/USAGE.md) | Setup, quick start, recipes, and how-to for Notebook / CLI / Streamlit |
 | [docs/REFERENCE.md](docs/REFERENCE.md) | JSON schema, CLI options, pipeline, megaton API, and auth |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | Change history |
+
+## Site Alias Config (Public Repo Safe)
+
+- Commit only `configs/sites.example.json` (template)
+- Keep `configs/sites.json` / `configs/sites.local.json` as local files (gitignored)
+- CLI resolves aliases with layered precedence:
+  - `sites.example.json` < `sites.json` < `sites.local.json`
 
 ## Structure
 

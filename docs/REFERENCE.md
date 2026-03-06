@@ -223,7 +223,7 @@ python scripts/query.py --batch configs/weekly/ --json
 |-------|------|----------|-------------|
 | `schema_version` | string | ✓ | `"1.0"` |
 | `source` | string | ✓ | `"ga4"`, `"gsc"`, `"aa"`, `"bigquery"` |
-| `site` | string | - | Site alias defined in `configs/sites.json` |
+| `site` | string | - | Site alias defined in `configs/sites.local.json` / `configs/sites.json` (template: `configs/sites.example.json`) |
 | `property_id` | string | GA4 | GA4 property ID |
 | `site_url` | string | GSC | Search Console site URL |
 | `company_id` | string | AA | Adobe global company ID |
@@ -246,8 +246,9 @@ python scripts/query.py --batch configs/weekly/ --json
 `site` is resolved by CLI before validation.
 - `source: "ga4"`: `site` -> `property_id`
 - `source: "gsc"`: `site` -> `site_url`
-- `source: "aa"`: `site` -> `rsid` / `company_id` (if configured in `configs/sites.json`)
+- `source: "aa"`: `site` -> `rsid` / `company_id` (if configured in `configs/sites*.json`)
 - If `property_id` / `site_url` is already set, it takes precedence over `site`.
+- Alias file precedence: `configs/sites.example.json` < `configs/sites.json` < `configs/sites.local.json`
 
 ### Examples
 

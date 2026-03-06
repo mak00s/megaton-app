@@ -5,6 +5,10 @@ credentials/*.json
 .env
 .env.local
 
+# Site alias (public repo対策)
+configs/sites.json
+configs/sites.local.json
+
 # Python
 __pycache__/
 *.py[cod]
