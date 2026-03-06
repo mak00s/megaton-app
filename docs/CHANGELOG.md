@@ -13,6 +13,10 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
   - `recs.py` — `export_recs()` and `apply_recs()` with per-resource filters, design sidecar merge, metadata stripping
   - `feeds.py` — `export_feeds()` with sensitive field auto-redaction
   - `getoffer_scope.py` — getOffer scope detection from delivery captures + scoped export logic
+- Fixed Target getOffer scoped export behavior:
+  - `export_getoffer_scope(..., include_designs=True, designs_name_regex=...)` now always applies explicit `designs_name_regex` as override when provided
+- Expanded Target design apply compatibility:
+  - `apply_recs()` now resolves design sidecar templates from both flat layout and `designs/code/` layout (`<id>.<ext>`, `<stem>.<ext>`, `code/<stem>.<ext>`, `code/<id>.<ext>`)
 - Extended Adobe Tags (Reactor) auth to support OAuth alongside legacy bearer token:
   - `AdobeTagsConfig.oauth` field added
   - Config loader supports both `oauth: { ... }` and `oauth: true` shorthand
