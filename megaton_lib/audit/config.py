@@ -21,6 +21,21 @@ class ConfigError(ValueError):
 
 
 @dataclass(frozen=True)
+class AdobeOAuthConfig:
+    """Shared Adobe IMS OAuth client_credentials settings."""
+
+    client_id_env: str = "ADOBE_CLIENT_ID"
+    client_secret_env: str = "ADOBE_CLIENT_SECRET"
+    org_id_env: str = "ADOBE_ORG_ID"
+    org_id: str | None = None
+    scopes: str = (
+        "openid,AdobeID,read_organizations,"
+        "additional_info.projectedProductContext,additional_info.roles"
+    )
+    token_cache_file: str = "credentials/.adobe_token_cache.json"
+
+
+@dataclass(frozen=True)
 class GtmConfig:
     container_public_id: str
     variable_name: str = "Site Name"
@@ -38,6 +53,7 @@ class AdobeTagsConfig:
     accept_header: str = "application/vnd.api+json;revision=1"
     content_type_header: str = "application/vnd.api+json"
     page_size: int = 100
+    oauth: AdobeOAuthConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +87,16 @@ class AdobeAnalyticsConfig:
         "additional_info.projectedProductContext,additional_info.roles"
     )
     token_cache_file: str = "credentials/.adobe_token_cache.json"
+
+
+@dataclass(frozen=True)
+class AdobeTargetConfig:
+    """Adobe Target Recommendations API settings."""
+
+    tenant_id: str
+    oauth: AdobeOAuthConfig | None = None
+    base_url: str = "https://mc.adobe.io"
+    accept_header: str = "application/vnd.adobe.target.v1+json"
 
 
 @dataclass(frozen=True)
@@ -174,6 +200,30 @@ def _parse_tag_source(node: Any) -> TagSourceConfig:
         page_size = adobe_node.get("page_size", 100)
         if isinstance(page_size, bool) or not isinstance(page_size, int) or page_size < 1:
             raise ConfigError("tag_source.adobe_tags.page_size must be a positive integer")
+
+        # Parse optional OAuth config
+        oauth_cfg: AdobeOAuthConfig | None = None
+        oauth_node = adobe_node.get("oauth")
+        if isinstance(oauth_node, dict):
+            oauth_cfg = AdobeOAuthConfig(
+                client_id_env=(oauth_node.get("client_id_env") or "ADOBE_CLIENT_ID").strip(),
+                client_secret_env=(oauth_node.get("client_secret_env") or "ADOBE_CLIENT_SECRET").strip(),
+                org_id_env=(oauth_node.get("org_id_env") or "ADOBE_ORG_ID").strip(),
+                org_id=_optional_str(oauth_node, "org_id"),
+                scopes=(
+                    oauth_node.get("scopes")
+                    or "openid,AdobeID,read_organizations,"
+                    "additional_info.projectedProductContext,additional_info.roles"
+                ).strip(),
+                token_cache_file=(
+                    oauth_node.get("token_cache_file")
+                    or "credentials/.adobe_token_cache.json"
+                ).strip(),
+            )
+        elif oauth_node is True:
+            # Shorthand: oauth: true → use all defaults
+            oauth_cfg = AdobeOAuthConfig()
+
         adobe_cfg = AdobeTagsConfig(
             property_id=_expect_nonempty_str(
                 adobe_node,
@@ -195,6 +245,7 @@ def _parse_tag_source(node: Any) -> TagSourceConfig:
                 or "application/vnd.api+json"
             ).strip(),
             page_size=page_size,
+            oauth=oauth_cfg,
         )
 
     return TagSourceConfig(source=source, gtm=gtm_cfg, adobe_tags=adobe_cfg)
