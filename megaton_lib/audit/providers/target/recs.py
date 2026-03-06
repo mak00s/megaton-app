@@ -258,12 +258,14 @@ def apply_recs(
 
 
 def _merge_design_sidecar(local: dict[str, Any], json_file: Path) -> dict[str, Any]:
-    """Merge sidecar script file (.vtl/.html/.js) back into design content.
+    """Merge sidecar script file (.vtl/.html/.js) back into design ``script``.
 
     Searches for sidecar files in multiple locations/naming conventions:
     1. ``<id>.<ext>`` in same directory (megaton_lib export layout)
     2. ``<stem>.<ext>`` when JSON is named ``<id>_<slug>.json``
     3. ``code/<stem>.<ext>`` in a ``code/`` subdirectory (at-recs layout)
+
+    Always merges into the ``script`` key (Target API canonical field).
     """
     item_id = local.get("id") or json_file.stem
     stem = json_file.stem  # e.g. "13628_default-template" or "13628"
@@ -288,9 +290,9 @@ def _merge_design_sidecar(local: dict[str, Any], json_file: Path) -> dict[str, A
                 except OSError:
                     continue
                 merged = dict(local)
-                # Target API uses "script" for designs, not "content"
-                field = "script" if "script" in local else "content"
-                merged[field] = script
+                # Always use "script" — the canonical Target API field
+                merged["script"] = script
+                merged.pop("content", None)
                 return merged
     return local
 

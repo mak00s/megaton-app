@@ -242,12 +242,13 @@ def test_apply_merges_design_sidecar(tmp_path):
 
 
 def test_apply_merges_design_sidecar_code_subdir(tmp_path):
-    """apply_recs reads sidecar from code/ subdirectory (at-recs layout)."""
+    """apply_recs reads sidecar from code/ subdirectory and normalises to 'script'."""
     des_dir = tmp_path / "designs"
     des_dir.mkdir()
     code_dir = des_dir / "code"
     code_dir.mkdir()
 
+    # Legacy data may use "content" — sidecar merge always normalises to "script"
     local_json = {"id": 13628, "name": "Default Template", "content": "old"}
     (des_dir / "13628_default-template.json").write_text(json.dumps(local_json))
     # at-recs layout: code/<id>_<slug>.vtl
@@ -262,11 +263,13 @@ def test_apply_merges_design_sidecar_code_subdir(tmp_path):
     assert changes[0]["changed"] is True
     assert changes[0]["applied"] is True
     patched_payload = client.patched[0][1]
-    assert patched_payload["content"] == "new template from code dir"
+    # Sidecar merged into canonical "script" key; legacy "content" removed
+    assert patched_payload["script"] == "new template from code dir"
+    assert "content" not in patched_payload
 
 
 def test_apply_merges_design_sidecar_id_only_in_code(tmp_path):
-    """Sidecar code/<id>.vtl also works (ID-only naming)."""
+    """Sidecar code/<id>.vtl also works; legacy 'content' normalised to 'script'."""
     des_dir = tmp_path / "designs"
     des_dir.mkdir()
     code_dir = des_dir / "code"
@@ -284,7 +287,8 @@ def test_apply_merges_design_sidecar_id_only_in_code(tmp_path):
     assert len(changes) == 1
     assert changes[0]["changed"] is True
     patched_payload = client.patched[0][1]
-    assert patched_payload["content"] == "id-only template"
+    assert patched_payload["script"] == "id-only template"
+    assert "content" not in patched_payload
 
 
 # ---- getoffer scope tests ----
