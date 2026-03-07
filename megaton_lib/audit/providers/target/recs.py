@@ -247,7 +247,12 @@ def apply_recs(
 
             if changed and not dry_run:
                 try:
-                    client.patch(f"/{resource}/{item_id}", local)
+                    payload = _strip_metadata(local)
+                    # Designs require PUT — PATCH ignores the script field.
+                    if resource == "designs":
+                        client.put(f"/{resource}/{item_id}", payload)
+                    else:
+                        client.patch(f"/{resource}/{item_id}", payload)
                     record["applied"] = True
                 except RuntimeError as exc:
                     record["error"] = str(exc)

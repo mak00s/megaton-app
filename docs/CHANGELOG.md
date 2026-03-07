@@ -2,6 +2,17 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+### 2026-03-08
+
+- Expanded Adobe Tags (Reactor) library operations in `megaton_lib.audit.providers.tag_config.adobe_tags`:
+  - Added `list_rule_revisions()`, `list_library_resources()`, `revise_library_rules()`, `find_dirty_origin_rules()`, `build_library()`, and `deploy_library()`
+  - Added 409-conflict recovery in `revise_library_rules()` by removing existing revision copies and retrying revise
+  - Added warning log when a library rule has no `origin` relationship and is skipped in dirty-origin detection
+- Updated Adobe Target Recommendations apply behavior:
+  - Added `AdobeTargetClient.put()` and switched `apply_recs()` to use `PUT` for `designs` updates (PATCH path kept for other resources)
+  - `apply_recs()` now strips server-managed metadata keys from outbound PATCH/PUT payloads before sending
+- Expanded tests for Adobe Tags provider and Target Recs apply path, including metadata-strip and designs PUT behavior
+
 ### 2026-03-06 (v0.6.0)
 
 - Added shared Adobe IMS OAuth layer (`megaton_lib/audit/providers/adobe_auth.py`):
