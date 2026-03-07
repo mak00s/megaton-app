@@ -27,6 +27,7 @@ class _MockClient:
         self._list = list_data
         self._detail = detail_data or {}
         self.patched: list[tuple[str, dict]] = []
+        self.putted: list[tuple[str, dict]] = []
 
     def get_all(self, endpoint: str, **kw) -> list[dict]:
         resource = endpoint.strip("/").split("/")[0]
@@ -48,6 +49,10 @@ class _MockClient:
 
     def patch(self, endpoint: str, payload: dict) -> dict:
         self.patched.append((endpoint, payload))
+        return payload
+
+    def put(self, endpoint: str, payload: dict) -> dict:
+        self.putted.append((endpoint, payload))
         return payload
 
 
@@ -181,6 +186,62 @@ def test_apply_sends_patch_when_changed(tmp_path):
     assert client.patched[0][1] == local
 
 
+def test_apply_designs_uses_put(tmp_path):
+    """Designs require PUT because PATCH ignores the script field."""
+    des_dir = tmp_path / "designs"
+    des_dir.mkdir()
+    local = {"id": 99, "name": "JSON99", "script": "<new>"}
+    (des_dir / "99.json").write_text(json.dumps(local))
+
+    client = _MockClient(
+        {"designs": [{"id": 99, "name": "JSON99", "script": "<old>"}]},
+    )
+
+    changes = apply_recs(client, tmp_path, resources=["designs"], dry_run=False)
+    assert changes[0]["changed"] is True
+    assert changes[0]["applied"] is True
+    # Must use PUT, not PATCH
+    assert len(client.putted) == 1
+    assert len(client.patched) == 0
+    assert client.putted[0][0] == "/designs/99"
+
+
+def test_apply_strips_metadata_before_send(tmp_path):
+    """Payload sent to API must not contain server-managed metadata keys."""
+    crit_dir = tmp_path / "criteria"
+    crit_dir.mkdir()
+    local = {"id": 101, "name": "New", "lastModified": "2026-01-01", "lastModifiersEmail": "x@y"}
+    (crit_dir / "101.json").write_text(json.dumps(local))
+
+    client = _MockClient(
+        {"criteria": [{"id": 101, "name": "Old"}]},
+    )
+
+    apply_recs(client, tmp_path, resources=["criteria"], dry_run=False)
+    sent = client.patched[0][1]
+    assert "lastModified" not in sent
+    assert "lastModifiersEmail" not in sent
+    assert sent["name"] == "New"
+
+
+def test_apply_designs_strips_metadata_before_put(tmp_path):
+    """PUT payload for designs must not contain server-managed metadata keys."""
+    des_dir = tmp_path / "designs"
+    des_dir.mkdir()
+    local = {"id": 99, "name": "D", "script": "new", "lastModified": "2026-01-01", "lastModifiersName": "u"}
+    (des_dir / "99.json").write_text(json.dumps(local))
+
+    client = _MockClient(
+        {"designs": [{"id": 99, "name": "D", "script": "old"}]},
+    )
+
+    apply_recs(client, tmp_path, resources=["designs"], dry_run=False)
+    sent = client.putted[0][1]
+    assert "lastModified" not in sent
+    assert "lastModifiersName" not in sent
+    assert sent["script"] == "new"
+
+
 def test_apply_skips_unchanged(tmp_path):
     crit_dir = tmp_path / "criteria"
     crit_dir.mkdir()
@@ -236,9 +297,10 @@ def test_apply_merges_design_sidecar(tmp_path):
     assert len(changes) == 1
     assert changes[0]["changed"] is True
     assert changes[0]["applied"] is True
-    # Verify the PATCH payload has merged sidecar into "script" field
-    patched_payload = client.patched[0][1]
-    assert patched_payload["script"] == "new template from vtl"
+    # Designs use PUT (PATCH ignores script field)
+    put_payload = client.putted[0][1]
+    assert put_payload["script"] == "new template from vtl"
+    assert len(client.patched) == 0
 
 
 def test_apply_merges_design_sidecar_code_subdir(tmp_path):
@@ -262,10 +324,10 @@ def test_apply_merges_design_sidecar_code_subdir(tmp_path):
     assert len(changes) == 1
     assert changes[0]["changed"] is True
     assert changes[0]["applied"] is True
-    patched_payload = client.patched[0][1]
+    put_payload = client.putted[0][1]
     # Sidecar merged into canonical "script" key; legacy "content" removed
-    assert patched_payload["script"] == "new template from code dir"
-    assert "content" not in patched_payload
+    assert put_payload["script"] == "new template from code dir"
+    assert "content" not in put_payload
 
 
 def test_apply_merges_design_sidecar_id_only_in_code(tmp_path):
@@ -286,9 +348,9 @@ def test_apply_merges_design_sidecar_id_only_in_code(tmp_path):
     changes = apply_recs(client, tmp_path, resources=["designs"], dry_run=False)
     assert len(changes) == 1
     assert changes[0]["changed"] is True
-    patched_payload = client.patched[0][1]
-    assert patched_payload["script"] == "id-only template"
-    assert "content" not in patched_payload
+    put_payload = client.putted[0][1]
+    assert put_payload["script"] == "id-only template"
+    assert "content" not in put_payload
 
 
 # ---- getoffer scope tests ----

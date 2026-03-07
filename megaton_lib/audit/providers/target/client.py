@@ -85,6 +85,18 @@ class AdobeTargetClient:
             return result
         return {}
 
+    def put(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Authenticated PUT with retry.
+
+        Required for design ``script`` updates — the Target Recs API
+        ignores ``script`` in PATCH requests.
+        """
+        url = f"{self.base_url}{endpoint}"
+        result = self._request("PUT", url, json_body=payload)
+        if isinstance(result, dict):
+            return result
+        return {}
+
     # ---- pagination ----
 
     def get_all(

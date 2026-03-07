@@ -60,7 +60,7 @@ megaton-app/
 ├── input/                     # params.json (Streamlit UI <-> Agent handoff ONLY)
 ├── output/                    # Query results & job artifacts
 ├── configs/                   # Site aliases, batch configs, audit project configs
-├── tests/                     # pytest (489 tests)
+├── tests/                     # pytest (509 tests)
 └── docs/                      # USAGE.md, REFERENCE.md, CHANGELOG.md
 ```
 
@@ -322,7 +322,7 @@ To find the spike date first, use `"dimensions": ["date"]` without `"query"`.
 ## Tests
 
 ```bash
-python -m pytest -q                    # All tests (489 passed)
+python -m pytest -q                    # All tests (509 passed)
 python -m pytest -q -m unit           # Unit only
 python -m pytest -q --cov=scripts.query --cov-report=term-missing  # Coverage
 ```

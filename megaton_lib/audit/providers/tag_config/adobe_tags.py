@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -181,6 +182,20 @@ def _reactor_patch(config: AdobeTagsConfig, endpoint: str, payload: dict[str, An
     return resp.json() if resp.text.strip() else {}
 
 
+def _reactor_post(config: AdobeTagsConfig, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Send a POST request to the Reactor API."""
+    headers = _get_auth_headers(config)
+    base = config.base_url.rstrip("/")
+    url = f"{base}{endpoint}"
+
+    resp = requests.post(url, headers=headers, json=payload, timeout=30)
+    if resp.status_code < 200 or resp.status_code >= 300:
+        raise RuntimeError(
+            f"Adobe Tags API POST failed: {resp.status_code} {resp.text}",
+        )
+    return resp.json() if resp.text.strip() else {}
+
+
 # ---- paginated list helpers ----
 
 
@@ -272,6 +287,23 @@ def list_rule_components(config: AdobeTagsConfig, rule_id: str) -> list[dict[str
     return _paginated_list(config, f"/rules/{rule_id}/rule_components")
 
 
+def list_rule_revisions(config: AdobeTagsConfig, rule_id: str) -> list[dict[str, Any]]:
+    """Fetch revision history for a rule.
+
+    Returns list of dicts with id, revision_number, and created_at,
+    sorted by revision number ascending.
+    """
+    raw = _paginated_list(config, f"/rules/{rule_id}/revisions", sort="revision_number")
+    return [
+        {
+            "id": item.get("id", ""),
+            "revision_number": item.get("attributes", {}).get("revision_number", 0),
+            "created_at": item.get("attributes", {}).get("created_at", ""),
+        }
+        for item in raw
+    ]
+
+
 def list_extensions(config: AdobeTagsConfig) -> list[dict[str, Any]]:
     """Fetch all extensions in a property."""
     return _paginated_list(config, f"/properties/{config.property_id}/extensions")
@@ -285,6 +317,214 @@ def list_environments(config: AdobeTagsConfig) -> list[dict[str, Any]]:
 def list_libraries(config: AdobeTagsConfig) -> list[dict[str, Any]]:
     """Fetch all libraries in a property."""
     return _paginated_list(config, f"/properties/{config.property_id}/libraries")
+
+
+# ---- library management ----
+
+
+def build_library(config: AdobeTagsConfig, library_id: str) -> dict[str, Any]:
+    """Trigger a library build via POST /libraries/{library_id}/builds.
+
+    Returns dict with id, status, and created_at of the new build.
+    """
+    payload = {"data": {"type": "builds", "attributes": {}}}
+    body = _reactor_post(config, f"/libraries/{library_id}/builds", payload)
+    data = body.get("data", {})
+    attrs = data.get("attributes", {})
+    return {
+        "id": data.get("id", ""),
+        "status": attrs.get("status", ""),
+        "created_at": attrs.get("created_at", ""),
+    }
+
+
+def list_library_resources(config: AdobeTagsConfig, library_id: str) -> dict[str, Any]:
+    """Fetch rules and data elements in a library with revision status.
+
+    Returns dict with:
+    - ``rules``: list of resource summaries
+    - ``data_elements``: list of resource summaries
+    - ``stale``: resources where revision_number != latest_revision_number
+    """
+    rules_raw = _paginated_list(config, f"/libraries/{library_id}/rules")
+    de_raw = _paginated_list(config, f"/libraries/{library_id}/data_elements")
+
+    stale: list[dict[str, Any]] = []
+
+    def _summarize(items: list[dict[str, Any]], resource_type: str) -> list[dict[str, Any]]:
+        summaries: list[dict[str, Any]] = []
+        for item in items:
+            attrs = item.get("attributes", {})
+            meta = item.get("meta", {})
+            rev = attrs.get("revision_number", 0)
+            latest = meta.get("latest_revision_number", rev)
+            dirty = attrs.get("dirty", False)
+            summary = {
+                "id": item.get("id", ""),
+                "name": attrs.get("name", ""),
+                "revision_number": rev,
+                "latest_revision_number": latest,
+                "dirty": dirty,
+                "type": resource_type,
+            }
+            summaries.append(summary)
+            if rev != latest:
+                stale.append(summary)
+        return summaries
+
+    return {
+        "rules": _summarize(rules_raw, "rules"),
+        "data_elements": _summarize(de_raw, "data_elements"),
+        "stale": stale,
+    }
+
+
+def revise_library_rules(
+    config: AdobeTagsConfig,
+    library_id: str,
+    origin_rule_ids: list[str],
+) -> dict[str, Any]:
+    """Revise rules in a library to pick up dirty component changes.
+
+    Uses ``POST /libraries/{library_id}/relationships/rules`` with
+    ``meta.action = "revise"`` on each origin rule ID.
+
+    IMPORTANT: Uses POST (add/update) not PATCH (full replacement).
+    PATCH would remove all other rules from the library.
+
+    If a revision of the same origin already exists (409 conflict),
+    the existing revision is removed from the library first, then a
+    new revision is created from the current origin HEAD.
+
+    Args:
+        origin_rule_ids: HEAD rule IDs (``revision_number=0``), not
+            revision copies.
+
+    Returns dict with ``revised_count`` and ``new_rule_ids``.
+    """
+    if not origin_rule_ids:
+        return {"revised_count": 0, "new_rule_ids": []}
+
+    headers = _get_auth_headers(config)
+    base = config.base_url.rstrip("/")
+    url = f"{base}/libraries/{library_id}/relationships/rules"
+
+    payload = {
+        "data": [
+            {"id": rid, "type": "rules", "meta": {"action": "revise"}}
+            for rid in origin_rule_ids
+        ],
+    }
+
+    resp = requests.post(url, headers=headers, json=payload, timeout=30)
+    if 200 <= resp.status_code < 300:
+        body = resp.json() if resp.text.strip() else {}
+        new_ids = [item.get("id", "") for item in body.get("data", [])]
+        return {"revised_count": len(new_ids), "new_rule_ids": new_ids}
+
+    if resp.status_code != 409:
+        raise RuntimeError(
+            f"Adobe Tags API POST revise failed: {resp.status_code} {resp.text}",
+        )
+
+    # 409 conflict: remove existing revisions for these origins, then retry
+    origin_set = set(origin_rule_ids)
+    rules_raw = _paginated_list(config, f"/libraries/{library_id}/rules")
+    to_remove = []
+    for rule in rules_raw:
+        origin_data = (
+            rule.get("relationships", {}).get("origin", {}).get("data", {})
+        )
+        if origin_data.get("id", "") in origin_set:
+            rev_id = rule.get("id", "")
+            if rev_id:
+                to_remove.append({"id": rev_id, "type": "rules"})
+
+    if to_remove:
+        del_resp = requests.delete(
+            url, headers=headers, json={"data": to_remove}, timeout=30,
+        )
+        if not 200 <= del_resp.status_code < 300:
+            raise RuntimeError(
+                f"Adobe Tags API DELETE revisions failed: "
+                f"{del_resp.status_code} {del_resp.text}",
+            )
+
+    # Retry revise after removing old revisions
+    resp = requests.post(url, headers=headers, json=payload, timeout=30)
+    if 200 <= resp.status_code < 300:
+        body = resp.json() if resp.text.strip() else {}
+        new_ids = [item.get("id", "") for item in body.get("data", [])]
+        return {"revised_count": len(new_ids), "new_rule_ids": new_ids}
+
+    raise RuntimeError(
+        f"Adobe Tags API POST revise failed after retry: "
+        f"{resp.status_code} {resp.text}",
+    )
+
+
+def find_dirty_origin_rules(
+    config: AdobeTagsConfig,
+    library_id: str,
+) -> list[str]:
+    """Find origin rules that have dirty components needing revision.
+
+    For each rule in the library, fetches its origin rule and checks
+    if the origin has ``dirty=True`` (component-level changes pending).
+
+    Returns list of origin rule IDs that need revising.
+    """
+    rules_raw = _paginated_list(config, f"/libraries/{library_id}/rules")
+
+    dirty_origins: list[str] = []
+    seen: set[str] = set()
+
+    for rule in rules_raw:
+        origin_data = (
+            rule.get("relationships", {}).get("origin", {}).get("data", {})
+        )
+        origin_id = origin_data.get("id", "")
+        if not origin_id:
+            rule_name = rule.get("attributes", {}).get("name", rule.get("id", "?"))
+            logging.getLogger(__name__).warning(
+                "Library rule %s has no origin relationship — skipped", rule_name,
+            )
+            continue
+        if origin_id in seen:
+            continue
+        seen.add(origin_id)
+
+        origin = _reactor_get(config, f"/rules/{origin_id}")
+        origin_attrs = origin.get("data", {}).get("attributes", {})
+        if origin_attrs.get("dirty", False):
+            dirty_origins.append(origin_id)
+
+    return dirty_origins
+
+
+def deploy_library(
+    config: AdobeTagsConfig,
+    library_id: str,
+) -> dict[str, Any]:
+    """Revise dirty rules and trigger a build.
+
+    Combines :func:`find_dirty_origin_rules`, :func:`revise_library_rules`,
+    and :func:`build_library` into a single deployment operation.
+
+    Returns dict with ``dirty_count``, ``revised_count``, and ``build``.
+    """
+    dirty = find_dirty_origin_rules(config, library_id)
+    revised: dict[str, Any] = {"revised_count": 0, "new_rule_ids": []}
+    if dirty:
+        revised = revise_library_rules(config, library_id, dirty)
+
+    build = build_library(config, library_id)
+
+    return {
+        "dirty_count": len(dirty),
+        "revised_count": revised["revised_count"],
+        "build": build,
+    }
 
 
 # ---- custom code extraction ----
