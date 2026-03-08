@@ -96,7 +96,7 @@ megaton-app/
 ├── input/              # AI Agent <-> UI parameter handoff
 ├── output/             # Query results and job artifacts
 ├── configs/            # Site aliases, batch configs, audit project configs
-├── tests/              # pytest (489 tests)
+├── tests/              # pytest
 └── docs/               # Documentation
 ```
 

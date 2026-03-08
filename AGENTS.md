@@ -2,6 +2,11 @@
 
 Toolkit for fetching, processing, and visualizing data from GA4, Search Console, Adobe Analytics, and BigQuery.
 
+## Self-Maintenance
+- 実装・運用に繰り返し効く**恒久的な知見**だけを更新対象にする。
+- タスク固有のメモ、一時的な注意点、単なるテスト数の増減はここに追記しない。
+- 既存記述が明確に古い/誤っている場合は、関連タスクの変更と一緒に修正する。
+
 ## Directory Structure
 
 ```
@@ -60,7 +65,7 @@ megaton-app/
 ├── input/                     # params.json (Streamlit UI <-> Agent handoff ONLY)
 ├── output/                    # Query results & job artifacts
 ├── configs/                   # Site aliases, batch configs, audit project configs
-├── tests/                     # pytest (514 tests)
+├── tests/                     # pytest
 └── docs/                      # USAGE.md, REFERENCE.md, CHANGELOG.md
 ```
 
@@ -322,7 +327,7 @@ To find the spike date first, use `"dimensions": ["date"]` without `"query"`.
 ## Tests
 
 ```bash
-python -m pytest -q                    # All tests (514 passed)
+python -m pytest -q                    # All tests
 python -m pytest -q -m unit           # Unit only
 python -m pytest -q --cov=scripts.query --cov-report=term-missing  # Coverage
 ```
