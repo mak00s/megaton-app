@@ -28,6 +28,9 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
   - `getoffer_scope.detect_getoffer_scope()` now parses `option.content` JSON (`recs.activity`) as fallback for criteria/algorithm/activity ID extraction
   - `export_getoffer_scope()` now skips unscoped export when no scope filters are detected (returns empty `export_summary`)
   - `feeds.export_feeds()` redaction now includes `username` keys
+- Refined Target criteria export/apply endpoint behavior:
+  - `export_recs()` now resolves criteria sub-type detail endpoints (e.g. `/criteria/popularity/{id}`) to export full criteria configuration
+  - `apply_recs()` now uses PUT for resolved criteria sub-type endpoints and falls back to PATCH on generic `/criteria/{id}` when sub-type is unknown
 - Fixed Target getOffer scoped export behavior:
   - `export_getoffer_scope(..., include_designs=True, designs_name_regex=...)` now always applies explicit `designs_name_regex` as override when provided
 - Expanded Target design apply compatibility:

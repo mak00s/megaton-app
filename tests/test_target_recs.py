@@ -14,6 +14,8 @@ from megaton_lib.audit.providers.target.getoffer_scope import (
 )
 from megaton_lib.audit.providers.target.recs import (
     RESOURCE_TYPES,
+    _CRITERIA_GROUP_TO_SUBTYPE,
+    _criteria_detail_endpoint,
     _strip_metadata,
     apply_recs,
     export_recs,
@@ -34,13 +36,25 @@ class _MockClient:
         return list(self._list.get(resource, []))
 
     def get(self, endpoint: str, **kw) -> dict:
-        # /criteria/123 → try detail, fallback to item in list
+        # Try exact detail key first (e.g. "criteria/popularity/101")
         parts = endpoint.strip("/").split("/")
         key = "/".join(parts)
         if key in self._detail:
             return self._detail[key]
-        # Return basic item
+        # For sub-type criteria paths like /criteria/popularity/101,
+        # also try the generic key /criteria/101
         resource = parts[0]
+        if resource == "criteria" and len(parts) == 3:
+            generic_key = f"criteria/{parts[2]}"
+            if generic_key in self._detail:
+                return self._detail[generic_key]
+            # Fallback to list lookup by ID
+            item_id = int(parts[2])
+            for item in self._list.get("criteria", []):
+                if item.get("id") == item_id:
+                    return item
+            raise RuntimeError(f"Not found: {endpoint}")
+        # Return basic item by ID
         item_id = int(parts[1]) if len(parts) > 1 else None
         for item in self._list.get(resource, []):
             if item.get("id") == item_id:
@@ -154,36 +168,115 @@ def test_apply_dry_run_reports_changes(tmp_path):
     # Write local file
     crit_dir = tmp_path / "criteria"
     crit_dir.mkdir()
-    local = {"id": 101, "name": "Updated Crit"}
+    local = {"id": 101, "name": "Updated Crit", "criteriaGroup": "POPULARITY"}
     (crit_dir / "101.json").write_text(json.dumps(local))
 
     # Remote has different name
     client = _MockClient(
-        {"criteria": [{"id": 101, "name": "Old Crit"}]},
+        {"criteria": [{"id": 101, "name": "Old Crit", "criteriaGroup": "POPULARITY"}]},
     )
 
     changes = apply_recs(client, tmp_path, resources=["criteria"], dry_run=True)
     assert len(changes) == 1
     assert changes[0]["changed"] is True
     assert changes[0]["applied"] is False
-    assert len(client.patched) == 0
+    assert len(client.putted) == 0
 
 
-def test_apply_sends_patch_when_changed(tmp_path):
+def test_apply_criteria_uses_put_via_subtype(tmp_path):
+    """Criteria uses PUT via sub-type endpoint (PATCH returns 405)."""
     crit_dir = tmp_path / "criteria"
     crit_dir.mkdir()
-    local = {"id": 101, "name": "Updated"}
+    local = {"id": 101, "name": "Updated", "criteriaGroup": "POPULARITY"}
     (crit_dir / "101.json").write_text(json.dumps(local))
 
     client = _MockClient(
-        {"criteria": [{"id": 101, "name": "Old"}]},
+        {"criteria": [{"id": 101, "name": "Old", "criteriaGroup": "POPULARITY"}]},
     )
 
     changes = apply_recs(client, tmp_path, resources=["criteria"], dry_run=False)
     assert changes[0]["changed"] is True
     assert changes[0]["applied"] is True
+    # Criteria must use PUT (sub-type endpoints don't support PATCH)
+    assert len(client.putted) == 1
+    assert len(client.patched) == 0
+    assert client.putted[0][0] == "/criteria/popularity/101"
+
+
+def test_criteria_detail_endpoint_resolves_subtype():
+    """_criteria_detail_endpoint maps criteriaGroup to sub-type endpoint."""
+    client = _MockClient(
+        {"criteria": [{"id": 42, "name": "Test", "criteriaGroup": "POPULARITY"}]},
+    )
+    ep, is_sub = _criteria_detail_endpoint(client, 42)
+    assert ep == "/criteria/popularity/42"
+    assert is_sub is True
+
+
+def test_criteria_detail_endpoint_item_subtype():
+    """ITEM criteriaGroup maps to /criteria/item/."""
+    client = _MockClient(
+        {"criteria": [{"id": 7, "name": "Co-viewed", "criteriaGroup": "ITEM"}]},
+    )
+    ep, is_sub = _criteria_detail_endpoint(client, 7)
+    assert ep == "/criteria/item/7"
+    assert is_sub is True
+
+
+def test_criteria_detail_endpoint_unknown_group_fallback():
+    """Unknown criteriaGroup falls back to generic /criteria/{id}."""
+    client = _MockClient(
+        {"criteria": [{"id": 9, "name": "X", "criteriaGroup": "UNKNOWN_TYPE"}]},
+    )
+    ep, is_sub = _criteria_detail_endpoint(client, 9)
+    assert ep == "/criteria/9"
+    assert is_sub is False
+
+
+def test_apply_criteria_fallback_uses_patch(tmp_path):
+    """When criteriaGroup is unknown, apply falls back to PATCH on generic endpoint."""
+    crit_dir = tmp_path / "criteria"
+    crit_dir.mkdir()
+    local = {"id": 55, "name": "New", "criteriaGroup": "FUTURE_TYPE"}
+    (crit_dir / "55.json").write_text(json.dumps(local))
+
+    client = _MockClient(
+        {"criteria": [{"id": 55, "name": "Old", "criteriaGroup": "FUTURE_TYPE"}]},
+    )
+
+    changes = apply_recs(client, tmp_path, resources=["criteria"], dry_run=False)
+    assert changes[0]["changed"] is True
+    assert changes[0]["applied"] is True
+    # Fallback: generic endpoint uses PATCH, not PUT
     assert len(client.patched) == 1
-    assert client.patched[0][1] == local
+    assert len(client.putted) == 0
+    assert client.patched[0][0] == "/criteria/55"
+
+
+def test_export_criteria_uses_subtype_detail(tmp_path):
+    """export_recs fetches criteria via sub-type endpoint for full detail."""
+    # Slim response (generic /criteria/101)
+    slim = {"id": 101, "name": "Pop", "criteriaGroup": "POPULARITY"}
+    # Full detail (sub-type /criteria/popularity/101)
+    full = {
+        **slim,
+        "backupDisabled": True,
+        "configuration": {
+            "inclusionRules": [{"attribute": "diseaseField", "operation": "contains"}],
+        },
+    }
+    client = _MockClient(
+        {"criteria": [slim]},
+        detail_data={"criteria/101": slim, "criteria/popularity/101": full},
+    )
+
+    summary = export_recs(client, tmp_path, resources=["criteria"])
+    assert summary["criteria"] == 1
+
+    saved = json.loads((tmp_path / "criteria" / "101.json").read_text())
+    # Must contain the full detail from sub-type endpoint
+    assert "configuration" in saved
+    assert saved["backupDisabled"] is True
 
 
 def test_apply_designs_uses_put(tmp_path):
@@ -210,15 +303,17 @@ def test_apply_strips_metadata_before_send(tmp_path):
     """Payload sent to API must not contain server-managed metadata keys."""
     crit_dir = tmp_path / "criteria"
     crit_dir.mkdir()
-    local = {"id": 101, "name": "New", "lastModified": "2026-01-01", "lastModifiersEmail": "x@y"}
+    local = {"id": 101, "name": "New", "criteriaGroup": "ITEM",
+             "lastModified": "2026-01-01", "lastModifiersEmail": "x@y"}
     (crit_dir / "101.json").write_text(json.dumps(local))
 
     client = _MockClient(
-        {"criteria": [{"id": 101, "name": "Old"}]},
+        {"criteria": [{"id": 101, "name": "Old", "criteriaGroup": "ITEM"}]},
     )
 
     apply_recs(client, tmp_path, resources=["criteria"], dry_run=False)
-    sent = client.patched[0][1]
+    # Criteria uses PUT via sub-type endpoint
+    sent = client.putted[0][1]
     assert "lastModified" not in sent
     assert "lastModifiersEmail" not in sent
     assert sent["name"] == "New"
@@ -245,14 +340,14 @@ def test_apply_designs_strips_metadata_before_put(tmp_path):
 def test_apply_skips_unchanged(tmp_path):
     crit_dir = tmp_path / "criteria"
     crit_dir.mkdir()
-    data = {"id": 101, "name": "Same"}
+    data = {"id": 101, "name": "Same", "criteriaGroup": "ITEM"}
     (crit_dir / "101.json").write_text(json.dumps(data))
 
     client = _MockClient({"criteria": [data]})
 
     changes = apply_recs(client, tmp_path, resources=["criteria"], dry_run=False)
     assert changes[0]["changed"] is False
-    assert len(client.patched) == 0
+    assert len(client.putted) == 0
 
 
 def test_strip_metadata():
