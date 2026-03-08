@@ -16,6 +16,19 @@ from megaton_lib.audit.providers.target.client import AdobeTargetClient
 
 RESOURCE_TYPES = ("criteria", "designs", "collections", "exclusions", "promotions")
 
+# Criteria sub-type mapping.
+# The generic ``/criteria/{id}`` returns a slim response (no ``configuration``,
+# ``backupDisabled``, etc.).  The sub-type endpoint returns the full detail
+# including ``configuration.inclusionRules``.
+# Sub-type endpoints only support GET and PUT (PATCH returns 405).
+_CRITERIA_GROUP_TO_SUBTYPE: dict[str, str] = {
+    "POPULARITY": "popularity",
+    "ITEM": "item",
+    "CUSTOM": "custom",
+    "CATEGORY": "category",
+    "SEQUENCE": "sequence",
+}
+
 # Keys to strip when comparing local vs remote for apply diff.
 # Target API returns: lastModified, lastModifiersEmail, lastModifiersName.
 _METADATA_KEYS = {
@@ -103,20 +116,7 @@ def _export_resource(
         item_id = item.get("id", "unknown")
         name = item.get("name", str(item_id))
 
-        # For designs, fetch with includeScript=true
-        if resource == "designs":
-            try:
-                detail = client.get(f"/{resource}/{item_id}", params={"includeScript": "true"})
-            except RuntimeError:
-                detail = item
-        else:
-            try:
-                detail = client.get(f"/{resource}/{item_id}")
-            except RuntimeError:
-                detail = item
-
-        if isinstance(detail, list):
-            detail = item  # fallback if unexpected
+        detail = _fetch_detail(client, resource, item_id, item)
 
         # Save detail JSON
         (out_dir / f"{item_id}.json").write_text(
@@ -139,6 +139,61 @@ def _export_resource(
         encoding="utf-8",
     )
     return len(items)
+
+
+def _criteria_detail_endpoint(
+    client: AdobeTargetClient, item_id: Any,
+) -> tuple[str, bool]:
+    """Return the detail endpoint and whether it is a sub-type endpoint.
+
+    The generic ``/criteria/{id}`` returns a slim response.  The sub-type
+    endpoint (e.g. ``/criteria/popularity/{id}``) returns the full detail
+    including ``configuration.inclusionRules`` and backup settings.
+
+    Returns
+    -------
+    (endpoint, is_subtype) — ``is_subtype`` is ``True`` when a sub-type
+    endpoint was resolved (PUT required), ``False`` when falling back to
+    the generic endpoint (PATCH required).
+    """
+    try:
+        slim = client.get(f"/criteria/{item_id}")
+    except RuntimeError:
+        return f"/criteria/{item_id}", False
+
+    if not isinstance(slim, dict):
+        return f"/criteria/{item_id}", False
+
+    group = slim.get("criteriaGroup", "")
+    subtype = _CRITERIA_GROUP_TO_SUBTYPE.get(group)
+    if subtype:
+        return f"/criteria/{subtype}/{item_id}", True
+    return f"/criteria/{item_id}", False
+
+
+def _fetch_detail(
+    client: AdobeTargetClient,
+    resource: str,
+    item_id: Any,
+    fallback: dict[str, Any],
+) -> dict[str, Any]:
+    """Fetch full detail for a single resource item."""
+    try:
+        if resource == "designs":
+            detail = client.get(
+                f"/{resource}/{item_id}", params={"includeScript": "true"},
+            )
+        elif resource == "criteria":
+            endpoint, _ = _criteria_detail_endpoint(client, item_id)
+            detail = client.get(endpoint)
+        else:
+            detail = client.get(f"/{resource}/{item_id}")
+    except RuntimeError:
+        return fallback
+
+    if isinstance(detail, list):
+        return fallback
+    return detail  # type: ignore[return-value]
 
 
 def _extract_design_script(design: dict[str, Any], out_dir: Path, item_id: Any) -> None:
@@ -215,9 +270,14 @@ def apply_recs(
             item_id = local.get("id") or json_file.stem
             name = local.get("name", str(item_id))
 
-            # Fetch remote current state
+            # Fetch remote current state (criteria uses sub-type endpoint)
             try:
-                remote = client.get(f"/{resource}/{item_id}")
+                if resource == "criteria":
+                    _ep, _is_subtype = _criteria_detail_endpoint(client, item_id)
+                else:
+                    _ep = f"/{resource}/{item_id}"
+                    _is_subtype = False
+                remote = client.get(_ep)
             except RuntimeError:
                 changes.append({
                     "resource": resource,
@@ -248,11 +308,16 @@ def apply_recs(
             if changed and not dry_run:
                 try:
                     payload = _strip_metadata(local)
-                    # Designs require PUT — PATCH ignores the script field.
+                    # Designs require PUT (PATCH ignores script).
+                    # Criteria sub-type endpoints require PUT (PATCH returns 405).
+                    # If sub-type resolution failed, _ep is the generic
+                    # ``/criteria/{id}`` which only supports PATCH.
                     if resource == "designs":
                         client.put(f"/{resource}/{item_id}", payload)
+                    elif resource == "criteria" and _is_subtype:
+                        client.put(_ep, payload)
                     else:
-                        client.patch(f"/{resource}/{item_id}", payload)
+                        client.patch(_ep, payload)
                     record["applied"] = True
                 except RuntimeError as exc:
                     record["error"] = str(exc)
