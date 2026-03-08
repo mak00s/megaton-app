@@ -65,23 +65,28 @@ class TestQueryCoverageGateMeaningful(unittest.TestCase):
 
     def test_load_sites_and_alias_resolution_paths(self):
         query_cli._sites_cache = None
+        query_cli._site_aliases.clear_cache()
         loaded = query_cli._load_sites()
         self.assertIsInstance(loaded, dict)
 
         query_cli._sites_cache = None
-        with patch("scripts.query.Path.exists", return_value=False):
+        query_cli._site_aliases.clear_cache()
+        with patch("scripts.query._site_aliases.load_sites", return_value={}):
             self.assertEqual(query_cli._load_sites(), {})
 
         query_cli._sites_cache = {"corp": {"gsc_site_url": "https://corp.example/", "ga4_property_id": "123"}}
-        got_gsc = query_cli.resolve_site_alias({"source": "gsc", "site": "corp", "schema_version": "1.0"})
-        self.assertEqual(got_gsc["site_url"], "https://corp.example/")
-        self.assertNotIn("site", got_gsc)
+        with patch("scripts.query._site_aliases.load_sites", return_value=query_cli._sites_cache):
+            got_gsc = query_cli.resolve_site_alias({"source": "gsc", "site": "corp", "schema_version": "1.0"})
+            self.assertEqual(got_gsc["site_url"], "https://corp.example/")
+            self.assertNotIn("site", got_gsc)
 
-        got_ga4 = query_cli.resolve_site_alias({"source": "ga4", "site": "corp", "schema_version": "1.0"})
-        self.assertEqual(got_ga4["property_id"], "123")
+        with patch("scripts.query._site_aliases.load_sites", return_value=query_cli._sites_cache):
+            got_ga4 = query_cli.resolve_site_alias({"source": "ga4", "site": "corp", "schema_version": "1.0"})
+            self.assertEqual(got_ga4["property_id"], "123")
 
-        with self.assertRaises(ValueError):
-            query_cli.resolve_site_alias({"source": "ga4", "site": "unknown"})
+        with patch("scripts.query._site_aliases.load_sites", return_value=query_cli._sites_cache):
+            with self.assertRaises(ValueError):
+                query_cli.resolve_site_alias({"source": "ga4", "site": "unknown"})
 
         query_cli._sites_cache = {}
         params, err = query_cli._validate_raw({"schema_version": "1.0", "source": "ga4", "site": "unknown"})

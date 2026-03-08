@@ -97,6 +97,8 @@ python scripts/query.py --params output/ga4_quickstart.json --json
 
 `--json` 実行時は machine-readable な JSON のみを出力し、警告メッセージは `data.warnings` に格納される。
 
+`site` alias（`configs/sites*.json`）は CLI 単発実行だけでなく、`--batch` と Streamlit の `input/params.json` 読み込みでも同様に解決される。
+
 ### 監査CLIを実行する（共通機能 1-9）
 
 `scripts/audit.py` は GTM / Adobe Tags の設定抽出と GA4 / AA の実績を横断して監査する共通CLI。

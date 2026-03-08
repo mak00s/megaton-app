@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from megaton_lib.params_validator import validate_params
+from megaton_lib.site_aliases import resolve_site_alias
 
 
 def collect_configs(batch_path: str) -> list[Path]:
@@ -56,6 +57,16 @@ def _load_and_validate(config_path: Path) -> tuple[dict | None, list[dict]]:
             "message": str(e),
             "path": "$",
             "hint": "Fix JSON syntax in config file.",
+        }]
+
+    try:
+        raw = resolve_site_alias(raw)
+    except ValueError as e:
+        return None, [{
+            "error_code": "INVALID_SITE_ALIAS",
+            "message": str(e),
+            "path": "$.site",
+            "hint": "Check configs/sites.local.json or configs/sites.example.json.",
         }]
 
     params, errors = validate_params(raw)

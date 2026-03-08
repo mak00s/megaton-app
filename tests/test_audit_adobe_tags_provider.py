@@ -6,8 +6,10 @@ import pytest
 
 from megaton_lib.audit.providers.tag_config.adobe_tags import (
     _reactor_post,
+    _export_items,
     build_library,
     deploy_library,
+    export_property,
     extract_mapping_from_settings,
     find_dirty_origin_rules,
     list_library_resources,
@@ -391,3 +393,56 @@ def test_deploy_library(tags_env, monkeypatch):
     # Verify both revise POST and build POST were called
     assert any("/relationships/rules" in u for u in call_log)
     assert any("/builds" in u for u in call_log)
+
+
+def test_export_property_no_longer_raises_name_error(tags_env, monkeypatch, tmp_path):
+    config = _make_config()
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags._reactor_get",
+        lambda cfg, endpoint, params=None: {"data": {"id": "PR123"}},
+    )
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags._export_rules",
+        lambda cfg, out_dir: 1,
+    )
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags._export_data_elements",
+        lambda cfg, out_dir: 2,
+    )
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.list_extensions",
+        lambda cfg: [{"id": "EX1", "attributes": {"name": "Core"}}],
+    )
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.list_environments",
+        lambda cfg: [],
+    )
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.list_libraries",
+        lambda cfg: [],
+    )
+
+    result = export_property(config, tmp_path)
+
+    assert result == {
+        "rules": 1,
+        "data-elements": 2,
+        "extensions": 1,
+        "environments": 0,
+        "libraries": 0,
+    }
+    assert (tmp_path / "property.json").exists()
+    assert (tmp_path / "extensions" / "ex1_core.json").exists()
+
+
+def test_export_items_uses_id_prefixed_names_for_duplicate_titles(tmp_path):
+    items = [
+        {"id": "EX1", "attributes": {"name": "Same Name"}},
+        {"id": "EX2", "attributes": {"name": "Same Name"}},
+    ]
+
+    count = _export_items(items, tmp_path)
+
+    assert count == 2
+    assert (tmp_path / "ex1_same-name.json").exists()
+    assert (tmp_path / "ex2_same-name.json").exists()

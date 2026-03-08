@@ -11,6 +11,11 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 - Updated Adobe Target Recommendations apply behavior:
   - Added `AdobeTargetClient.put()` and switched `apply_recs()` to use `PUT` for `designs` updates (PATCH path kept for other resources)
   - `apply_recs()` now strips server-managed metadata keys from outbound PATCH/PUT payloads before sending
+  - `detect_getoffer_scope()` now auto-detects design/template names from delivery `responseTokens` / `option.content` and scopes design export when available
+- Fixed Adobe Tags export stability:
+  - `export_property()` no longer crashes on export startup
+  - Exported Adobe Tags resource files now use `id_slug` basenames to avoid silent overwrite when names collide
+- Unified `site` alias resolution across CLI, batch execution, and Streamlit `input/params.json` loading
 - Expanded tests for Adobe Tags provider and Target Recs apply path, including metadata-strip and designs PUT behavior
 
 ### 2026-03-06 (v0.6.0)

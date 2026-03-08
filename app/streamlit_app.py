@@ -287,6 +287,7 @@ save_to_bq = _megaton_client.save_to_bq
 from megaton_lib.params_diff import canonicalize_json
 import megaton_lib.params_validator as _params_validator
 from megaton_lib.result_inspector import apply_pipeline, SUPPORTED_AGG_FUNCS, parse_transforms
+from megaton_lib.site_aliases import resolve_site_alias as _resolve_site_alias
 from app.ui.params_utils import (
     GA4_OPERATORS,
     GSC_OPERATORS,
@@ -405,7 +406,16 @@ def execute_bq_query(project_id, sql):
 
 def validate_params(raw_params):
     """Validate params via the imported validator module."""
-    return _params_validator.validate_params(raw_params)
+    try:
+        resolved = _resolve_site_alias(raw_params)
+    except ValueError as e:
+        return None, [{
+            "error_code": "INVALID_SITE_ALIAS",
+            "message": str(e),
+            "path": "$.site",
+            "hint": "Check configs/sites.local.json or configs/sites.example.json.",
+        }]
+    return _params_validator.validate_params(resolved)
 
 
 TABLE_COLUMN_TYPE_OPTIONS = frozenset(_params_validator.ALLOWED_COLUMN_TYPES)

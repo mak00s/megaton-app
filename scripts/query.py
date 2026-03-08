@@ -55,6 +55,7 @@ from megaton_lib.batch_runner import run_batch, collect_configs
 from megaton_lib.job_manager import JobStore, now_iso
 from megaton_lib.params_validator import validate_params
 from megaton_lib.result_inspector import read_head, build_summary, apply_pipeline
+import megaton_lib.site_aliases as _site_aliases
 
 
 def emit_success(args, data, **meta) -> None:
@@ -186,60 +187,18 @@ _sites_cache: dict | None = None
 
 
 def _load_sites() -> dict:
-    """Load site alias definitions from config files.
-
-    Precedence (later wins): sites.example.json < sites.json < sites.local.json.
-    """
+    """Load site alias definitions from the shared alias module."""
     global _sites_cache
-    if _sites_cache is not None:
-        return _sites_cache
-    config_dir = Path(__file__).parent.parent / "configs"
-    merged: dict = {}
-    for filename in ("sites.example.json", "sites.json", "sites.local.json"):
-        sites_path = config_dir / filename
-        if not sites_path.exists():
-            continue
-        with open(sites_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            raise ValueError(f"{sites_path} must be a JSON object")
-        merged.update(data)
-    _sites_cache = merged
+    _sites_cache = _site_aliases.load_sites()
     return _sites_cache
 
 
 def resolve_site_alias(raw: dict) -> dict:
-    """Expand ``site`` alias to ``site_url`` / ``property_id``.
-
-    If ``site`` is present, look it up in configs/sites*.json and inject the
-    appropriate field for the source type. The ``site`` key is removed so the
-    validator won't reject it as an unknown field.
-    """
-    alias = raw.get("site")
-    if not alias:
-        return raw
-    sites = _load_sites()
-    entry = sites.get(alias)
-    if entry is None:
-        available = ", ".join(sorted(sites.keys())) if sites else "(none)"
-        raise ValueError(
-            f"Unknown site alias '{alias}'. Available: {available}"
-        )
-    raw = dict(raw)  # shallow copy
-    source = raw.get("source", "").lower()
-    if source == "gsc" and "site_url" not in raw:
-        raw["site_url"] = entry["gsc_site_url"]
-    elif source == "ga4" and "property_id" not in raw:
-        raw["property_id"] = entry["ga4_property_id"]
-    elif source == "aa":
-        if "rsid" not in raw and "aa_rsid" in entry:
-            raw["rsid"] = entry["aa_rsid"]
-        if "company_id" not in raw and "aa_company_id" in entry:
-            raw["company_id"] = entry["aa_company_id"]
-        if "org_id" not in raw and "aa_org_id" in entry:
-            raw["org_id"] = entry["aa_org_id"]
-    del raw["site"]
-    return raw
+    """Expand ``site`` alias to source-specific identifiers."""
+    global _sites_cache
+    resolved = _site_aliases.resolve_site_alias(raw)
+    _sites_cache = _site_aliases.load_sites()
+    return resolved
 
 
 def _validate_raw(raw: dict) -> tuple[dict | None, dict | None]:
