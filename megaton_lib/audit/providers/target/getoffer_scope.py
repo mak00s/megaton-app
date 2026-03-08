@@ -16,6 +16,18 @@ from megaton_lib.audit.providers.target.client import AdobeTargetClient
 from megaton_lib.audit.providers.target.recs import export_recs
 
 
+def _first_nonempty(mapping: dict[str, Any], *keys: str) -> str:
+    """Return the first non-empty string-like value from a flat mapping."""
+    for key in keys:
+        value = mapping.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
 def detect_getoffer_scope(
     captures_dir: str | Path,
     custom_code_path: str | Path | None = None,
@@ -135,21 +147,41 @@ def detect_getoffer_scope(
                                 recs_activity = act
 
                     # Extract criteria/algorithm info (responseTokens → content fallback)
-                    criteria = (
-                        meta.get("recommendation.criteria.title")
-                        or recs_activity.get("criteria.title")
-                        or ""
+                    criteria = _first_nonempty(
+                        meta,
+                        "recommendation.criteria.title",
+                    ) or _first_nonempty(
+                        recs_activity,
+                        "criteria.title",
                     )
                     if criteria:
                         criteria_names.add(criteria)
 
-                    algo = (
-                        meta.get("recommendation.algorithm.name")
-                        or recs_activity.get("algorithm.name")
-                        or ""
+                    algo = _first_nonempty(
+                        meta,
+                        "recommendation.algorithm.name",
+                    ) or _first_nonempty(
+                        recs_activity,
+                        "algorithm.name",
                     )
                     if algo:
                         criteria_names.add(algo)
+
+                    design = _first_nonempty(
+                        meta,
+                        "recommendation.design.name",
+                        "recommendation.template.name",
+                        "design.name",
+                        "template.name",
+                    ) or _first_nonempty(
+                        recs_activity,
+                        "design.name",
+                        "template.name",
+                        "design",
+                        "template",
+                    )
+                    if design:
+                        design_names.add(design)
 
                     # activity.id from responseTokens or content
                     act_id = meta.get("activity.id") or recs_activity.get("campaign.id")

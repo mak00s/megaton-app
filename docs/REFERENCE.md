@@ -35,6 +35,7 @@ For setup and how-to, see [USAGE.md](USAGE.md).
 
 **Constraints:**
 - `--params`: validates `schema_version: "1.0"` and source-key consistency
+- `site` alias resolution (`configs/sites*.json`) is applied consistently in CLI `--params`, `--batch`, and Streamlit `input/params.json` handoff
 - `--params` sync execution: pipeline must be in params.json (CLI args not allowed)
 - `--head` and `--summary`: require `--result`
 - `--group-by` and `--aggregate`: must be used together

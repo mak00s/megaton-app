@@ -535,6 +535,46 @@ def test_detect_getoffer_scope_parses_option_content(tmp_path):
     assert "CSK A：疾患が会員情報と合致" not in scope["criteria_names"]
 
 
+def test_detect_getoffer_scope_detects_design_name(tmp_path):
+    """Scope detection extracts design/template names for scoped design export."""
+    content_json = json.dumps({
+        "recs": {
+            "activity": {
+                "template.name": "Fallback Template",
+            },
+        },
+    })
+    delivery = [
+        {
+            "response": {
+                "status": 200,
+                "body": {
+                    "execute": {
+                        "mboxes": [
+                            {
+                                "name": "CSK-A",
+                                "options": [
+                                    {
+                                        "responseTokens": {
+                                            "recommendation.design.name": "JSON99",
+                                        },
+                                        "content": content_json,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            },
+        },
+    ]
+    (tmp_path / "delivery-calls.json").write_text(json.dumps(delivery))
+
+    scope = detect_getoffer_scope(tmp_path)
+    assert scope["design_names"] == ["JSON99"]
+    assert scope["designs_name_regex"] == "^(JSON99)$"
+
+
 def test_detect_getoffer_scope_flat_structure(tmp_path):
     """Also support flat structure (prefetch/execute at top level)."""
     delivery = [
@@ -640,6 +680,57 @@ def test_export_getoffer_scope_passes_only_scoped_resources(monkeypatch, tmp_pat
     assert "collections" in captured["name_regex"]
     assert "designs" not in captured["resources"]
     assert result["export_summary"] == {"criteria": 1, "collections": 1}
+
+
+def test_export_getoffer_scope_auto_includes_detected_designs(monkeypatch, tmp_path):
+    """Auto-detected design names should scope designs export without include_designs."""
+    delivery = [
+        {
+            "response": {
+                "body": {
+                    "execute": {
+                        "mboxes": [
+                            {
+                                "name": "CSK-A",
+                                "options": [
+                                    {
+                                        "responseTokens": {
+                                            "recommendation.criteria.title": "Top Sellers",
+                                            "recommendation.design.name": "JSON99",
+                                        },
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            },
+        },
+    ]
+    (tmp_path / "delivery-calls.json").write_text(json.dumps(delivery))
+
+    captured: dict[str, object] = {}
+
+    def _fake_export_recs(client, output_root, resources=None, name_regex=None):
+        captured["resources"] = resources
+        captured["name_regex"] = name_regex
+        return {"criteria": 1, "designs": 1}
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.target.getoffer_scope.export_recs",
+        _fake_export_recs,
+    )
+
+    result = export_getoffer_scope(
+        _MockClient({}),
+        tmp_path / "out",
+        tmp_path,
+        None,
+    )
+
+    assert set(captured["resources"]) == {"criteria", "designs"}
+    assert captured["name_regex"]["designs"] == "^(JSON99)$"
+    assert result["export_summary"] == {"criteria": 1, "designs": 1}
 
 
 def test_export_getoffer_scope_skips_export_when_no_scope_filters(monkeypatch, tmp_path):

@@ -609,14 +609,6 @@ def export_property(
 
     summary: dict[str, int] = {}
 
-    resource_map: dict[str, Any] = {
-        "rules": (_export_rules, config),
-        "data-elements": (_export_data_elements, config),
-        "extensions": (_export_simple_list, list_extensions),
-        "environments": (_export_simple_list, list_environments),
-        "libraries": (_export_simple_list, list_libraries),
-    }
-
     for resource in resources:
         res_dir = root / resource
         res_dir.mkdir(parents=True, exist_ok=True)
@@ -648,9 +640,10 @@ def _export_items(items: list[dict[str, Any]], out_dir: Path) -> int:
         item_id = item.get("id", "unknown")
         attrs = item.get("attributes", {})
         name = attrs.get("name", item_id) if isinstance(attrs, dict) else item_id
+        basename = _resource_basename(item_id, name)
 
         index_entries.append({"id": item_id, "name": name})
-        (out_dir / f"{_safe_filename(name)}.json").write_text(
+        (out_dir / f"{basename}.json").write_text(
             json.dumps(item, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
@@ -672,7 +665,7 @@ def _export_rules(config: AdobeTagsConfig, out_dir: Path) -> int:
         attrs = rule.get("attributes", {})
         name = attrs.get("name", rule_id) if isinstance(attrs, dict) else rule_id
 
-        rule_dir = out_dir / _safe_filename(name)
+        rule_dir = out_dir / _resource_basename(rule_id, name)
         rule_dir.mkdir(parents=True, exist_ok=True)
 
         # Save rule metadata
@@ -684,10 +677,12 @@ def _export_rules(config: AdobeTagsConfig, out_dir: Path) -> int:
         # Fetch and save rule components
         components = list_rule_components(config, rule_id)
         for comp in components:
+            comp_id = comp.get("id", "unknown")
             comp_attrs = comp.get("attributes", {})
-            comp_name = comp_attrs.get("name", comp.get("id", "unknown")) if isinstance(comp_attrs, dict) else comp.get("id", "unknown")
+            comp_name = comp_attrs.get("name", comp_id) if isinstance(comp_attrs, dict) else comp_id
+            comp_base = _resource_basename(comp_id, comp_name)
 
-            (rule_dir / f"{_safe_filename(comp_name)}.json").write_text(
+            (rule_dir / f"{comp_base}.json").write_text(
                 json.dumps(comp, indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
@@ -697,7 +692,7 @@ def _export_rules(config: AdobeTagsConfig, out_dir: Path) -> int:
             if code_info:
                 source, lang = code_info
                 ext = ".html" if lang == "html" else ".js"
-                code_file = rule_dir / f"{_safe_filename(comp_name)}.custom-code{ext}"
+                code_file = rule_dir / f"{comp_base}.custom-code{ext}"
                 code_file.write_text(source, encoding="utf-8")
 
         index_entries.append({
@@ -722,8 +717,9 @@ def _export_data_elements(config: AdobeTagsConfig, out_dir: Path) -> int:
         elem_id = elem.get("id", "unknown")
         attrs = elem.get("attributes", {})
         name = attrs.get("name", elem_id) if isinstance(attrs, dict) else elem_id
+        basename = _resource_basename(elem_id, name)
 
-        (out_dir / f"{_safe_filename(name)}.json").write_text(
+        (out_dir / f"{basename}.json").write_text(
             json.dumps(elem, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
@@ -733,7 +729,7 @@ def _export_data_elements(config: AdobeTagsConfig, out_dir: Path) -> int:
         if code_info:
             source, lang = code_info
             ext = ".html" if lang == "html" else ".js"
-            (out_dir / f"{_safe_filename(name)}.custom-code{ext}").write_text(
+            (out_dir / f"{basename}.custom-code{ext}").write_text(
                 source, encoding="utf-8",
             )
 
@@ -834,3 +830,12 @@ def _safe_filename(name: str) -> str:
     slug = re.sub(r"[^\w\s\-.]", "", str(name).strip())
     slug = re.sub(r"\s+", "-", slug).strip("-")
     return slug.lower() or "unnamed"
+
+
+def _resource_basename(resource_id: Any, name: Any) -> str:
+    """Build a collision-resistant export basename using id + slug."""
+    id_slug = _safe_filename(str(resource_id))
+    name_slug = _safe_filename(str(name))
+    if id_slug == name_slug:
+        return id_slug
+    return f"{id_slug}_{name_slug}"
