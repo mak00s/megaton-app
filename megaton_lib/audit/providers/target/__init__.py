@@ -15,6 +15,9 @@ __all__ = [
     "export_recs",
     "apply_recs",
     "export_feeds",
+    "export_activities",
+    "fetch_activity",
+    "resolve_activity_ids",
     "detect_getoffer_scope",
     "export_getoffer_scope",
 ]
@@ -24,6 +27,9 @@ _LAZY_MAP: dict[str, str] = {
     "export_recs": ".recs",
     "apply_recs": ".recs",
     "export_feeds": ".feeds",
+    "export_activities": ".activities",
+    "fetch_activity": ".activities",
+    "resolve_activity_ids": ".activities",
     "detect_getoffer_scope": ".getoffer_scope",
     "export_getoffer_scope": ".getoffer_scope",
 }
