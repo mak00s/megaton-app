@@ -4,6 +4,16 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ### 2026-03-08 (v0.6.1)
 
+- Expanded Adobe Analytics query/list support:
+  - Added `scripts/query.py --list-aa-segments` with optional name filter and definition expansion
+  - AA query params now accept inline `segment_definition` and `breakdown` objects
+- Expanded Playwright validation helpers:
+  - Added `run_page()` and `TagsLaunchOverride` for reusable page checks with optional Adobe Tags launch override
+  - Added `run_with_launch_override()` compatibility wrapper for legacy `satelliteLib-*.js` replacement flows
+- Added shared validation and sync helpers:
+  - `megaton_lib.validation` now exposes JSON path-contract checks and reusable Playwright page/delivery capture utilities
+  - `megaton_lib.audit.providers.tag_config.sync` adds exported custom-code tree apply helpers for Adobe Tags
+  - `megaton_lib.audit.providers.target.activities` adds Adobe Target activity export helpers
 - Expanded Adobe Tags (Reactor) library operations in `megaton_lib.audit.providers.tag_config.adobe_tags`:
   - Added `list_rule_revisions()`, `list_library_resources()`, `revise_library_rules()`, `find_dirty_origin_rules()`, `build_library()`, and `deploy_library()`
   - Added 409-conflict recovery in `revise_library_rules()` by removing existing revision copies and retrying revise

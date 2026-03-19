@@ -204,6 +204,8 @@ class AdobeAnalyticsClient:
         limit: int = 20000,
         n_results: int | None = None,
         segment: str | list[str] | None = None,
+        segment_definition: dict[str, Any] | list[dict[str, Any]] | None = None,
+        breakdown: dict[str, Any] | list[dict[str, Any]] | None = None,
     ) -> pd.DataFrame:
         """Fetch Adobe Analytics report with explicit page loop."""
         if limit < 1:
@@ -224,6 +226,21 @@ class AdobeAnalyticsClient:
         if segment:
             segment_ids = [segment] if isinstance(segment, str) else list(segment)
             global_filters.extend({"type": "segment", "segmentId": seg_id} for seg_id in segment_ids)
+        if segment_definition:
+            definitions = (
+                [segment_definition]
+                if isinstance(segment_definition, dict)
+                else list(segment_definition)
+            )
+            for definition in definitions:
+                if not isinstance(definition, dict):
+                    raise TypeError("segment_definition items must be objects.")
+                global_filters.append(
+                    {
+                        "type": "segment",
+                        "segmentDefinition": definition,
+                    }
+                )
         global_filters.append(
             {
                 "type": "dateRange",
@@ -231,18 +248,51 @@ class AdobeAnalyticsClient:
             }
         )
 
+        metric_filters: list[dict[str, Any]] = []
+        if breakdown:
+            raw_breakdowns = [breakdown] if isinstance(breakdown, dict) else list(breakdown)
+            seen_filter_ids: set[str] = set()
+            for idx, item in enumerate(raw_breakdowns):
+                if not isinstance(item, dict):
+                    raise TypeError("breakdown items must be objects.")
+                filter_item = dict(item)
+                filter_id = str(filter_item.get("id") or idx).strip()
+                if not filter_id:
+                    raise ValueError("breakdown id cannot be empty.")
+                if filter_id in seen_filter_ids:
+                    raise ValueError(f"duplicate breakdown id: {filter_id}")
+                seen_filter_ids.add(filter_id)
+
+                filter_type = str(filter_item.get("type") or "breakdown").strip()
+                if filter_type != "breakdown":
+                    raise ValueError("breakdown type must be 'breakdown'.")
+                dimension_name = str(filter_item.get("dimension") or "").strip()
+                if not dimension_name:
+                    raise ValueError("breakdown.dimension is required.")
+                if "itemId" not in filter_item and "itemValue" not in filter_item:
+                    raise ValueError("breakdown requires itemId or itemValue.")
+
+                filter_item["id"] = filter_id
+                filter_item["type"] = filter_type
+                filter_item["dimension"] = dimension_name
+                metric_filters.append(filter_item)
+
+        metric_entries: list[dict[str, Any]] = []
+        for idx, metric_id in enumerate(metric_ids):
+            entry: dict[str, Any] = {
+                "columnId": str(idx),
+                "id": metric_id,
+                "sort": "desc" if idx == 0 else None,
+            }
+            if metric_filters:
+                entry["filters"] = [str(item["id"]) for item in metric_filters]
+            metric_entries.append(entry)
+
         request_body: dict[str, Any] = {
             "rsid": rsid,
             "globalFilters": global_filters,
             "metricContainer": {
-                "metrics": [
-                    {
-                        "columnId": str(idx),
-                        "id": metric_id,
-                        "sort": "desc" if idx == 0 else None,
-                    }
-                    for idx, metric_id in enumerate(metric_ids)
-                ],
+                "metrics": metric_entries,
             },
             "dimension": dim_api,
             "settings": {
@@ -252,6 +302,8 @@ class AdobeAnalyticsClient:
                 "page": 0,
             },
         }
+        if metric_filters:
+            request_body["metricContainer"]["metricFilters"] = metric_filters
 
         endpoint = f"{self.AA_API_BASE}/{self.config.company_id}/reports"
         params = {
@@ -513,14 +565,87 @@ class AdobeAnalyticsClient:
             limit=limit,
         )
 
-    def list_segments(self, *, rsid: str, limit: int = 2000) -> list[dict[str, str]]:
-        """List available segments for the given RSID."""
-        return self._list_catalog_items(
-            endpoint_name="segments",
-            rsid=rsid,
-            limit=limit,
-            extra_params={"includeType": "all"},
-        )
+    def list_segments(
+        self,
+        *,
+        rsid: str,
+        limit: int = 2000,
+        name: str | None = None,
+        include_definition: bool = False,
+    ) -> list[dict[str, Any]]:
+        """List available segments for the given RSID.
+
+        When ``include_definition`` is enabled, Adobe returns the segment
+        definition payload in addition to basic metadata. ``name`` applies the
+        server-side name filter supported by the Segments API.
+        """
+        extra_params: dict[str, Any] = {"includeType": "all"}
+        if name and str(name).strip():
+            extra_params["name"] = str(name).strip()
+        if include_definition:
+            extra_params["expansion"] = "definition"
+
+        endpoint = f"{self.AA_API_BASE}/{self.config.company_id}/segments"
+        page = 0
+        max_page_size = 200
+        page_size = min(int(limit), max_page_size)
+        items: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        while True:
+            params = {"rsid": rsid, "limit": page_size, "page": page, **extra_params}
+            response = self._request_json(
+                method="GET",
+                url=endpoint,
+                headers=self._api_headers(),
+                params=params,
+                authenticated=True,
+                retry_on_401=True,
+                allow_array_json=True,
+            )
+            content = response.get("content", [])
+            if not isinstance(content, list):
+                raise RuntimeError(
+                    f"Unexpected Adobe segments format: content={type(content)}",
+                )
+
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                item_id = str(item.get("id") or "").strip()
+                if not item_id or item_id in seen:
+                    continue
+                seen.add(item_id)
+                segment: dict[str, Any] = {
+                    "id": item_id,
+                    "name": str(item.get("name") or item_id).strip(),
+                }
+                description = item.get("description")
+                if description not in (None, ""):
+                    segment["description"] = str(description)
+                if "definition" in item:
+                    segment["definition"] = item["definition"]
+                items.append(segment)
+                if len(items) >= limit:
+                    return items
+
+            if not content:
+                break
+            if bool(response.get("lastPage", False)):
+                break
+
+            total_pages = response.get("totalPages")
+            current_page = response.get("number")
+            if (
+                isinstance(total_pages, int)
+                and isinstance(current_page, int)
+                and current_page + 1 >= total_pages
+            ):
+                break
+
+            page += 1
+
+        return items
 
     def fetch_dimension_metric(
         self,

@@ -41,6 +41,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from megaton_lib.megaton_client import (
+    get_aa_segments,
     get_ga4_properties,
     get_gsc_sites,
     get_bq_datasets,
@@ -310,6 +311,9 @@ def execute_query_from_params(params: dict) -> tuple[object, list[str]]:
         elif isinstance(segment_raw, list):
             segment = [str(s).strip() for s in segment_raw if str(s).strip()] or None
 
+        segment_definition = params.get("segment_definition")
+        breakdown = params.get("breakdown")
+
         df = query_aa(
             company_id=params["company_id"],
             rsid=params["rsid"],
@@ -318,6 +322,8 @@ def execute_query_from_params(params: dict) -> tuple[object, list[str]]:
             dimension=params["dimension"],
             metrics=params["metrics"],
             segment=segment,
+            segment_definition=segment_definition,
+            breakdown=breakdown,
             limit=params.get("limit", 1000),
             org_id=params.get("org_id"),
         )
@@ -330,6 +336,16 @@ def execute_query_from_params(params: dict) -> tuple[object, list[str]]:
         ]
         if segment:
             header_lines.append(f"Segment: {', '.join(segment)}")
+        if segment_definition:
+            if isinstance(segment_definition, list):
+                header_lines.append(f"Inline segment definitions: {len(segment_definition)}")
+            else:
+                header_lines.append("Inline segment definitions: 1")
+        if breakdown:
+            if isinstance(breakdown, list):
+                header_lines.append(f"Breakdowns: {len(breakdown)}")
+            else:
+                header_lines.append("Breakdowns: 1")
         return df, header_lines
 
     if source == "bigquery":
@@ -907,6 +923,76 @@ def run_list_mode(args) -> tuple[bool, int]:
                 print(f"  - {ds}")
         return True, 0
 
+    if args.list_aa_segments:
+        if not args.aa_company_id:
+            return True, emit_error(
+                args,
+                "MISSING_REQUIRED_ARG",
+                "--aa-company-id is required for --list-aa-segments",
+                "Use --list-aa-segments --aa-company-id <company_id> --aa-rsid <rsid>.",
+            )
+        if not args.aa_rsid:
+            return True, emit_error(
+                args,
+                "MISSING_REQUIRED_ARG",
+                "--aa-rsid is required for --list-aa-segments",
+                "Use --list-aa-segments --aa-company-id <company_id> --aa-rsid <rsid>.",
+            )
+        try:
+            segments, warnings = capture_stdio(
+                get_aa_segments,
+                company_id=args.aa_company_id,
+                rsid=args.aa_rsid,
+                org_id=args.aa_org_id,
+                name=args.aa_segment_name,
+                include_definition=args.aa_segment_definition,
+            )
+        except CapturedExecutionError as e:
+            emit_warnings(args, e.messages)
+            details = {"warnings": e.messages} if args.json and e.messages else None
+            return True, emit_error(
+                args,
+                "LIST_OPERATION_FAILED",
+                f"failed to list AA segments: {e.error}",
+                "Check Adobe credentials, company_id, rsid, and segment filters.",
+                details=details,
+            )
+        except Exception as e:
+            return True, emit_error(
+                args,
+                "LIST_OPERATION_FAILED",
+                f"failed to list AA segments: {e}",
+                "Check Adobe credentials, company_id, rsid, and segment filters.",
+            )
+        emit_warnings(args, warnings)
+        if args.json:
+            payload = {
+                "company_id": args.aa_company_id,
+                "rsid": args.aa_rsid,
+                "segments": segments,
+                "count": len(segments),
+            }
+            if args.aa_segment_name:
+                payload["name"] = args.aa_segment_name
+            if args.aa_segment_definition:
+                payload["include_definition"] = True
+            if warnings:
+                payload["warnings"] = warnings
+            emit_success(args, payload, mode="list_aa_segments")
+        else:
+            print(f"AAセグメント一覧 ({args.aa_company_id} / {args.aa_rsid}):")
+            for segment in segments:
+                seg_id = str(segment.get("id", "")).strip()
+                seg_name = str(segment.get("name", seg_id)).strip()
+                print(f"  - {seg_name} ({seg_id})")
+                description = str(segment.get("description", "")).strip()
+                if description:
+                    print(f"      description: {description}")
+                if args.aa_segment_definition and "definition" in segment:
+                    print("      definition:")
+                    print(json.dumps(segment["definition"], ensure_ascii=False, indent=8))
+        return True, 0
+
     return False, 0
 
 
@@ -1051,7 +1137,17 @@ def main():
     parser.add_argument("--list-ga4-properties", action="store_true", help="List GA4 properties")
     parser.add_argument("--list-gsc-sites", action="store_true", help="List GSC sites")
     parser.add_argument("--list-bq-datasets", action="store_true", help="List BigQuery datasets")
+    parser.add_argument("--list-aa-segments", action="store_true", help="List Adobe Analytics segments")
     parser.add_argument("--project", help="GCP project ID for --list-bq-datasets")
+    parser.add_argument("--aa-company-id", help="Adobe Analytics company ID for --list-aa-segments")
+    parser.add_argument("--aa-rsid", help="Adobe Analytics RSID for --list-aa-segments")
+    parser.add_argument("--aa-org-id", help="Adobe Analytics org ID override for --list-aa-segments")
+    parser.add_argument("--aa-segment-name", help="Segment name filter for --list-aa-segments")
+    parser.add_argument(
+        "--aa-segment-definition",
+        action="store_true",
+        help="Include segment definitions for --list-aa-segments",
+    )
     args = parser.parse_args()
     store = JobStore(os.environ.get("QUERY_JOB_DIR", "output/jobs"))
 

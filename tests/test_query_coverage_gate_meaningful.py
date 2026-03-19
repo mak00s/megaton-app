@@ -39,7 +39,13 @@ def _args(**kwargs):
         "list_ga4_properties": False,
         "list_gsc_sites": False,
         "list_bq_datasets": False,
+        "list_aa_segments": False,
         "project": None,
+        "aa_company_id": None,
+        "aa_rsid": None,
+        "aa_org_id": None,
+        "aa_segment_name": None,
+        "aa_segment_definition": False,
         "batch": None,
     }
     base.update(kwargs)

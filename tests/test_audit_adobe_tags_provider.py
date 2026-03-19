@@ -15,6 +15,8 @@ from megaton_lib.audit.providers.tag_config.adobe_tags import (
     list_library_resources,
     list_rule_revisions,
     parse_settings_object,
+    refresh_library_resources,
+    revise_library_data_elements,
     revise_library_rules,
 )
 from megaton_lib.audit.config import AdobeTagsConfig
@@ -281,6 +283,91 @@ def test_revise_library_rules_409_retry(tags_env, monkeypatch):
     assert result["new_rule_ids"] == ["RL-new-1"]
     assert call_count["post"] == 2  # first 409, then retry
     assert call_count["delete"] == 1
+
+
+def test_revise_library_data_elements_success(tags_env, monkeypatch):
+    config = _make_config()
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.post",
+        lambda url, headers, json, timeout: _Resp(200, {
+            "data": [
+                {"type": "data_elements", "id": "DE-new-1"},
+                {"type": "data_elements", "id": "DE-new-2"},
+            ],
+        }),
+    )
+    result = revise_library_data_elements(config, "LB1", ["DE-origin-1", "DE-origin-2"])
+    assert result["revised_count"] == 2
+    assert result["new_de_ids"] == ["DE-new-1", "DE-new-2"]
+
+
+def test_refresh_library_resources_rolls_back_failed_rule_refresh(tags_env, monkeypatch):
+    config = _make_config()
+    state = {
+        "rules": [
+            {
+                "id": "RL-rev-1",
+                "relationships": {"origin": {"data": {"id": "RL-origin-1", "type": "rules"}}},
+            },
+        ],
+        "data_elements": [],
+    }
+
+    def mock_paginated_list(cfg, endpoint, *, sort="name", extra_query=""):
+        if endpoint.endswith("/rules"):
+            return [dict(item) for item in state["rules"]]
+        if endpoint.endswith("/data_elements"):
+            return [dict(item) for item in state["data_elements"]]
+        raise AssertionError(endpoint)
+
+    def mock_delete(cfg, endpoint, payload):
+        remove_ids = {item["id"] for item in payload["data"]}
+        if endpoint.endswith("/relationships/rules"):
+            state["rules"] = [item for item in state["rules"] if item["id"] not in remove_ids]
+            return
+        if endpoint.endswith("/relationships/data_elements"):
+            state["data_elements"] = [
+                item for item in state["data_elements"] if item["id"] not in remove_ids
+            ]
+            return
+        raise AssertionError(endpoint)
+
+    def mock_post(cfg, endpoint, payload):
+        restored = payload["data"][0]
+        if endpoint.endswith("/relationships/rules"):
+            state["rules"].append({
+                "id": restored["id"],
+                "relationships": {
+                    "origin": {"data": {"id": "RL-origin-1", "type": "rules"}},
+                },
+            })
+            return {"data": []}
+        raise AssertionError(endpoint)
+
+    def mock_revise(cfg, library_id, resource_type, origin_ids):
+        raise RuntimeError("revise failed")
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags._paginated_list",
+        mock_paginated_list,
+    )
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags._reactor_delete",
+        mock_delete,
+    )
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags._reactor_post",
+        mock_post,
+    )
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags._revise_library_resources",
+        mock_revise,
+    )
+
+    with pytest.raises(RuntimeError, match="revise failed"):
+        refresh_library_resources(config, "LB1")
+
+    assert [item["id"] for item in state["rules"]] == ["RL-rev-1"]
 
 
 # ---- find_dirty_origin_rules tests ----
