@@ -80,7 +80,17 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
     source_optional = {
         "ga4": {"filter_d", "limit", "pipeline", "save", "column_types"},
         "gsc": {"filter", "limit", "pipeline", "save", "column_types"},
-        "aa": {"site", "segment", "limit", "org_id", "pipeline", "save", "column_types"},
+        "aa": {
+            "site",
+            "segment",
+            "segment_definition",
+            "breakdown",
+            "limit",
+            "org_id",
+            "pipeline",
+            "save",
+            "column_types",
+        },
         "bigquery": {"pipeline", "save", "column_types"},
     }
 
@@ -210,6 +220,22 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
                     "Use \"segment_id\" or [\"segment_id1\", \"segment_id2\"].",
                 )
             )
+
+    for key in ("segment_definition", "breakdown"):
+        if key in normalized:
+            value = normalized[key]
+            value_ok = isinstance(value, dict) or (
+                isinstance(value, list) and all(isinstance(v, dict) for v in value)
+            )
+            if not value_ok:
+                errors.append(
+                    _err(
+                        "INVALID_TYPE",
+                        f"{key} must be an object or object array",
+                        f"$.{key}",
+                        f"Use an Adobe API JSON object or [{'{'}...{'}'}].",
+                    )
+                )
 
     if "column_types" in normalized:
         ct = normalized["column_types"]

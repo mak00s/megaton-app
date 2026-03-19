@@ -29,7 +29,13 @@ For setup and how-to, see [USAGE.md](USAGE.md).
 | `--list-ga4-properties` | List GA4 properties | OFF |
 | `--list-gsc-sites` | List GSC sites | OFF |
 | `--list-bq-datasets` | List BQ datasets | OFF |
+| `--list-aa-segments` | List Adobe Analytics segments | OFF |
 | `--project` | GCP project for dataset listing | - |
+| `--aa-company-id` | Adobe company ID for segment listing | - |
+| `--aa-rsid` | Adobe RSID for segment listing | - |
+| `--aa-org-id` | Adobe Org ID override for segment listing | - |
+| `--aa-segment-name` | Segment name filter for segment listing | - |
+| `--aa-segment-definition` | Include segment definitions in listing output | OFF |
 | `--json` | JSON output | table |
 | `--output` | Save to CSV file | - |
 
@@ -40,6 +46,21 @@ For setup and how-to, see [USAGE.md](USAGE.md).
 - `--head` and `--summary`: require `--result`
 - `--group-by` and `--aggregate`: must be used together
 - `--summary`: exclusive with pipeline options
+- `--list-aa-segments`: requires `--aa-company-id` and `--aa-rsid`
+
+### AA Segment Listing
+
+Use this when you need Adobe segment IDs, descriptions, or raw definitions.
+
+```bash
+python scripts/query.py \
+  --list-aa-segments \
+  --aa-company-id wacoal1 \
+  --aa-rsid wacoal-all \
+  --aa-segment-name "bot除外" \
+  --aa-segment-definition \
+  --json
+```
 
 ### Result Pipeline
 
@@ -238,6 +259,8 @@ python scripts/query.py --batch configs/weekly/ --json
 | `dimensions` | array | - | Dimension list |
 | `metrics` | array | GA4/AA | Metric list |
 | `segment` | string/array | - | Adobe segment ID(s) |
+| `segment_definition` | object/array | - | Adobe inline segment definition(s) |
+| `breakdown` | object/array | - | Adobe Reports API breakdown filter object(s) |
 | `filter_d` | string | - | GA4 filter (`field==value` format) |
 | `filter` | string | - | GSC filter (`dim:op:expr` format) |
 | `limit` | number | - | Row limit (max 100,000) |
@@ -306,6 +329,42 @@ python scripts/query.py --batch configs/weekly/ --json
   "metrics": ["revenue", "orders"],
   "segment": ["s1234567890"],
   "limit": 50000
+}
+```
+
+**Adobe Analytics (AA, inline segment + breakdown):**
+```json
+{
+  "schema_version": "1.0",
+  "source": "aa",
+  "company_id": "wacoal1",
+  "rsid": "wacoal-all",
+  "date_range": {"start": "2026-03-01", "end": "2026-03-03"},
+  "dimension": "lasttouchchannel",
+  "metrics": ["visits"],
+  "segment_definition": {
+    "func": "segment",
+    "version": [1, 0, 0],
+    "container": {
+      "func": "container",
+      "context": "hits",
+      "pred": {
+        "func": "container",
+        "context": "hits",
+        "pred": {
+          "str": "Direct",
+          "val": {"func": "attr", "name": "variables/lasttouchchannel"},
+          "description": "ラストタッチチャネル",
+          "func": "streq"
+        }
+      }
+    }
+  },
+  "breakdown": {
+    "dimension": "variables/geocountry",
+    "itemId": "4007560033"
+  },
+  "limit": 10
 }
 ```
 
@@ -540,6 +599,89 @@ Notes:
 | `apply_source_normalization(df, source_map, source_col="source")` | Apply regex map to normalize source values |
 | `classify_channel(row, ...)` | Reclassify channel using source/medium heuristics (AI/Map/Group etc.) |
 | `reclassify_source_channel(row, ...)` | Reclassify source + channel pair and return `(source, channel)` |
+
+### Validation Helpers (`megaton_lib.validation`)
+
+| Function / Class | Description |
+|------------------|-------------|
+| `resolve_path(obj, path)` | Resolve dotted JSON-like path and return `(exists, value)` |
+| `check_rule(data, rule)` | Evaluate one contract rule (`path`, `type`, `nonEmpty`, `minItems`) |
+| `validate_contract(data, contract)` | Run a contract file and return aggregate check report |
+| `capture_console_args(msg)` | Safely serialize Playwright console arguments |
+| `select_headers(headers)` | Keep stable request/response headers for debug output |
+| `extract_mbox_names(payload)` | Extract Target delivery mbox names from request payload |
+| `PageEventCapture(...)` | Collect Playwright console logs, page errors, failed requests, and Target delivery calls |
+| `TagsLaunchOverride(...)` | Describe how Adobe Tags launch assets should be replaced during Playwright runs |
+| `configure_tags_launch_override(page, url, override)` | Attach Playwright routes that swap Adobe Tags assets for one page/origin |
+| `run_page(...)` | Open a Playwright page with optional basic auth, HTTPS ignore, and Tags override support |
+| `run_with_basic_auth_page(...)` | Open a page with BASIC auth and run a callback in Playwright |
+| `run_with_launch_override(...)` | Backward-compatible helper for legacy `satelliteLib-*.js` replacement |
+| `capture_selector_state(page, selectors)` | Snapshot selector existence/opacity/child counts for page validation |
+
+#### Adobe Tags Launch Override
+
+Use `TagsLaunchOverride` when you need to test a site against a different Adobe Tags
+build without changing the site code.
+
+```python
+from megaton_lib.validation import TagsLaunchOverride, run_page
+
+override = TagsLaunchOverride(
+    launch_url="https://assets.adobedtm.com/<company>/<property>/launch-xxxx-development.js",
+    mode="auto",
+)
+
+def validate(page):
+    page.goto("https://example.com/", wait_until="domcontentloaded", timeout=60000)
+    page.wait_for_timeout(3000)
+    return {
+        "url": page.url,
+        "has_satellite": page.evaluate("() => typeof _satellite !== 'undefined'"),
+    }
+
+result = run_page(
+    "https://example.com/",
+    tags_override=override,
+    callback=validate,
+)
+```
+
+Mode guide:
+
+- `auto`: enable both strategies below. Use this as the default when sites are mixed.
+- `legacy_satellite`: replace `satelliteLib-*.js` references in HTML responses.
+- `launch_env`: intercept `launch-*staging*.js` / `launch-*development*.js` requests and serve `launch_url`.
+
+Important fields:
+
+- `launch_url`: full `assets.adobedtm.com/.../launch-*.js` URL to test.
+- `env_patterns`: which environment names should be matched in `launch_env` mode. Default is `("staging", "development")`.
+- `abort_old_property_assets`: if `True`, abort other requests under the same property asset prefix so old chunks do not run beside the override build.
+
+Notes:
+
+- `run_page(...)` does not navigate for you. Call `page.goto(...)` inside `callback` or `setup`.
+- `run_with_launch_override(...)` remains available for older callers, but new code should prefer `run_page(..., tags_override=TagsLaunchOverride(...))`.
+- `run_with_launch_override(...)` performs one initial `page.goto(...)` before your callback runs. Do not call `page.goto(...)` again for the same URL unless you intentionally want a second load.
+- `run_with_basic_auth_page(...)` is still useful when you only need BASIC auth and no Tags replacement.
+- `legacy_satellite` HTML rewriting is scoped to the initial `run_page(url=...)` origin. If your callback later moves to another origin, that later HTML will not be rewritten by the original route.
+
+### Adobe Tags Sync Helpers (`megaton_lib.audit.providers.tag_config`)
+
+| Function | Description |
+|----------|-------------|
+| `slugify_component_name(name)` | Convert component names to stable ASCII slugs for file matching |
+| `find_component_id(code_file)` | Resolve Reactor component/data-element ID from exported custom-code file path |
+| `apply_custom_code_tree(config, root, dry_run=True)` | Apply all exported `*.custom-code.*` files under a property tree |
+
+### Adobe Target Activity Helpers (`megaton_lib.audit.providers.target`)
+
+| Function | Description |
+|----------|-------------|
+| `parse_ids(raw)` | Parse comma-separated activity IDs into `list[int]` |
+| `resolve_activity_ids(index_path, raw_ids="")` | Resolve activity IDs from explicit input or exported `index.json` |
+| `fetch_activity(client, tenant_id, activity_id)` | Fetch one AB activity detail JSON |
+| `export_activities(client, tenant_id, output_root, activity_ids)` | Export selected Target activities and write `index.json` |
 
 ---
 

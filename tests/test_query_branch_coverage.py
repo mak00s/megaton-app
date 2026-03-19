@@ -28,6 +28,16 @@ def _args(**kwargs):
         "head": None,
         "summary": False,
         "job_limit": 20,
+        "list_ga4_properties": False,
+        "list_gsc_sites": False,
+        "list_bq_datasets": False,
+        "list_aa_segments": False,
+        "project": None,
+        "aa_company_id": None,
+        "aa_rsid": None,
+        "aa_org_id": None,
+        "aa_segment_name": None,
+        "aa_segment_definition": False,
     }
     base.update(kwargs)
     return Namespace(**base)
@@ -153,6 +163,28 @@ class TestListAndShowBranches(unittest.TestCase):
             self.assertEqual(code, 0)
             payload = json.loads(out.getvalue())
             self.assertEqual(payload["mode"], "list_bq_datasets")
+
+        args = _args(
+            json=True,
+            list_aa_segments=True,
+            aa_company_id="wacoal1",
+            aa_rsid="wacoal-all",
+            aa_segment_name="bot除外",
+            aa_segment_definition=True,
+        )
+        with patch(
+            "scripts.query.get_aa_segments",
+            return_value=[{"id": "s1", "name": "bot除外", "definition": {"func": "segment"}}],
+        ):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                handled, code = query_cli.run_list_mode(args)
+            self.assertTrue(handled)
+            self.assertEqual(code, 0)
+            payload = json.loads(out.getvalue())
+            self.assertEqual(payload["mode"], "list_aa_segments")
+            self.assertEqual(payload["data"]["name"], "bot除外")
+            self.assertTrue(payload["data"]["include_definition"])
 
     def test_show_job_status_not_found_and_plain(self):
         with tempfile.TemporaryDirectory() as tmp:

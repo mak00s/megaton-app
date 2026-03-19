@@ -53,6 +53,19 @@
         "type": "string",
         "enum": ["date", "int", "float", "currency", "percent", "text"]
       }
+    },
+    "json_object_or_array": {
+      "oneOf": [
+        {
+          "type": "object"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      ]
     }
   },
   "allOf": [
@@ -169,6 +182,8 @@
               }
             ]
           },
+          "segment_definition": { "$ref": "#/$defs/json_object_or_array" },
+          "breakdown": { "$ref": "#/$defs/json_object_or_array" },
           "limit": { "type": "integer", "minimum": 1, "maximum": 100000 },
           "column_types": { "$ref": "#/$defs/column_types" },
           "pipeline": { "$ref": "#/$defs/pipeline" },

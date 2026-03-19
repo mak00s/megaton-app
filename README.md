@@ -83,13 +83,14 @@ megaton-app/
 │   ├── megaton_client.py   # GA4/GSC/BQ/AA query execution (core)
 │   ├── ga4_helpers.py      # GA4 report helpers
 │   ├── gsc_utils.py        # GSC aggregation helpers
+│   ├── validation/         # JSON contract and Playwright capture helpers
 │   └── audit/              # Reusable audit framework
 │       ├── config.py           # Project config model & loader
 │       └── providers/
 │           ├── adobe_auth.py   # Shared Adobe IMS OAuth
 │           ├── analytics/      # AA & GA4 audit providers
-│           ├── tag_config/     # Adobe Tags & GTM providers
-│           └── target/         # Adobe Target Recs API (export/apply/scope)
+│           ├── tag_config/     # Adobe Tags & GTM providers (+ sync helpers)
+│           └── target/         # Adobe Target Recs/Activities API helpers
 ├── scripts/            # CLI tools (query.py, run_notebook.py, audit.py)
 ├── app/                # Streamlit UI
 ├── credentials/        # Service account JSON (.gitignore)

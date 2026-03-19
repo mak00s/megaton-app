@@ -145,6 +145,56 @@ def test_get_report_retry_429(aa_env, monkeypatch):
     assert int(round(pd.to_numeric(df["metrics/revenue"], errors="coerce").sum())) == 17034810
 
 
+def test_get_report_supports_inline_segment_and_breakdown(aa_env, monkeypatch):
+    cfg = _config(aa_env)
+    responses = [
+        _DummyResponse(
+            200,
+            {
+                "rows": [{"value": "Page A", "data": [100.0]}],
+                "lastPage": True,
+            },
+        ),
+    ]
+    dummy = _DummySession(responses)
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.aa.requests.Session",
+        lambda: dummy,
+    )
+
+    client = AdobeAnalyticsClient(cfg)
+    segment_definition = {"func": "segment", "version": [1, 0, 0]}
+    breakdown = {"dimension": "variables/page", "itemId": "12345"}
+    df = client.get_report(
+        rsid=cfg.rsid,
+        dimension="page",
+        metrics=["revenue"],
+        date_from="2026-02-17",
+        date_to="2026-02-18",
+        segment=["s123"],
+        segment_definition=segment_definition,
+        breakdown=breakdown,
+    )
+
+    assert len(df) == 1
+    request_json = dummy.calls[-1]["json"]
+    assert request_json["globalFilters"][0] == {"type": "segment", "segmentId": "s123"}
+    assert request_json["globalFilters"][1] == {
+        "type": "segment",
+        "segmentDefinition": segment_definition,
+    }
+    metric_container = request_json["metricContainer"]
+    assert metric_container["metricFilters"] == [
+        {
+            "id": "0",
+            "type": "breakdown",
+            "dimension": "variables/page",
+            "itemId": "12345",
+        },
+    ]
+    assert metric_container["metrics"][0]["filters"] == ["0"]
+
+
 def test_fetch_dimension_metric_shape(aa_env, monkeypatch):
     cfg = _config(aa_env)
     responses = [
@@ -249,6 +299,52 @@ def test_list_segments_accepts_content_payload(aa_env, monkeypatch):
 
     assert [s["id"] for s in out] == ["s123", "s456"]
     assert dummy.calls[-1]["params"]["includeType"] == "all"
+
+
+def test_list_segments_supports_name_filter_and_definition(aa_env, monkeypatch):
+    cfg = _config(aa_env)
+    definition = {"func": "segment", "version": [1, 0, 0]}
+    responses = [
+        _DummyResponse(
+            200,
+            {
+                "content": [
+                    {
+                        "id": "s123",
+                        "name": "bot除外",
+                        "description": "test description",
+                        "definition": definition,
+                    },
+                ],
+                "lastPage": True,
+                "number": 0,
+                "totalPages": 1,
+            },
+        ),
+    ]
+    dummy = _DummySession(responses)
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.aa.requests.Session",
+        lambda: dummy,
+    )
+
+    client = AdobeAnalyticsClient(cfg)
+    out = client.list_segments(
+        rsid=cfg.rsid,
+        name="bot除外",
+        include_definition=True,
+    )
+
+    assert out == [
+        {
+            "id": "s123",
+            "name": "bot除外",
+            "description": "test description",
+            "definition": definition,
+        },
+    ]
+    assert dummy.calls[-1]["params"]["name"] == "bot除外"
+    assert dummy.calls[-1]["params"]["expansion"] == "definition"
 
 
 def test_list_report_suites_uses_total_pages_when_last_page_missing(aa_env, monkeypatch):

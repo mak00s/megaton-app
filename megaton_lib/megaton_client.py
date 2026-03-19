@@ -566,7 +566,9 @@ def get_aa_segments(
     org_id: str | None = None,
     token_cache_file: str | None = None,
     limit: int = 2000,
-) -> list[dict[str, str]]:
+    name: str | None = None,
+    include_definition: bool = False,
+) -> list[dict[str, object]]:
     """List AA segments for an RSID."""
     aa_cfg = _build_aa_config(
         company_id=company_id,
@@ -575,7 +577,12 @@ def get_aa_segments(
         token_cache_file=token_cache_file,
     )
     client = AdobeAnalyticsClient(aa_cfg)
-    segments = client.list_segments(rsid=aa_cfg.rsid, limit=limit)
+    segments = client.list_segments(
+        rsid=aa_cfg.rsid,
+        limit=limit,
+        name=name,
+        include_definition=include_definition,
+    )
     return sorted(segments, key=lambda x: (x.get("name", ""), x.get("id", "")))
 
 
@@ -607,6 +614,8 @@ def query_aa(
     dimension: FieldSpec,
     metrics: Sequence[FieldSpec],
     segment: str | Sequence[str] | None = None,
+    segment_definition: dict[str, object] | Sequence[dict[str, object]] | None = None,
+    breakdown: dict[str, object] | Sequence[dict[str, object]] | None = None,
     limit: int = 10000,
     org_id: str | None = None,
     token_cache_file: str | None = None,
@@ -621,6 +630,8 @@ def query_aa(
         dimension: Dimension name or (name, alias).
         metrics: Metric names or (name, alias) list.
         segment: Optional segment id or list of segment ids.
+        segment_definition: Optional inline segment definition object(s).
+        breakdown: Optional Adobe metricFilter breakdown object(s).
         limit: Max rows per API page.
         org_id: Optional Adobe org id override.
         token_cache_file: Optional token cache file path.
@@ -650,6 +661,8 @@ def query_aa(
         date_to=end_exclusive,
         limit=limit,
         segment=segment,
+        segment_definition=segment_definition,
+        breakdown=breakdown,
     )
     if df.empty:
         return pd.DataFrame(columns=[dim_alias, *[alias for _, alias in metric_specs]])

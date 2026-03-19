@@ -57,6 +57,22 @@ class TestParamsValidator(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(normalized["source"], "aa")
 
+    def test_valid_aa_with_inline_segment_and_breakdown(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "aa",
+            "company_id": "wacoal1",
+            "rsid": "wacoal-all",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimension": "page",
+            "metrics": ["revenue"],
+            "segment_definition": {"func": "segment"},
+            "breakdown": [{"dimension": "variables/page", "itemId": "123"}],
+        }
+        normalized, errors = validate_params(data)
+        self.assertEqual(errors, [])
+        self.assertEqual(normalized["source"], "aa")
+
     def test_invalid_aa_segment_type(self):
         data = {
             "schema_version": "1.0",
@@ -71,6 +87,36 @@ class TestParamsValidator(unittest.TestCase):
         normalized, errors = validate_params(data)
         self.assertIsNone(normalized)
         self.assertTrue(any(err["error_code"] == "INVALID_TYPE" and err["path"] == "$.segment" for err in errors))
+
+    def test_invalid_aa_segment_definition_type(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "aa",
+            "company_id": "wacoal1",
+            "rsid": "wacoal-all",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimension": "daterangeday",
+            "metrics": ["revenue"],
+            "segment_definition": "bad",
+        }
+        normalized, errors = validate_params(data)
+        self.assertIsNone(normalized)
+        self.assertTrue(any(err["error_code"] == "INVALID_TYPE" and err["path"] == "$.segment_definition" for err in errors))
+
+    def test_invalid_aa_breakdown_type(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "aa",
+            "company_id": "wacoal1",
+            "rsid": "wacoal-all",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimension": "daterangeday",
+            "metrics": ["revenue"],
+            "breakdown": ["bad"],
+        }
+        normalized, errors = validate_params(data)
+        self.assertIsNone(normalized)
+        self.assertTrue(any(err["error_code"] == "INVALID_TYPE" and err["path"] == "$.breakdown" for err in errors))
 
     def test_missing_schema_version(self):
         data = {

@@ -38,7 +38,13 @@ def _args(**kwargs):
         "list_ga4_properties": False,
         "list_gsc_sites": False,
         "list_bq_datasets": False,
+        "list_aa_segments": False,
         "project": None,
+        "aa_company_id": None,
+        "aa_rsid": None,
+        "aa_org_id": None,
+        "aa_segment_name": None,
+        "aa_segment_definition": False,
     }
     base.update(kwargs)
     return Namespace(**base)
@@ -289,6 +295,32 @@ class TestFunctionNonJsonBranches(unittest.TestCase):
             self.assertTrue(handled)
             self.assertEqual(code, 0)
             self.assertIn("データセット一覧 (p)", out.getvalue())
+
+        args = _args(json=False, list_aa_segments=True, aa_company_id=None, aa_rsid="suite")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            handled, code = query_cli.run_list_mode(args)
+        self.assertTrue(handled)
+        self.assertEqual(code, 1)
+
+        args = _args(
+            json=False,
+            list_aa_segments=True,
+            aa_company_id="wacoal1",
+            aa_rsid="suite",
+            aa_segment_definition=True,
+        )
+        with patch(
+            "scripts.query.get_aa_segments",
+            return_value=[{"id": "s1", "name": "bot除外", "description": "d", "definition": {"func": "segment"}}],
+        ):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                handled, code = query_cli.run_list_mode(args)
+        self.assertTrue(handled)
+        self.assertEqual(code, 0)
+        self.assertIn("AAセグメント一覧", out.getvalue())
+        self.assertIn("definition", out.getvalue())
 
 
 class TestMainBranches(unittest.TestCase):

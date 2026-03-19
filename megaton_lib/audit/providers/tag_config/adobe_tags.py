@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 from typing import Any
+from urllib.parse import quote as _url_quote
 
 import requests
 
@@ -196,6 +197,34 @@ def _reactor_post(config: AdobeTagsConfig, endpoint: str, payload: dict[str, Any
     return resp.json() if resp.text.strip() else {}
 
 
+def _reactor_delete(config: AdobeTagsConfig, endpoint: str, payload: dict[str, Any]) -> None:
+    """Send a DELETE request to the Reactor API (relationship removal)."""
+    headers = _get_auth_headers(config)
+    base = config.base_url.rstrip("/")
+    url = f"{base}{endpoint}"
+
+    resp = requests.delete(url, headers=headers, json=payload, timeout=30)
+    if resp.status_code < 200 or resp.status_code >= 300:
+        raise RuntimeError(
+            f"Adobe Tags API DELETE failed: {resp.status_code} {resp.text}",
+        )
+
+
+def _attach_library_resources(
+    config: AdobeTagsConfig,
+    endpoint: str,
+    resource_type: str,
+    resource_ids: list[str],
+) -> None:
+    """Attach existing resource revisions back to a library relationship."""
+    if not resource_ids:
+        return
+    payload = {
+        "data": [{"id": rid, "type": resource_type} for rid in resource_ids],
+    }
+    _reactor_post(config, endpoint, payload)
+
+
 # ---- paginated list helpers ----
 
 
@@ -204,6 +233,7 @@ def _paginated_list(
     endpoint: str,
     *,
     sort: str = "name",
+    extra_query: str = "",
 ) -> list[dict[str, Any]]:
     """Generic paginated fetch for Reactor API list endpoints."""
     all_items: list[dict[str, Any]] = []
@@ -211,6 +241,8 @@ def _paginated_list(
 
     while True:
         query = f"sort={sort}&page[number]={page}&page[size]={config.page_size}"
+        if extra_query:
+            query = f"{query}&{extra_query}"
         body = _reactor_get(config, endpoint, query=query)
         items = body.get("data", [])
         if isinstance(items, list):
@@ -229,9 +261,31 @@ def _paginated_list(
 # ---- existing public API (unchanged signatures) ----
 
 
-def list_data_elements(config: AdobeTagsConfig) -> list[dict[str, Any]]:
-    """Fetch all data elements in a property."""
-    return _paginated_list(config, f"/properties/{config.property_id}/data_elements")
+def list_data_elements(
+    config: AdobeTagsConfig,
+    *,
+    name_contains: str | None = None,
+    enabled_only: bool = False,
+) -> list[dict[str, Any]]:
+    """Fetch data elements in a property.
+
+    Parameters
+    ----------
+    name_contains : str | None
+        API-side filter: ``filter[name][CONTAINS]=<value>``.
+    enabled_only : bool
+        API-side filter: ``filter[enabled][EQ]=true``.
+    """
+    parts: list[str] = []
+    if name_contains:
+        parts.append(f"filter[name][CONTAINS]={_url_quote(name_contains, safe='')}")
+    if enabled_only:
+        parts.append("filter[enabled][EQ]=true")
+    return _paginated_list(
+        config,
+        f"/properties/{config.property_id}/data_elements",
+        extra_query="&".join(parts),
+    )
 
 
 def fetch_adobe_tags_mapping(config: AdobeTagsConfig) -> tuple[dict[str, str], dict[str, Any]]:
@@ -277,9 +331,27 @@ def fetch_adobe_tags_mapping(config: AdobeTagsConfig) -> tuple[dict[str, str], d
 # ---- new list methods ----
 
 
-def list_rules(config: AdobeTagsConfig) -> list[dict[str, Any]]:
-    """Fetch all rules in a property."""
-    return _paginated_list(config, f"/properties/{config.property_id}/rules")
+def list_rules(
+    config: AdobeTagsConfig,
+    *,
+    name_contains: str | None = None,
+    enabled_only: bool = False,
+) -> list[dict[str, Any]]:
+    """Fetch rules in a property.
+
+    Parameters
+    ----------
+    name_contains : str | None
+        API-side filter: ``filter[name][CONTAINS]=<value>``.
+    enabled_only : bool
+        API-side filter: ``filter[enabled][EQ]=true``.
+    """
+    parts: list[str] = []
+    if name_contains:
+        parts.append(f"filter[name][CONTAINS]={_url_quote(name_contains, safe='')}")
+    if enabled_only:
+        parts.append("filter[enabled][EQ]=true")
+    return _paginated_list(config, f"/properties/{config.property_id}/rules", extra_query="&".join(parts))
 
 
 def list_rule_components(config: AdobeTagsConfig, rule_id: str) -> list[dict[str, Any]]:
@@ -379,6 +451,83 @@ def list_library_resources(config: AdobeTagsConfig, library_id: str) -> dict[str
     }
 
 
+def _revise_library_resources(
+    config: AdobeTagsConfig,
+    library_id: str,
+    resource_type: str,
+    origin_ids: list[str],
+) -> dict[str, Any]:
+    """Revise resources of a given type in a library.
+
+    Uses ``POST /libraries/{library_id}/relationships/{resource_type}``
+    with ``meta.action = "revise"`` on each origin ID.
+
+    IMPORTANT: Uses POST (add/update) not PATCH (full replacement).
+    PATCH would remove all other resources from the library.
+
+    If a revision of the same origin already exists (409 conflict),
+    the existing revision is removed from the library first, then a
+    new revision is created from the current origin HEAD.
+
+    Returns dict with ``revised_count`` and ``new_ids``.
+    """
+    if not origin_ids:
+        return {"revised_count": 0, "new_ids": []}
+
+    endpoint = f"/libraries/{library_id}/relationships/{resource_type}"
+
+    payload = {
+        "data": [
+            {"id": rid, "type": resource_type, "meta": {"action": "revise"}}
+            for rid in origin_ids
+        ],
+    }
+
+    headers = _get_auth_headers(config)
+    base = config.base_url.rstrip("/")
+    url = f"{base}{endpoint}"
+    resp = requests.post(url, headers=headers, json=payload, timeout=30)
+
+    if 200 <= resp.status_code < 300:
+        body = resp.json() if resp.text.strip() else {}
+        new_ids = [item.get("id", "") for item in body.get("data", [])]
+        return {"revised_count": len(new_ids), "new_ids": new_ids}
+
+    if resp.status_code != 409:
+        raise RuntimeError(
+            f"Adobe Tags API POST revise ({resource_type}) failed: "
+            f"{resp.status_code} {resp.text}",
+        )
+
+    # 409 conflict: remove existing revisions for these origins, then retry
+    origin_set = set(origin_ids)
+    existing = _paginated_list(config, f"/libraries/{library_id}/{resource_type}")
+    to_remove = []
+    for item in existing:
+        origin_data = (
+            item.get("relationships", {}).get("origin", {}).get("data", {})
+        )
+        if origin_data.get("id", "") in origin_set:
+            rev_id = item.get("id", "")
+            if rev_id:
+                to_remove.append({"id": rev_id, "type": resource_type})
+
+    if to_remove:
+        _reactor_delete(config, endpoint, {"data": to_remove})
+
+    # Retry revise after removing old revisions
+    resp = requests.post(url, headers=headers, json=payload, timeout=30)
+    if 200 <= resp.status_code < 300:
+        body = resp.json() if resp.text.strip() else {}
+        new_ids = [item.get("id", "") for item in body.get("data", [])]
+        return {"revised_count": len(new_ids), "new_ids": new_ids}
+
+    raise RuntimeError(
+        f"Adobe Tags API POST revise ({resource_type}) failed after retry: "
+        f"{resp.status_code} {resp.text}",
+    )
+
+
 def revise_library_rules(
     config: AdobeTagsConfig,
     library_id: str,
@@ -386,15 +535,7 @@ def revise_library_rules(
 ) -> dict[str, Any]:
     """Revise rules in a library to pick up dirty component changes.
 
-    Uses ``POST /libraries/{library_id}/relationships/rules`` with
-    ``meta.action = "revise"`` on each origin rule ID.
-
-    IMPORTANT: Uses POST (add/update) not PATCH (full replacement).
-    PATCH would remove all other rules from the library.
-
-    If a revision of the same origin already exists (409 conflict),
-    the existing revision is removed from the library first, then a
-    new revision is created from the current origin HEAD.
+    See :func:`_revise_library_resources` for details.
 
     Args:
         origin_rule_ids: HEAD rule IDs (``revision_number=0``), not
@@ -402,65 +543,96 @@ def revise_library_rules(
 
     Returns dict with ``revised_count`` and ``new_rule_ids``.
     """
-    if not origin_rule_ids:
-        return {"revised_count": 0, "new_rule_ids": []}
+    result = _revise_library_resources(config, library_id, "rules", origin_rule_ids)
+    return {"revised_count": result["revised_count"], "new_rule_ids": result["new_ids"]}
 
-    headers = _get_auth_headers(config)
-    base = config.base_url.rstrip("/")
-    url = f"{base}/libraries/{library_id}/relationships/rules"
 
-    payload = {
-        "data": [
-            {"id": rid, "type": "rules", "meta": {"action": "revise"}}
-            for rid in origin_rule_ids
-        ],
-    }
+def revise_library_data_elements(
+    config: AdobeTagsConfig,
+    library_id: str,
+    origin_de_ids: list[str],
+) -> dict[str, Any]:
+    """Revise data elements in a library to pick up changes.
 
-    resp = requests.post(url, headers=headers, json=payload, timeout=30)
-    if 200 <= resp.status_code < 300:
-        body = resp.json() if resp.text.strip() else {}
-        new_ids = [item.get("id", "") for item in body.get("data", [])]
-        return {"revised_count": len(new_ids), "new_rule_ids": new_ids}
+    See :func:`_revise_library_resources` for details.
 
-    if resp.status_code != 409:
-        raise RuntimeError(
-            f"Adobe Tags API POST revise failed: {resp.status_code} {resp.text}",
-        )
+    Args:
+        origin_de_ids: HEAD data element IDs (``revision_number=0``),
+            not revision copies.
 
-    # 409 conflict: remove existing revisions for these origins, then retry
-    origin_set = set(origin_rule_ids)
-    rules_raw = _paginated_list(config, f"/libraries/{library_id}/rules")
-    to_remove = []
-    for rule in rules_raw:
-        origin_data = (
-            rule.get("relationships", {}).get("origin", {}).get("data", {})
-        )
-        if origin_data.get("id", "") in origin_set:
-            rev_id = rule.get("id", "")
-            if rev_id:
-                to_remove.append({"id": rev_id, "type": "rules"})
+    Returns dict with ``revised_count`` and ``new_de_ids``.
+    """
+    result = _revise_library_resources(config, library_id, "data_elements", origin_de_ids)
+    return {"revised_count": result["revised_count"], "new_de_ids": result["new_ids"]}
 
-    if to_remove:
-        del_resp = requests.delete(
-            url, headers=headers, json={"data": to_remove}, timeout=30,
-        )
-        if not 200 <= del_resp.status_code < 300:
-            raise RuntimeError(
-                f"Adobe Tags API DELETE revisions failed: "
-                f"{del_resp.status_code} {del_resp.text}",
+
+def refresh_library_resources(
+    config: AdobeTagsConfig,
+    library_id: str,
+    new_resources: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Refresh library resources from origins with per-origin rollback.
+
+    Existing library revisions are replaced one origin at a time. When a
+    replacement revise fails after removing the current revision, the
+    removed revision is re-attached so the library does not lose unrelated
+    resources. New origin IDs from ``new_resources`` are revised in place.
+
+    Optionally merges *new_resources* (origin IDs not yet in the library).
+    Each entry must have ``{"id": "...", "type": "rules"|"data_elements"}``.
+
+    Returns dict with ``rules_count`` and ``data_elements_count``.
+    """
+    origins_by_type: dict[str, set[str]] = {}
+    existing_by_type: dict[str, dict[str, list[str]]] = {}
+
+    for rtype in ("rules", "data_elements"):
+        existing = _paginated_list(config, f"/libraries/{library_id}/{rtype}")
+        if not existing:
+            continue
+
+        for item in existing:
+            origin_data = (
+                item.get("relationships", {}).get("origin", {}).get("data", {})
             )
+            origin_id = origin_data.get("id", "")
+            revision_id = item.get("id", "")
+            if not origin_id or not revision_id:
+                continue
+            origins_by_type.setdefault(rtype, set()).add(origin_id)
+            existing_by_type.setdefault(rtype, {}).setdefault(origin_id, []).append(revision_id)
 
-    # Retry revise after removing old revisions
-    resp = requests.post(url, headers=headers, json=payload, timeout=30)
-    if 200 <= resp.status_code < 300:
-        body = resp.json() if resp.text.strip() else {}
-        new_ids = [item.get("id", "") for item in body.get("data", [])]
-        return {"revised_count": len(new_ids), "new_rule_ids": new_ids}
+    # Merge in new resources
+    for r in new_resources or []:
+        origins_by_type.setdefault(r["type"], set()).add(r["id"])
 
-    raise RuntimeError(
-        f"Adobe Tags API POST revise failed after retry: "
-        f"{resp.status_code} {resp.text}",
-    )
+    counts: dict[str, int] = {}
+    for rtype, origin_ids in origins_by_type.items():
+        endpoint = f"/libraries/{library_id}/relationships/{rtype}"
+        existing_by_origin = existing_by_type.get(rtype, {})
+        refreshed = 0
+
+        for origin_id in sorted(origin_ids):
+            revision_ids = existing_by_origin.get(origin_id, [])
+            if not revision_ids:
+                result = _revise_library_resources(config, library_id, rtype, [origin_id])
+                refreshed += result["revised_count"]
+                continue
+
+            payload = {
+                "data": [{"id": rid, "type": rtype} for rid in revision_ids],
+            }
+            _reactor_delete(config, endpoint, payload)
+            try:
+                result = _revise_library_resources(config, library_id, rtype, [origin_id])
+            except Exception:
+                _attach_library_resources(config, endpoint, rtype, revision_ids)
+                raise
+            refreshed += result["revised_count"]
+
+        counts[f"{rtype}_count"] = refreshed
+
+    return counts
 
 
 def find_dirty_origin_rules(
@@ -574,6 +746,8 @@ def export_property(
     config: AdobeTagsConfig,
     output_root: str | Path,
     resources: list[str] | None = None,
+    *,
+    filters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Export an Adobe Tags property to a local directory.
 
@@ -588,6 +762,17 @@ def export_property(
     resources : list[str] | None
         Resource types to export.
         Default: ``["rules", "data-elements", "extensions", "environments", "libraries"]``
+    filters : dict[str, Any] | None
+        Per-resource API-side filters.  Keys are resource type names
+        (``"rules"``, ``"data-elements"``); values are dicts of filter kwargs
+        forwarded to the corresponding ``list_*`` function.
+
+        Example::
+
+            filters={
+                "rules": {"name_contains": "Adobe Target"},
+                "data-elements": {"enabled_only": True},
+            }
 
     Returns
     -------
@@ -595,6 +780,8 @@ def export_property(
     """
     if resources is None:
         resources = ["rules", "data-elements", "extensions", "environments", "libraries"]
+    if filters is None:
+        filters = {}
 
     root = Path(output_root)
     root.mkdir(parents=True, exist_ok=True)
@@ -612,11 +799,12 @@ def export_property(
     for resource in resources:
         res_dir = root / resource
         res_dir.mkdir(parents=True, exist_ok=True)
+        resource_filters = filters.get(resource, {})
 
         if resource == "rules":
-            count = _export_rules(config, res_dir)
+            count = _export_rules(config, res_dir, **resource_filters)
         elif resource == "data-elements":
-            count = _export_data_elements(config, res_dir)
+            count = _export_data_elements(config, res_dir, **resource_filters)
         elif resource in ("extensions", "environments", "libraries"):
             list_fn = {
                 "extensions": list_extensions,
@@ -655,9 +843,15 @@ def _export_items(items: list[dict[str, Any]], out_dir: Path) -> int:
     return len(items)
 
 
-def _export_rules(config: AdobeTagsConfig, out_dir: Path) -> int:
+def _export_rules(
+    config: AdobeTagsConfig,
+    out_dir: Path,
+    *,
+    name_contains: str | None = None,
+    enabled_only: bool = False,
+) -> int:
     """Export rules with their rule components and custom code."""
-    rules = list_rules(config)
+    rules = list_rules(config, name_contains=name_contains, enabled_only=enabled_only)
     index_entries: list[dict[str, Any]] = []
 
     for rule in rules:
@@ -708,9 +902,15 @@ def _export_rules(config: AdobeTagsConfig, out_dir: Path) -> int:
     return len(rules)
 
 
-def _export_data_elements(config: AdobeTagsConfig, out_dir: Path) -> int:
+def _export_data_elements(
+    config: AdobeTagsConfig,
+    out_dir: Path,
+    *,
+    name_contains: str | None = None,
+    enabled_only: bool = False,
+) -> int:
     """Export data elements with custom code extraction."""
-    elements = list_data_elements(config)
+    elements = list_data_elements(config, name_contains=name_contains, enabled_only=enabled_only)
     index_entries: list[dict[str, Any]] = []
 
     for elem in elements:

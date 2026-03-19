@@ -99,6 +99,22 @@ python scripts/query.py --params output/ga4_quickstart.json --json
 
 `site` alias（`configs/sites*.json`）は CLI 単発実行だけでなく、`--batch` と Streamlit の `input/params.json` 読み込みでも同様に解決される。
 
+### AA のセグメントIDや定義を確認する
+
+Adobe Analytics の `segment_definition` を組み立てる前に、既存セグメントの ID / 名前 / 定義を確認したいときは `--list-aa-segments` を使う。
+
+```bash
+python scripts/query.py \
+  --list-aa-segments \
+  --aa-company-id wacoal1 \
+  --aa-rsid wacoal-all \
+  --aa-segment-name "bot除外" \
+  --aa-segment-definition \
+  --json
+```
+
+詳細な JSON パラメータ例（`segment_definition` / `breakdown`）は [REFERENCE.md](REFERENCE.md) を参照。
+
 ### 監査CLIを実行する（共通機能 1-9）
 
 `scripts/audit.py` は GTM / Adobe Tags の設定抽出と GA4 / AA の実績を横断して監査する共通CLI。

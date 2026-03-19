@@ -48,6 +48,40 @@ def test_query_aa_normalizes_columns_and_end_date(monkeypatch):
     assert captured["metrics"] == ["revenue", "orders"]
 
 
+def test_query_aa_passes_inline_segment_and_breakdown(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class _DummyClient:
+        def __init__(self, config):
+            self.config = config
+
+        def get_report(self, **kwargs):
+            captured.update(kwargs)
+            return pd.DataFrame(
+                {
+                    "variables/page": ["Page A"],
+                    "metrics/revenue": [100],
+                }
+            )
+
+    monkeypatch.setattr("megaton_lib.megaton_client.AdobeAnalyticsClient", _DummyClient)
+
+    out = query_aa(
+        company_id="wacoal1",
+        rsid="wacoal-all",
+        start_date="2026-02-17",
+        end_date="2026-02-17",
+        dimension="page",
+        metrics=["revenue"],
+        segment_definition={"func": "segment"},
+        breakdown={"dimension": "variables/page", "itemId": "123"},
+    )
+
+    assert list(out.columns) == ["page", "revenue"]
+    assert captured["segment_definition"] == {"func": "segment"}
+    assert captured["breakdown"] == {"dimension": "variables/page", "itemId": "123"}
+
+
 def test_get_aa_report_suites_sorted(monkeypatch):
     class _DummyClient:
         def __init__(self, config):
@@ -99,3 +133,28 @@ def test_get_aa_segments_sorted(monkeypatch):
 
     segments = get_aa_segments(company_id="wacoal1", rsid="wacoal-all")
     assert [s["id"] for s in segments] == ["s1", "s2"]
+
+
+def test_get_aa_segments_passes_name_and_definition(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class _DummyClient:
+        def __init__(self, config):
+            self.config = config
+
+        def list_segments(self, **kwargs):
+            captured.update(kwargs)
+            return [{"id": "s1", "name": "bot除外", "definition": {"func": "segment"}}]
+
+    monkeypatch.setattr("megaton_lib.megaton_client.AdobeAnalyticsClient", _DummyClient)
+
+    segments = get_aa_segments(
+        company_id="wacoal1",
+        rsid="wacoal-all",
+        name="bot除外",
+        include_definition=True,
+    )
+
+    assert segments[0]["id"] == "s1"
+    assert captured["name"] == "bot除外"
+    assert captured["include_definition"] is True

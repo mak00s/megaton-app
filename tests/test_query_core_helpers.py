@@ -137,6 +137,25 @@ class TestExecuteQueryFromParams(unittest.TestCase):
         self.assertTrue(any("RSID: wacoal-all" in h for h in headers))
         mock_q.assert_called_once()
 
+    def test_aa_branch_with_inline_segment_and_breakdown(self):
+        params = {
+            "source": "aa",
+            "company_id": "wacoal1",
+            "rsid": "wacoal-all",
+            "date_range": {"start": "2026-02-17", "end": "2026-02-17"},
+            "dimension": "page",
+            "metrics": ["revenue"],
+            "segment_definition": {"func": "segment"},
+            "breakdown": {"dimension": "variables/page", "itemId": "123"},
+        }
+        df = pd.DataFrame([{"page": "Page A", "revenue": 100}])
+        with patch.object(query_cli, "query_aa", return_value=df) as mock_q:
+            out_df, headers = query_cli.execute_query_from_params(params)
+        self.assertEqual(len(out_df), 1)
+        self.assertTrue(any("Inline segment definitions: 1" in h for h in headers))
+        self.assertTrue(any("Breakdowns: 1" in h for h in headers))
+        mock_q.assert_called_once()
+
     def test_unknown_source_raises(self):
         with self.assertRaises(ValueError):
             query_cli.execute_query_from_params({"source": "unknown"})
