@@ -380,6 +380,16 @@ class AdobeAnalyticsClient:
         df = pd.DataFrame(records)
         return df
 
+    def query_context(
+        self,
+        rsid: str,
+        date_from: str,
+        date_to: str,
+        segment: dict[str, Any] | None = None,
+    ) -> "AAQueryContext":
+        """Create a reusable query context with shared rsid/date/segment."""
+        return AAQueryContext(self, rsid, date_from, date_to, segment)
+
     def list_report_suites(self, *, limit: int = 1000) -> list[dict[str, str]]:
         """List accessible report suites for the configured company."""
         if limit < 1:
@@ -722,6 +732,88 @@ def _normalize_datetime(value: str | date | datetime) -> str:
     if pd.isna(dt):
         raise ValueError(f"Invalid date value for Adobe API: {value}")
     return dt.strftime("%Y-%m-%dT%H:%M:%S.000")
+
+
+class AAQueryContext:
+    """Reusable query context that holds rsid, date range, and default segment.
+
+    Eliminates repetitive passing of rsid/date_from/date_to/segment across
+    multiple chained report and breakdown calls.
+
+    Usage::
+
+        ctx = client.query_context("my-rsid", "2026-03-01", "2026-03-31",
+                                   segment=visit_segment_def)
+        page_df = ctx.report("page", ["occurrences", "event11"])
+        item_id = int(page_df.iloc[0]["itemId"])
+        prop12_df = ctx.breakdown("page", item_id, "prop12", ["occurrences"])
+    """
+
+    __slots__ = ("client", "rsid", "date_from", "date_to", "default_segment")
+
+    def __init__(
+        self,
+        client: AdobeAnalyticsClient,
+        rsid: str,
+        date_from: str,
+        date_to: str,
+        segment: dict[str, Any] | None = None,
+    ) -> None:
+        self.client = client
+        self.rsid = rsid
+        self.date_from = date_from
+        self.date_to = date_to
+        self.default_segment = segment
+
+    def report(
+        self,
+        dimension: str,
+        metrics: list[str],
+        *,
+        limit: int = 500,
+        segment: dict[str, Any] | None = None,
+        breakdown: dict[str, Any] | None = None,
+    ) -> pd.DataFrame:
+        """Run a report using stored context. Falls back to *default_segment*."""
+        return self.client.get_report(
+            rsid=self.rsid,
+            dimension=dimension,
+            metrics=metrics,
+            date_from=self.date_from,
+            date_to=self.date_to,
+            limit=limit,
+            segment_definition=segment or self.default_segment,
+            breakdown=breakdown,
+        )
+
+    def breakdown(
+        self,
+        parent_dimension: str,
+        parent_item_id: int,
+        child_dimension: str,
+        metrics: list[str],
+        *,
+        limit: int = 500,
+        segment: dict[str, Any] | None = None,
+    ) -> pd.DataFrame:
+        """Run a breakdown report: parent_dimension → child_dimension."""
+        dim_id = (
+            parent_dimension
+            if parent_dimension.startswith("variables/")
+            else f"variables/{parent_dimension}"
+        )
+        return self.report(
+            child_dimension,
+            metrics,
+            limit=limit,
+            segment=segment,
+            breakdown={
+                "id": "0",
+                "type": "breakdown",
+                "dimension": dim_id,
+                "itemId": parent_item_id,
+            },
+        )
 
 
 def fetch_aa_site_metric(*, config: AdobeAnalyticsConfig, start_date: str, end_date: str) -> pd.DataFrame:

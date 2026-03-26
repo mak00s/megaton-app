@@ -396,3 +396,64 @@ def test_list_companies_does_not_send_proxy_company_header(aa_env, monkeypatch):
     discovery_call = dummy.calls[-1]
     headers = discovery_call.get("headers") or {}
     assert "x-proxy-global-company-id" not in headers
+
+
+# -- AAQueryContext tests --
+
+
+def test_query_context_report_passes_stored_params(aa_env, monkeypatch):
+    """query_context().report() should use stored rsid/date/segment."""
+    cfg = _config(aa_env)
+    responses = [
+        _DummyResponse(200, {
+            "rows": [{"value": "Page A", "data": [5.0], "itemId": "111"}],
+            "lastPage": True,
+        }),
+    ]
+    dummy = _DummySession(responses)
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.aa.requests.Session",
+        lambda: dummy,
+    )
+
+    client = AdobeAnalyticsClient(cfg)
+    seg = {"func": "segment", "version": [1, 0, 0], "container": {"func": "container", "context": "visits", "pred": {"func": "streq", "str": "v", "val": {"func": "attr", "name": "variables/evar99"}}}}
+    ctx = client.query_context("test-rsid", "2026-03-01", "2026-03-31", segment=seg)
+
+    df = ctx.report("page", ["occurrences"])
+    assert not df.empty
+
+    body = dummy.calls[0]["json"]
+    assert body["rsid"] == "test-rsid"
+    assert body["dimension"] == "variables/page"
+    seg_filters = [f for f in body["globalFilters"] if f.get("type") == "segment"]
+    assert len(seg_filters) == 1
+
+
+def test_query_context_breakdown_builds_metric_filter(aa_env, monkeypatch):
+    """query_context().breakdown() should add metricFilter for parent dimension."""
+    cfg = _config(aa_env)
+    responses = [
+        _DummyResponse(200, {
+            "rows": [{"value": "13:04:22", "data": [3.0], "itemId": "222"}],
+            "lastPage": True,
+        }),
+    ]
+    dummy = _DummySession(responses)
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.aa.requests.Session",
+        lambda: dummy,
+    )
+
+    client = AdobeAnalyticsClient(cfg)
+    ctx = client.query_context("test-rsid", "2026-03-01", "2026-03-31")
+
+    df = ctx.breakdown("page", 12345, "prop12", ["occurrences"])
+    assert not df.empty
+
+    body = dummy.calls[0]["json"]
+    assert body["dimension"] == "variables/prop12"
+    metric_filters = body["metricContainer"].get("metricFilters", [])
+    assert len(metric_filters) == 1
+    assert metric_filters[0]["dimension"] == "variables/page"
+    assert metric_filters[0]["itemId"] == 12345
