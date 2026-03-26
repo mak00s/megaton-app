@@ -115,6 +115,23 @@ python scripts/query.py \
 
 詳細な JSON パラメータ例（`segment_definition` / `breakdown`）は [REFERENCE.md](REFERENCE.md) を参照。
 
+### AA の連続クエリで rsid/日付/セグメントを使い回す
+
+`AdobeAnalyticsClient.query_context()` で共通パラメータを保持し、`report()` / `breakdown()` を簡潔に呼べる。
+
+```python
+from megaton_lib.audit.providers.analytics.aa import AdobeAnalyticsClient
+
+client = AdobeAnalyticsClient(cfg)
+ctx = client.query_context("wacoal-all", "2026-03-01", "2026-03-31", segment=visit_seg)
+
+page_df = ctx.report("page", ["occurrences", "event11"])
+item_id = int(page_df.iloc[0]["itemId"])
+prop12_df = ctx.breakdown("page", item_id, "prop12", ["occurrences"])
+```
+
+ドメイン固有の複合クエリが必要な場合は `AAQueryContext` をサブクラス化する。
+
 ### 監査CLIを実行する（共通機能 1-9）
 
 `scripts/audit.py` は GTM / Adobe Tags の設定抽出と GA4 / AA の実績を横断して監査する共通CLI。

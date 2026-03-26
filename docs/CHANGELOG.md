@@ -2,6 +2,13 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+### 2026-03-26
+
+- Added `AAQueryContext` class and `AdobeAnalyticsClient.query_context()` factory method
+  - Eliminates repetitive passing of rsid/date_from/date_to/segment across chained report and breakdown calls
+  - Supports `ctx.report()` and `ctx.breakdown()` with stored defaults
+  - Subclassable for domain-specific composite queries (e.g. page → prop12 → child breakdown chains)
+
 ### 2026-03-08 (v0.6.1)
 
 - Expanded Adobe Analytics query/list support:
