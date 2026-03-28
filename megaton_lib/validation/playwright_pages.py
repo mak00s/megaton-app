@@ -5,11 +5,23 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 from collections.abc import Callable, Mapping
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from playwright.sync_api import Page, sync_playwright
+if TYPE_CHECKING:
+    from playwright.sync_api import Page
+else:
+    Page = Any
+
+try:
+    from playwright.sync_api import sync_playwright
+except ModuleNotFoundError:  # pragma: no cover - exercised in CI environments without Playwright
+    def sync_playwright() -> Any:
+        raise ModuleNotFoundError(
+            "playwright is required to use megaton_lib.validation.playwright_pages. "
+            "Install the 'playwright' package to run browser-based validation.",
+        )
 
 
 _SATELLITE_LIB_PATTERN = re.compile(

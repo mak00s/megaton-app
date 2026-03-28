@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from playwright.sync_api import Page
+if TYPE_CHECKING:
+    from playwright.sync_api import Page
+else:
+    Page = Any
 
 
 def capture_console_args(msg: Any) -> list[Any]:
