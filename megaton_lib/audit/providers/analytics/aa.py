@@ -48,6 +48,8 @@ class AdobeAnalyticsClient:
             raise ValueError("jitter must be in [0, 1)")
 
         self._auth = AdobeOAuthClient(
+            client_id=self.config.client_id or "",
+            client_secret=self.config.client_secret or "",
             client_id_env=self.config.client_id_env,
             client_secret_env=self.config.client_secret_env,
             org_id=self.config.org_id or "",

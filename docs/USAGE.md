@@ -28,7 +28,7 @@ GA4 / Search Console / Adobe Analytics / BigQuery のデータを取得・加工
 
 - Python 3.10+
 - GCP サービスアカウント JSON（GA4 / GSC / BQ の API アクセス権限付き）
-- Adobe Analytics 利用時は `ADOBE_CLIENT_ID` / `ADOBE_CLIENT_SECRET` / `ADOBE_ORG_ID`
+- Adobe Analytics 利用時は `credentials/` の Adobe OAuth JSON か `ADOBE_CLIENT_ID` / `ADOBE_CLIENT_SECRET` / `ADOBE_ORG_ID`
 
 ### インストール
 
@@ -37,6 +37,7 @@ pip install -r requirements.txt
 
 # credentials/ にサービスアカウント JSON を配置
 # 複数ファイル可（property_id / site_url で自動ルーティング）
+# Adobe OAuth JSON も配置可（company_id で自動ルーティング）
 ```
 
 ### 動作確認

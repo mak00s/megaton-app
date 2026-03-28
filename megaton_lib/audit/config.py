@@ -24,6 +24,8 @@ class ConfigError(ValueError):
 class AdobeOAuthConfig:
     """Shared Adobe IMS OAuth client_credentials settings."""
 
+    client_id: str | None = None
+    client_secret: str | None = None
     client_id_env: str = "ADOBE_CLIENT_ID"
     client_secret_env: str = "ADOBE_CLIENT_SECRET"
     org_id_env: str = "ADOBE_ORG_ID"
@@ -78,6 +80,8 @@ class AdobeAnalyticsConfig:
     rsid: str
     dimension: str
     metric: str = "occurrences"
+    client_id: str | None = None
+    client_secret: str | None = None
     org_id: str | None = None
     client_id_env: str = "ADOBE_CLIENT_ID"
     client_secret_env: str = "ADOBE_CLIENT_SECRET"
@@ -206,6 +210,8 @@ def _parse_tag_source(node: Any) -> TagSourceConfig:
         oauth_node = adobe_node.get("oauth")
         if isinstance(oauth_node, dict):
             oauth_cfg = AdobeOAuthConfig(
+                client_id=_optional_str(oauth_node, "client_id"),
+                client_secret=_optional_str(oauth_node, "client_secret"),
                 client_id_env=(oauth_node.get("client_id_env") or "ADOBE_CLIENT_ID").strip(),
                 client_secret_env=(oauth_node.get("client_secret_env") or "ADOBE_CLIENT_SECRET").strip(),
                 org_id_env=(oauth_node.get("org_id_env") or "ADOBE_ORG_ID").strip(),
@@ -269,6 +275,8 @@ def _parse_aa(node: Any) -> AdobeAnalyticsConfig:
         rsid=_expect_nonempty_str(aa_node, "rsid", path="aa"),
         dimension=_expect_nonempty_str(aa_node, "dimension", path="aa"),
         metric=(aa_node.get("metric") or "occurrences").strip(),
+        client_id=_optional_str(aa_node, "client_id"),
+        client_secret=_optional_str(aa_node, "client_secret"),
         org_id=_optional_str(aa_node, "org_id"),
         client_id_env=(aa_node.get("client_id_env") or "ADOBE_CLIENT_ID").strip(),
         client_secret_env=(aa_node.get("client_secret_env") or "ADOBE_CLIENT_SECRET").strip(),

@@ -172,6 +172,8 @@ Project-specific logic (`10-12`) should stay in each analysis repository.
 Notes:
 - AA integration uses a built-in Adobe Analytics 2.0 REST client (OAuth + retry/backoff + paging).
 - GTM access uses service-account credentials resolved by `MEGATON_CREDS_PATH` / `credentials/`.
+- Adobe Analytics can also auto-detect OAuth JSON files in `ADOBE_CREDS_PATH` or `credentials/`.
+- Adobe OAuth JSON shape: `client_id`, `client_secret`, `org_id` (or `ims_org_id`), optional `scopes`.
 
 - With `pipeline` in params.json: `data.pipeline` includes `input_rows` / `output_rows`
 - `--result` jobs: use CLI args (`--where` / `--sort` etc.)

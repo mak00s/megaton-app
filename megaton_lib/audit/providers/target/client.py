@@ -45,6 +45,8 @@ class AdobeTargetClient:
         oauth = self.config.oauth
         if oauth is not None:
             self._auth = AdobeOAuthClient(
+                client_id=oauth.client_id or "",
+                client_secret=oauth.client_secret or "",
                 client_id_env=oauth.client_id_env,
                 client_secret_env=oauth.client_secret_env,
                 org_id=oauth.org_id or "",

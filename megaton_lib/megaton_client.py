@@ -7,12 +7,17 @@ import logging
 import os
 import importlib
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from megaton import start
 import pandas as pd
 from typing import Optional, TypedDict, TypeAlias
 from megaton_lib.audit.config import AdobeAnalyticsConfig
 from megaton_lib.audit.providers.analytics.aa import AdobeAnalyticsClient
-from megaton_lib.credentials import list_service_account_paths
+from megaton_lib.credentials import (
+    list_adobe_oauth_paths,
+    list_service_account_paths,
+    load_adobe_oauth_credentials,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +46,7 @@ class AuthContext(TypedDict):
 _instances: dict[str, object] = {}     # creds_path → Megaton instance
 _property_map: dict[str, str] = {}     # property_id → creds_path
 _site_map: dict[str, str] = {}         # site_url → creds_path
+_aa_company_map: dict[str, AdobeAnalyticsConfig] = {}
 _registry_built = False
 
 
@@ -189,6 +195,7 @@ def reset_registry() -> None:
     _property_map.clear()
     _site_map.clear()
     _instances.clear()
+    _aa_company_map.clear()
     _registry_built = False
 
 
@@ -489,6 +496,8 @@ def _build_aa_config(
     *,
     company_id: str,
     rsid: str,
+    client_id: str | None = None,
+    client_secret: str | None = None,
     org_id: str | None = None,
     token_cache_file: str | None = None,
 ) -> AdobeAnalyticsConfig:
@@ -498,9 +507,133 @@ def _build_aa_config(
         rsid=str(rsid).strip(),
         dimension="daterangeday",
         metric="occurrences",
+        client_id=str(client_id).strip() if client_id else None,
+        client_secret=str(client_secret).strip() if client_secret else None,
         org_id=str(org_id).strip() if org_id else None,
         token_cache_file=token_cache_file or "credentials/.adobe_token_cache.json",
     )
+
+
+def _default_adobe_token_cache_file(source_path: str) -> str:
+    stem = Path(source_path).stem.strip() or "adobe"
+    return str(Path("credentials") / f".adobe_token_cache_{stem}.json")
+
+
+def _iter_aa_candidate_configs(
+    *,
+    org_id: str | None = None,
+    token_cache_file: str | None = None,
+) -> list[AdobeAnalyticsConfig]:
+    """Return candidate AA configs from env and auto-detected Adobe JSON files."""
+    candidates: list[AdobeAnalyticsConfig] = []
+    seen_keys: set[tuple[str, str, str]] = set()
+
+    env_client_id = os.getenv("ADOBE_CLIENT_ID", "").strip()
+    env_client_secret = os.getenv("ADOBE_CLIENT_SECRET", "").strip()
+    env_org_id = (org_id or os.getenv("ADOBE_ORG_ID", "")).strip()
+    if env_client_id and env_client_secret and env_org_id:
+        cfg = _build_aa_config(
+            company_id="",
+            rsid="",
+            client_id=env_client_id,
+            client_secret=env_client_secret,
+            org_id=env_org_id,
+            token_cache_file=token_cache_file,
+        )
+        candidates.append(cfg)
+        seen_keys.add((env_client_id, env_client_secret, env_org_id))
+
+    for path in list_adobe_oauth_paths():
+        creds = load_adobe_oauth_credentials(path)
+        resolved_org_id = (org_id or creds["org_id"]).strip()
+        key = (creds["client_id"], creds["client_secret"], resolved_org_id)
+        if key in seen_keys:
+            continue
+        candidates.append(
+            _build_aa_config(
+                company_id="",
+                rsid="",
+                client_id=creds["client_id"],
+                client_secret=creds["client_secret"],
+                org_id=resolved_org_id,
+                token_cache_file=token_cache_file or _default_adobe_token_cache_file(path),
+            )
+        )
+        seen_keys.add(key)
+
+    if candidates:
+        return candidates
+
+    return [
+        _build_aa_config(
+            company_id="",
+            rsid="",
+            org_id=org_id,
+            token_cache_file=token_cache_file,
+        )
+    ]
+
+
+def _copy_aa_config(
+    base: AdobeAnalyticsConfig,
+    *,
+    company_id: str,
+    rsid: str,
+) -> AdobeAnalyticsConfig:
+    return AdobeAnalyticsConfig(
+        company_id=str(company_id).strip(),
+        rsid=str(rsid).strip(),
+        dimension=base.dimension,
+        metric=base.metric,
+        client_id=base.client_id,
+        client_secret=base.client_secret,
+        org_id=base.org_id,
+        client_id_env=base.client_id_env,
+        client_secret_env=base.client_secret_env,
+        org_id_env=base.org_id_env,
+        scopes=base.scopes,
+        token_cache_file=base.token_cache_file,
+    )
+
+
+def _resolve_aa_config_for_company(
+    company_id: str,
+    *,
+    org_id: str | None = None,
+    token_cache_file: str | None = None,
+) -> AdobeAnalyticsConfig:
+    key = str(company_id).strip()
+    cached = _aa_company_map.get(key)
+    if cached is not None:
+        return _copy_aa_config(cached, company_id=key, rsid="")
+
+    candidates = _iter_aa_candidate_configs(org_id=org_id, token_cache_file=token_cache_file)
+    if len(candidates) == 1 and not candidates[0].client_id and not candidates[0].client_secret:
+        return _copy_aa_config(candidates[0], company_id=key, rsid="")
+
+    errors: list[str] = []
+    for base_cfg in candidates:
+        try:
+            client = AdobeAnalyticsClient(base_cfg)
+            companies = client.list_companies()
+        except Exception as exc:
+            errors.append(str(exc))
+            continue
+        for company in companies:
+            found_company_id = str(company.get("company_id", "")).strip()
+            if not found_company_id:
+                continue
+            resolved = _copy_aa_config(base_cfg, company_id=found_company_id, rsid="")
+            _aa_company_map.setdefault(found_company_id, resolved)
+            if found_company_id == key:
+                return _copy_aa_config(resolved, company_id=key, rsid="")
+
+    if errors:
+        raise RuntimeError(
+            f"No Adobe credential could access AA company_id={key}. "
+            f"Errors: {' | '.join(errors)}",
+        )
+    raise ValueError(f"No Adobe credential found for company_id: {key}")
 
 def get_aa_companies(
     *,
@@ -508,15 +641,32 @@ def get_aa_companies(
     token_cache_file: str | None = None,
 ) -> list[dict[str, str]]:
     """List accessible AA companies for current credentials."""
-    aa_cfg = _build_aa_config(
-        company_id="",
-        rsid="",
-        org_id=org_id,
-        token_cache_file=token_cache_file,
-    )
-    client = AdobeAnalyticsClient(aa_cfg)
-    companies = client.list_companies()
-    return sorted(companies, key=lambda x: (x.get("name", ""), x.get("company_id", "")))
+    merged: dict[str, dict[str, str]] = {}
+    errors: list[str] = []
+
+    for base_cfg in _iter_aa_candidate_configs(org_id=org_id, token_cache_file=token_cache_file):
+        try:
+            client = AdobeAnalyticsClient(base_cfg)
+            companies = client.list_companies()
+        except Exception as exc:
+            errors.append(str(exc))
+            continue
+
+        for company in companies:
+            company_id = str(company.get("company_id", "")).strip()
+            if not company_id:
+                continue
+            merged.setdefault(company_id, {"company_id": company_id, "name": str(company.get("name", "")).strip()})
+            _aa_company_map.setdefault(
+                company_id,
+                _copy_aa_config(base_cfg, company_id=company_id, rsid=""),
+            )
+
+    if merged:
+        return sorted(merged.values(), key=lambda x: (x.get("name", ""), x.get("company_id", "")))
+    if errors:
+        raise RuntimeError("Failed to load Adobe Analytics companies: " + " | ".join(errors))
+    return []
 
 
 def get_aa_dimensions(
@@ -528,12 +678,12 @@ def get_aa_dimensions(
     limit: int = 2000,
 ) -> list[dict[str, str]]:
     """List AA dimensions for an RSID."""
-    aa_cfg = _build_aa_config(
-        company_id=company_id,
-        rsid=rsid,
+    aa_cfg = _resolve_aa_config_for_company(
+        company_id,
         org_id=org_id,
         token_cache_file=token_cache_file,
     )
+    aa_cfg = _copy_aa_config(aa_cfg, company_id=company_id, rsid=rsid)
     client = AdobeAnalyticsClient(aa_cfg)
     dimensions = client.list_dimensions(rsid=aa_cfg.rsid, limit=limit)
     return sorted(dimensions, key=lambda x: (x.get("name", ""), x.get("id", "")))
@@ -548,12 +698,12 @@ def get_aa_metrics(
     limit: int = 2000,
 ) -> list[dict[str, str]]:
     """List AA metrics for an RSID."""
-    aa_cfg = _build_aa_config(
-        company_id=company_id,
-        rsid=rsid,
+    aa_cfg = _resolve_aa_config_for_company(
+        company_id,
         org_id=org_id,
         token_cache_file=token_cache_file,
     )
+    aa_cfg = _copy_aa_config(aa_cfg, company_id=company_id, rsid=rsid)
     client = AdobeAnalyticsClient(aa_cfg)
     metrics = client.list_metrics(rsid=aa_cfg.rsid, limit=limit)
     return sorted(metrics, key=lambda x: (x.get("name", ""), x.get("id", "")))
@@ -570,12 +720,12 @@ def get_aa_segments(
     include_definition: bool = False,
 ) -> list[dict[str, object]]:
     """List AA segments for an RSID."""
-    aa_cfg = _build_aa_config(
-        company_id=company_id,
-        rsid=rsid,
+    aa_cfg = _resolve_aa_config_for_company(
+        company_id,
         org_id=org_id,
         token_cache_file=token_cache_file,
     )
+    aa_cfg = _copy_aa_config(aa_cfg, company_id=company_id, rsid=rsid)
     client = AdobeAnalyticsClient(aa_cfg)
     segments = client.list_segments(
         rsid=aa_cfg.rsid,
@@ -594,9 +744,8 @@ def get_aa_report_suites(
     limit: int = 1000,
 ) -> list[dict[str, str]]:
     """List available AA report suites for the company."""
-    aa_cfg = _build_aa_config(
-        company_id=company_id,
-        rsid="",
+    aa_cfg = _resolve_aa_config_for_company(
+        company_id,
         org_id=org_id,
         token_cache_file=token_cache_file,
     )
@@ -642,15 +791,24 @@ def query_aa(
         raise ValueError("metrics must contain at least one metric")
 
     end_exclusive = (pd.to_datetime(end_date) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    aa_cfg = _resolve_aa_config_for_company(
+        company_id,
+        org_id=org_id,
+        token_cache_file=token_cache_file,
+    )
     aa_cfg = AdobeAnalyticsConfig(
         company_id=str(company_id).strip(),
         rsid=str(rsid).strip(),
         dimension=dim_name,
-        # `metric` exists on audit config for convenience helpers.
-        # Actual query metrics are passed explicitly to `get_report(metrics=...)` below.
         metric=metric_specs[0][0],
-        org_id=str(org_id).strip() if org_id else None,
-        token_cache_file=token_cache_file or "credentials/.adobe_token_cache.json",
+        client_id=aa_cfg.client_id,
+        client_secret=aa_cfg.client_secret,
+        org_id=aa_cfg.org_id,
+        client_id_env=aa_cfg.client_id_env,
+        client_secret_env=aa_cfg.client_secret_env,
+        org_id_env=aa_cfg.org_id_env,
+        scopes=aa_cfg.scopes,
+        token_cache_file=aa_cfg.token_cache_file,
     )
     client = AdobeAnalyticsClient(aa_cfg)
     df = client.get_report(

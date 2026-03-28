@@ -13,12 +13,18 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
   - `docs/VALIDATION.md` for shared-first validation policy, result schema, and override rules
   - `docs/templates/validation_thin_entrypoint.py` as the recommended starting point for analysis-repo validators
   - `scripts/check_validation_usage.py` to detect direct Playwright / raw route usage and missing validation metadata patterns
+- Expanded credential auto-discovery and Adobe routing:
+  - `megaton_lib.credentials` now distinguishes Google service-account JSON and Adobe OAuth JSON during `credentials/` scanning
+  - Adobe Analytics can auto-discover multiple Adobe OAuth files from `ADOBE_CREDS_PATH` or local `credentials/` and resolve the right credential by `company_id`
+  - Streamlit, CLI, and shared Adobe clients can use credential files as fallback to `ADOBE_CLIENT_ID` / `ADOBE_CLIENT_SECRET` / `ADOBE_ORG_ID`
 - Added shared Adobe Tags workflow helpers in `megaton_lib.audit.providers.tag_config`:
   - `bootstrap.py` for OAuth/env/bootstrap config assembly
   - `build_workflow.py` for apply → refresh → build → verify → re-export flows
 - Expanded site-mapping markdown parsing:
   - `parse_mapping_markdown()` now supports section scoping via `allowed_sections`
 - Added tests for validation metadata handling
+- Made Playwright imports optional in shared validation modules so CI/test environments without Playwright can still import `megaton_lib.validation`
+- Updated GitHub Actions workflow dependencies to Node 24-compatible action versions
 - Updated README / USAGE / AGENTS to document the validation shared-first policy and new guidance
 - Added `AAQueryContext` class and `AdobeAnalyticsClient.query_context()` factory method
   - Eliminates repetitive passing of rsid/date_from/date_to/segment across chained report and breakdown calls

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from megaton_lib.megaton_client import (
     get_aa_companies,
@@ -8,6 +9,16 @@ from megaton_lib.megaton_client import (
     get_aa_segments,
     query_aa,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_adobe_credentials(monkeypatch):
+    monkeypatch.delenv("ADOBE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("ADOBE_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("ADOBE_ORG_ID", raising=False)
+    monkeypatch.delenv("ADOBE_CREDS_PATH", raising=False)
+    monkeypatch.setattr("megaton_lib.megaton_client.list_adobe_oauth_paths", lambda: [])
+    monkeypatch.setattr("megaton_lib.megaton_client._aa_company_map", {})
 
 
 def test_query_aa_normalizes_columns_and_end_date(monkeypatch):
@@ -158,3 +169,71 @@ def test_get_aa_segments_passes_name_and_definition(monkeypatch):
     assert segments[0]["id"] == "s1"
     assert captured["name"] == "bot除外"
     assert captured["include_definition"] is True
+
+
+def test_get_aa_companies_auto_detects_multiple_adobe_credential_files(monkeypatch):
+    class _DummyClient:
+        def __init__(self, config):
+            self.config = config
+
+        def list_companies(self):
+            if self.config.client_id == "cid-a":
+                return [{"company_id": "aaa", "name": "A Company"}]
+            if self.config.client_id == "cid-b":
+                return [{"company_id": "bbb", "name": "B Company"}]
+            return []
+
+    monkeypatch.setattr("megaton_lib.megaton_client.AdobeAnalyticsClient", _DummyClient)
+    monkeypatch.setattr(
+        "megaton_lib.megaton_client.list_adobe_oauth_paths",
+        lambda: ["/tmp/adobe-a.json", "/tmp/adobe-b.json"],
+    )
+    monkeypatch.setattr(
+        "megaton_lib.megaton_client.load_adobe_oauth_credentials",
+        lambda path: {
+            "client_id": "cid-a" if path.endswith("adobe-a.json") else "cid-b",
+            "client_secret": "secret",
+            "org_id": "ORG@AdobeOrg",
+            "scopes": "",
+            "source_path": path,
+        },
+    )
+    monkeypatch.setattr("megaton_lib.megaton_client._aa_company_map", {})
+
+    companies = get_aa_companies()
+    assert [c["company_id"] for c in companies] == ["aaa", "bbb"]
+
+
+def test_get_aa_report_suites_uses_auto_detected_company_mapping(monkeypatch):
+    class _DummyClient:
+        def __init__(self, config):
+            self.config = config
+
+        def list_companies(self):
+            if self.config.client_id == "cid-a":
+                return [{"company_id": "aaa", "name": "A Company"}]
+            return []
+
+        def list_report_suites(self, **kwargs):
+            _ = kwargs
+            return [{"rsid": "suite-a", "name": self.config.client_id}]
+
+    monkeypatch.setattr("megaton_lib.megaton_client.AdobeAnalyticsClient", _DummyClient)
+    monkeypatch.setattr(
+        "megaton_lib.megaton_client.list_adobe_oauth_paths",
+        lambda: ["/tmp/adobe-a.json"],
+    )
+    monkeypatch.setattr(
+        "megaton_lib.megaton_client.load_adobe_oauth_credentials",
+        lambda path: {
+            "client_id": "cid-a",
+            "client_secret": "secret",
+            "org_id": "ORG@AdobeOrg",
+            "scopes": "",
+            "source_path": path,
+        },
+    )
+    monkeypatch.setattr("megaton_lib.megaton_client._aa_company_map", {})
+
+    suites = get_aa_report_suites(company_id="aaa")
+    assert suites == [{"rsid": "suite-a", "name": "cid-a"}]
