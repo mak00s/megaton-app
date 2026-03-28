@@ -5,14 +5,28 @@ from pathlib import Path
 from unittest.mock import patch
 
 import megaton_lib.credentials as credentials_mod
-from megaton_lib.credentials import resolve_service_account_path, list_service_account_paths
+from megaton_lib.credentials import (
+    list_adobe_oauth_paths,
+    list_service_account_paths,
+    load_adobe_oauth_credentials,
+    resolve_service_account_path,
+)
+
+
+SERVICE_ACCOUNT_JSON = (
+    '{"type":"service_account","client_email":"svc@example.com",'
+    '"private_key":"-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----\\n"}'
+)
+ADOBE_OAUTH_JSON = (
+    '{"client_id":"cid","client_secret":"csec","org_id":"ORG@AdobeOrg"}'
+)
 
 
 class TestCredentials(unittest.TestCase):
     def test_resolve_from_env_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             cred_file = Path(tmp) / "sa.json"
-            cred_file.write_text("{}", encoding="utf-8")
+            cred_file.write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
             with patch.dict(os.environ, {"MEGATON_CREDS_PATH": str(cred_file)}, clear=False):
                 path = resolve_service_account_path(default_dir=Path(tmp) / "unused")
                 self.assertEqual(path, str(cred_file))
@@ -20,15 +34,15 @@ class TestCredentials(unittest.TestCase):
     def test_resolve_from_default_directory_single_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             cred_file = Path(tmp) / "sa.json"
-            cred_file.write_text("{}", encoding="utf-8")
+            cred_file.write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
             with patch.dict(os.environ, {}, clear=True):
                 path = resolve_service_account_path(default_dir=tmp)
                 self.assertEqual(path, str(cred_file))
 
     def test_resolve_from_default_directory_multiple_files(self):
         with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / "a.json").write_text("{}", encoding="utf-8")
-            (Path(tmp) / "b.json").write_text("{}", encoding="utf-8")
+            (Path(tmp) / "a.json").write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
+            (Path(tmp) / "b.json").write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
             with patch.dict(os.environ, {}, clear=True):
                 with self.assertRaises(RuntimeError):
                     resolve_service_account_path(default_dir=tmp)
@@ -44,7 +58,7 @@ class TestCredentials(unittest.TestCase):
             root = Path(tmp)
             (root / "credentials").mkdir()
             cred_file = root / "credentials" / "sa.json"
-            cred_file.write_text("{}", encoding="utf-8")
+            cred_file.write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
 
             nested = root / "notebooks" / "reports"
             nested.mkdir(parents=True)
@@ -69,7 +83,7 @@ class TestCredentials(unittest.TestCase):
             fake_creds = fake_app / "credentials"
             fake_creds.mkdir()
             cred_file = fake_creds / "sa.json"
-            cred_file.write_text("{}", encoding="utf-8")
+            cred_file.write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
 
             external = Path(tmp) / "other_repo"
             external.mkdir()
@@ -111,7 +125,7 @@ class TestListServiceAccountPaths(unittest.TestCase):
     def test_list_single_file_via_env(self):
         with tempfile.TemporaryDirectory() as tmp:
             cred_file = Path(tmp) / "sa.json"
-            cred_file.write_text("{}", encoding="utf-8")
+            cred_file.write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
             with patch.dict(os.environ, {"MEGATON_CREDS_PATH": str(cred_file)}, clear=False):
                 paths = list_service_account_paths(default_dir=Path(tmp) / "unused")
                 self.assertEqual(paths, [str(cred_file)])
@@ -120,8 +134,8 @@ class TestListServiceAccountPaths(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             a = Path(tmp) / "a.json"
             b = Path(tmp) / "b.json"
-            a.write_text("{}", encoding="utf-8")
-            b.write_text("{}", encoding="utf-8")
+            a.write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
+            b.write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
             with patch.dict(os.environ, {}, clear=True):
                 paths = list_service_account_paths(default_dir=tmp)
                 self.assertEqual(len(paths), 2)
@@ -131,8 +145,8 @@ class TestListServiceAccountPaths(unittest.TestCase):
 
     def test_list_env_dir_multiple(self):
         with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / "x.json").write_text("{}", encoding="utf-8")
-            (Path(tmp) / "y.json").write_text("{}", encoding="utf-8")
+            (Path(tmp) / "x.json").write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
+            (Path(tmp) / "y.json").write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
             with patch.dict(os.environ, {"MEGATON_CREDS_PATH": tmp}, clear=False):
                 paths = list_service_account_paths()
                 self.assertEqual(len(paths), 2)
@@ -156,8 +170,8 @@ class TestListServiceAccountPaths(unittest.TestCase):
     def test_resolve_still_errors_on_multiple(self):
         """resolve_service_account_path still errors on multiple files (backward compatibility)."""
         with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / "a.json").write_text("{}", encoding="utf-8")
-            (Path(tmp) / "b.json").write_text("{}", encoding="utf-8")
+            (Path(tmp) / "a.json").write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
+            (Path(tmp) / "b.json").write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
             with patch.dict(os.environ, {}, clear=True):
                 with self.assertRaises(RuntimeError):
                     resolve_service_account_path(default_dir=tmp)
@@ -166,8 +180,8 @@ class TestListServiceAccountPaths(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "credentials").mkdir()
-            (root / "credentials" / "a.json").write_text("{}", encoding="utf-8")
-            (root / "credentials" / "b.json").write_text("{}", encoding="utf-8")
+            (root / "credentials" / "a.json").write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
+            (root / "credentials" / "b.json").write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
 
             nested = root / "notebooks" / "reports"
             nested.mkdir(parents=True)
@@ -194,8 +208,8 @@ class TestListServiceAccountPaths(unittest.TestCase):
             fake_creds.mkdir()
             a = fake_creds / "a.json"
             b = fake_creds / "b.json"
-            a.write_text("{}", encoding="utf-8")
-            b.write_text("{}", encoding="utf-8")
+            a.write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
+            b.write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
 
             external = Path(tmp) / "other_repo"
             external.mkdir()
@@ -233,6 +247,44 @@ class TestListServiceAccountPaths(unittest.TestCase):
                         self.assertEqual(paths, [])
             finally:
                 os.chdir(old_cwd)
+
+
+class TestAdobeOAuthCredentials(unittest.TestCase):
+    def test_list_adobe_oauth_paths_filters_only_adobe_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "sa.json").write_text(SERVICE_ACCOUNT_JSON, encoding="utf-8")
+            adobe = Path(tmp) / "adobe.json"
+            adobe.write_text(ADOBE_OAUTH_JSON, encoding="utf-8")
+            with patch.dict(os.environ, {}, clear=True):
+                paths = list_adobe_oauth_paths(default_dir=tmp)
+                self.assertEqual(paths, [str(adobe)])
+
+    def test_list_adobe_oauth_paths_from_env_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = Path(tmp) / "adobe-a.json"
+            b = Path(tmp) / "adobe-b.json"
+            a.write_text(ADOBE_OAUTH_JSON, encoding="utf-8")
+            b.write_text(
+                '{"client_id":"cid2","client_secret":"csec2","ims_org_id":"ORG2@AdobeOrg"}',
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {"ADOBE_CREDS_PATH": tmp}, clear=False):
+                paths = list_adobe_oauth_paths()
+                self.assertEqual(paths, [str(a), str(b)])
+
+    def test_load_adobe_oauth_credentials_normalizes_org_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cred_file = Path(tmp) / "adobe.json"
+            cred_file.write_text(
+                '{"client_id":"cid","client_secret":"csec","ims_org_id":"ORG@AdobeOrg","scope":"openid"}',
+                encoding="utf-8",
+            )
+            out = load_adobe_oauth_credentials(cred_file)
+            self.assertEqual(out["client_id"], "cid")
+            self.assertEqual(out["client_secret"], "csec")
+            self.assertEqual(out["org_id"], "ORG@AdobeOrg")
+            self.assertEqual(out["scopes"], "openid")
+            self.assertEqual(out["source_path"], str(cred_file))
 
 
 if __name__ == "__main__":

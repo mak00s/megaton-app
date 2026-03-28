@@ -110,6 +110,8 @@ def _get_auth_headers(config: AdobeTagsConfig) -> dict[str, str]:
     """
     if config.oauth is not None:
         auth = AdobeOAuthClient(
+            client_id=config.oauth.client_id or "",
+            client_secret=config.oauth.client_secret or "",
             client_id_env=config.oauth.client_id_env,
             client_secret_env=config.oauth.client_secret_env,
             org_id=config.oauth.org_id or "",

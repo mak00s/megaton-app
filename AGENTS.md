@@ -344,7 +344,10 @@ Tests use API mocks (SimpleNamespace pattern) with no external dependencies.
 ### Adobe API auth
 
 AA, Adobe Tags (Reactor), and Target share `AdobeOAuthClient` in `megaton_lib/audit/providers/adobe_auth.py`.
-Set `ADOBE_CLIENT_ID`, `ADOBE_CLIENT_SECRET`, `ADOBE_ORG_ID` environment variables.
+Preferred setup: place Adobe OAuth JSON files under `ADOBE_CREDS_PATH` or local `credentials/`.
+Supported JSON keys are `client_id`, `client_secret`, and `org_id` or `ims_org_id`; `scopes`, `company_id`, and `token_cache_file` are optional.
+Environment variables `ADOBE_CLIENT_ID`, `ADOBE_CLIENT_SECRET`, and `ADOBE_ORG_ID` remain supported as fallback.
+Adobe Analytics company lists and metadata queries can auto-route across multiple discovered Adobe credential files by `company_id`.
 Tokens are cached to disk and auto-refreshed on expiry or 401.
 
 ## Documentation

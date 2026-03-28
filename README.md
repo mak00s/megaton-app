@@ -39,8 +39,9 @@ Unlike MCP-based integrations, this file-based approach requires no server setup
 
 ```bash
 pip install -r requirements.txt
-# Place service account JSON file(s) in credentials/
-# For Adobe Analytics, set ADOBE_CLIENT_ID / ADOBE_CLIENT_SECRET / ADOBE_ORG_ID
+# Place Google service-account JSON file(s) in credentials/
+# Optional: place Adobe OAuth JSON file(s) in credentials/ too
+# Fallback: ADOBE_CLIENT_ID / ADOBE_CLIENT_SECRET / ADOBE_ORG_ID
 ```
 
 ## Quick Start
