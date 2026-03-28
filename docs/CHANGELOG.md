@@ -2,8 +2,24 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-### 2026-03-26
+### 2026-03-28 (v0.7.0)
 
+- Added shared validation helpers in `megaton_lib.validation`:
+  - `adobe_analytics.py` for reusable Playwright-based AA beacon validation flows
+  - `metadata.py` for stable result metadata and JSON save helpers
+  - `storefront_runtime.py` for shared storefront auth, embed override, beacon capture, and ECID capture
+  - expanded `playwright_pages.py` with config-driven Tags override builders and exact-match production launch replacement
+- Added shared validation guidance and tooling:
+  - `docs/VALIDATION.md` for shared-first validation policy, result schema, and override rules
+  - `docs/templates/validation_thin_entrypoint.py` as the recommended starting point for analysis-repo validators
+  - `scripts/check_validation_usage.py` to detect direct Playwright / raw route usage and missing validation metadata patterns
+- Added shared Adobe Tags workflow helpers in `megaton_lib.audit.providers.tag_config`:
+  - `bootstrap.py` for OAuth/env/bootstrap config assembly
+  - `build_workflow.py` for apply → refresh → build → verify → re-export flows
+- Expanded site-mapping markdown parsing:
+  - `parse_mapping_markdown()` now supports section scoping via `allowed_sections`
+- Added tests for validation metadata handling
+- Updated README / USAGE / AGENTS to document the validation shared-first policy and new guidance
 - Added `AAQueryContext` class and `AdobeAnalyticsClient.query_context()` factory method
   - Eliminates repetitive passing of rsid/date_from/date_to/segment across chained report and breakdown calls
   - Supports `ctx.report()` and `ctx.breakdown()` with stored defaults
