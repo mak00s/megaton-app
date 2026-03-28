@@ -65,6 +65,7 @@ python -m pytest -q
 |----------|----------|
 | [docs/USAGE.md](docs/USAGE.md) | Setup, quick start, recipes, and how-to for Notebook / CLI / Streamlit |
 | [docs/REFERENCE.md](docs/REFERENCE.md) | JSON schema, CLI options, pipeline, megaton API, and auth |
+| [docs/VALIDATION.md](docs/VALIDATION.md) | Shared-first validation policy, result schema, thin entrypoint template, and detection rule |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | Change history |
 
 ## Site Alias Config (Public Repo Safe)

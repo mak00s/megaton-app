@@ -53,6 +53,8 @@ python scripts/query.py --list-ga4-properties
 
 ## クイックスタート
 
+Validation / Playwright の shared-first 方針は [VALIDATION.md](VALIDATION.md) を参照。
+
 ### Streamlit UI で試す
 
 ```bash
