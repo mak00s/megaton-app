@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, Literal
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -24,7 +24,81 @@ class TagsLaunchOverride:
     launch_url: str
     mode: Literal["auto", "legacy_satellite", "launch_env"] = "auto"
     env_patterns: tuple[str, ...] = ("staging", "development")
+    exact_match_urls: tuple[str, ...] = ()
     abort_old_property_assets: bool = False
+
+
+def build_tags_launch_override(
+    config: Mapping[str, Any] | None,
+    *,
+    require: bool = False,
+    label: str = "tagsOverride",
+) -> TagsLaunchOverride | None:
+    """Build ``TagsLaunchOverride`` from config mapping.
+
+    The config schema matches ``adobe_analytics.tagsOverride``:
+    ``launchUrl``, ``mode``, ``envPatterns``, ``exactMatchUrls``, and
+    ``abortOldPropertyAssets``.
+    """
+    if not config:
+        if require:
+            raise ValueError(f"{label} is required")
+        return None
+
+    launch_url = str(config.get("launchUrl", "")).strip()
+    if not launch_url:
+        raise ValueError(f"{label}.launchUrl is required")
+
+    mode = str(config.get("mode", "auto")).strip() or "auto"
+    if mode not in {"auto", "legacy_satellite", "launch_env"}:
+        raise ValueError(
+            f"{label}.mode must be one of: auto, legacy_satellite, launch_env",
+        )
+
+    raw_env_patterns = config.get("envPatterns", ("staging", "development"))
+    if isinstance(raw_env_patterns, str):
+        env_patterns = tuple(
+            part.strip() for part in raw_env_patterns.split(",") if part.strip()
+        )
+    else:
+        env_patterns = tuple(
+            str(part).strip() for part in raw_env_patterns if str(part).strip()
+        )
+    if not env_patterns:
+        env_patterns = ("staging", "development")
+
+    raw_exact_urls = config.get("exactMatchUrls") or config.get("exactMatchUrl") or ()
+    if isinstance(raw_exact_urls, str):
+        exact_match_urls = tuple(
+            part.strip() for part in raw_exact_urls.split(",") if part.strip()
+        )
+    else:
+        exact_match_urls = tuple(
+            str(part).strip() for part in raw_exact_urls if str(part).strip()
+        )
+
+    return TagsLaunchOverride(
+        launch_url=launch_url,
+        mode=mode,
+        env_patterns=env_patterns,
+        exact_match_urls=exact_match_urls,
+        abort_old_property_assets=bool(config.get("abortOldPropertyAssets", False)),
+    )
+
+
+def describe_tags_launch_override(
+    override: TagsLaunchOverride | None,
+) -> dict[str, Any] | None:
+    """Return stable metadata for saved validation results."""
+    if override is None:
+        return None
+    return {
+        "launchUrl": override.launch_url,
+        "mode": override.mode,
+        "envPatterns": list(override.env_patterns),
+        "exactMatchUrls": list(override.exact_match_urls),
+        "abortOldPropertyAssets": override.abort_old_property_assets,
+    }
 
 
 def _property_base_prefix(launch_url: str) -> str | None:
@@ -48,6 +122,13 @@ def _is_launch_asset_request(url: str) -> bool:
     return "/launch-" in url and ".js" in url
 
 
+def _matches_exact_launch_request(url: str, exact_match_urls: tuple[str, ...]) -> bool:
+    if not exact_match_urls:
+        return False
+    request_base = url.split("?", 1)[0]
+    return request_base in exact_match_urls
+
+
 def _fetch_launch_asset(launch_url: str) -> bytes:
     req = Request(launch_url, headers={"Cache-Control": "no-cache"})
     with urlopen(req, timeout=30) as resp:
@@ -65,7 +146,14 @@ def configure_tags_launch_override(
     url: str,
     override: TagsLaunchOverride,
 ) -> None:
-    """Configure Playwright routes to replace Adobe Tags launch assets."""
+    """Configure Playwright routes to replace Adobe Tags launch assets.
+
+    Supports three complementary strategies:
+    - HTML patch for legacy ``satelliteLib-*.js`` embeds
+    - env-pattern replacement for ``launch-...development|staging...js``
+    - exact URL replacement for production launch embeds that should be
+      swapped to a dev/staging build during validation
+    """
     base_prefix = _property_base_prefix(override.launch_url)
     launch_asset_cache: bytes | None = None
 
@@ -115,10 +203,32 @@ def configure_tags_launch_override(
 
             page.route(pattern, _handle_launch_env)
 
+    for match_url in override.exact_match_urls:
+        normalized = match_url.strip()
+        if not normalized:
+            continue
+
+        exact_pattern = re.compile(rf"^{re.escape(normalized)}(?:\?.*)?$")
+
+        def _handle_exact_launch(route, _request):  # type: ignore[no-untyped-def]
+            route.fulfill(
+                body=_get_launch_asset(),
+                content_type="application/javascript",
+            )
+
+        page.route(exact_pattern, _handle_exact_launch)
+
     if base_prefix and override.abort_old_property_assets:
         def _handle_property_asset(route, request):  # type: ignore[no-untyped-def]
             if request.url == override.launch_url:
                 route.continue_()
+                return
+
+            if _matches_exact_launch_request(request.url, override.exact_match_urls):
+                route.fulfill(
+                    body=_get_launch_asset(),
+                    content_type="application/javascript",
+                )
                 return
 
             if (
@@ -206,6 +316,7 @@ def run_with_launch_override(
     url: str,
     launch_url: str,
     *,
+    exact_match_urls: tuple[str, ...] = (),
     ignore_https_errors: bool = False,
     wait_ms: int = 0,
     headless: bool = True,
@@ -229,6 +340,9 @@ def run_with_launch_override(
     ``launch_url`` must be an ``assets.adobedtm.com`` URL of the form:
     ``https://assets.adobedtm.com/{company}/{property}/launch-{id}-{env}.min.js``
 
+    ``exact_match_urls`` can be used when the page embeds a production
+    ``launch-*.js`` URL that should be replaced verbatim with ``launch_url``.
+
     Note: do NOT set ``abort_old_property_assets=True`` for this mode.
     The dev library dynamically loads its own RC/EX sub-files from the same
     property base prefix; aborting all prefix requests would prevent those
@@ -247,6 +361,7 @@ def run_with_launch_override(
         tags_override=TagsLaunchOverride(
             launch_url=launch_url,
             mode="legacy_satellite",
+            exact_match_urls=exact_match_urls,
             abort_old_property_assets=False,  # dev library sub-files must load
         ),
         setup=setup,

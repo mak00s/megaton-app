@@ -7,6 +7,13 @@ Toolkit for fetching, processing, and visualizing data from GA4, Search Console,
 - タスク固有のメモ、一時的な注意点、単なるテスト数の増減はここに追記しない。
 - 既存記述が明確に古い/誤っている場合は、関連タスクの変更と一緒に修正する。
 
+## Validation Policy
+
+- `megaton_lib.validation` は Playwright / contract / AA beacon 検証の shared-first な正本
+- result JSON の metadata は `megaton_lib.validation.metadata.build_validation_run_metadata` を使って揃える
+- new validation entrypoint は `docs/templates/validation_thin_entrypoint.py` を出発点にする
+- validation repo の棚卸しには `python scripts/check_validation_usage.py /path/to/repo` を使う
+
 ## Directory Structure
 
 ```

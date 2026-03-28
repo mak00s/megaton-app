@@ -1,11 +1,11 @@
-"""Site mapping audit task.
+"""Site mapping audit helpers.
 
 Cross-check tag-config mapping definitions against GA4/AA observed values.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from pathlib import Path
 import re
 from typing import Any
@@ -13,20 +13,32 @@ from typing import Any
 import pandas as pd
 
 
-def parse_mapping_markdown(md_path: str) -> dict[str, str]:
+def parse_mapping_markdown(
+    md_path: str | Path,
+    *,
+    allowed_sections: Collection[str] | None = None,
+) -> dict[str, str]:
     """Parse markdown table that stores path-pattern to site-name mapping."""
     mapping: dict[str, str] = {}
     text = Path(md_path).read_text(encoding="utf-8")
+    active_section = allowed_sections is None
 
     for line in text.splitlines():
         stripped = line.strip()
+        if stripped.startswith("### "):
+            active_section = allowed_sections is None or stripped in allowed_sections
+            continue
         if "未分類" in stripped and stripped.startswith("#"):
             break
-        if not stripped.startswith("|") or stripped.startswith("|---"):
+        if not active_section or not stripped.startswith("|") or stripped.startswith("|---"):
             continue
 
         protected = re.sub(r"`[^`]+`", lambda m: m.group().replace("|", "\x00"), stripped)
-        cols = [c.strip().strip("`").replace("\x00", "|") for c in protected.split("|")]
+        protected = protected.replace(r"\|", "\x00")
+        cols = [
+            c.strip().strip("`").replace("\x00", "|").replace(r"\|", "|")
+            for c in protected.split("|")
+        ]
         cols = [c for c in cols if c]
         if len(cols) < 2:
             continue
