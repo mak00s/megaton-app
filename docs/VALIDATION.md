@@ -35,13 +35,16 @@ analysis repo 側には project 固有の URL、selector、操作手順、期待
 補足:
 
 - `executionMode` は少なくとも `live` / `tags_override` を区別する
+- GTM preview 実行では `executionMode="gtm_preview"` と `gtmPreview` を残す
 - `tagsOverride` は override 実行時だけ入れる
 - live と override を同じ filename / payload で混同しない
 
 共通 helper:
 
 - `megaton_lib.validation.build_validation_run_metadata`
+- `megaton_lib.validation.build_gtm_preview_override`
 - `megaton_lib.validation.describe_tags_launch_override`
+- `megaton_lib.validation.describe_gtm_preview_override`
 - `megaton_lib.validation.write_validation_json`
 
 ## Thin Entrypoint Template
@@ -54,6 +57,13 @@ analysis repo 側には project 固有の URL、selector、操作手順、期待
 2. shared helper で override / metadata を組み立てる
 3. `megaton_lib.validation.*` を呼ぶ
 4. result に shared metadata を足して保存する
+
+## GTM Preview Rule
+
+- GTM workspace preview は `GtmPreviewOverride` を使う
+- 完全自動で preview token を発行するのではなく、Tag Assistant で作成した preview URL または `gtm_auth` / `gtm_preview` を入力として使う
+- preview token は repo にコミットしない
+- metadata には `containerId` / `previewId` / `cookiesWin` を残し、`authToken` は残さない
 
 ## Tags Override Rule
 

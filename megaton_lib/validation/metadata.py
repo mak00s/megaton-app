@@ -7,7 +7,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .playwright_pages import TagsLaunchOverride, describe_tags_launch_override
+from .playwright_pages import (
+    GtmPreviewOverride,
+    TagsLaunchOverride,
+    describe_gtm_preview_override,
+    describe_tags_launch_override,
+)
 
 
 def build_validation_run_metadata(
@@ -16,6 +21,7 @@ def build_validation_run_metadata(
     project: str | None = None,
     scenario: str | None = None,
     config_path: str | Path | None = None,
+    gtm_preview: GtmPreviewOverride | None = None,
     tags_override: TagsLaunchOverride | None = None,
     extra: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -29,6 +35,10 @@ def build_validation_run_metadata(
         metadata["scenario"] = str(scenario)
     if config_path:
         metadata["configPath"] = str(config_path)
+
+    gtm_preview_meta = describe_gtm_preview_override(gtm_preview)
+    if gtm_preview_meta is not None:
+        metadata["gtmPreview"] = gtm_preview_meta
 
     tags_override_meta = describe_tags_launch_override(tags_override)
     if tags_override_meta is not None:
