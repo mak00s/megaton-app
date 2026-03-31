@@ -5,6 +5,7 @@ import json
 import pytest
 
 from megaton_lib.audit.providers.tag_config.adobe_tags import (
+    _reactor_get,
     _reactor_post,
     _export_items,
     build_library,
@@ -533,3 +534,55 @@ def test_export_items_uses_id_prefixed_names_for_duplicate_titles(tmp_path):
     assert count == 2
     assert (tmp_path / "ex1_same-name.json").exists()
     assert (tmp_path / "ex2_same-name.json").exists()
+
+
+# ---- 404 retry tests ----
+
+
+def test_reactor_get_retries_on_404_with_oauth_cache(monkeypatch, tmp_path):
+    """404 with an OAuth token cache should clear cache and retry once."""
+    from megaton_lib.audit.config import AdobeOAuthConfig
+
+    cache_file = tmp_path / ".token_cache.json"
+    cache_file.write_text('{"access_token": "stale", "expires_at": 9999999999}')
+
+    oauth = AdobeOAuthConfig(
+        client_id="test-id",
+        client_secret="test-secret",
+        org_id="test-org",
+        scopes="openid",
+        token_cache_file=str(cache_file),
+    )
+    config = AdobeTagsConfig(property_id="PR123", oauth=oauth, page_size=25)
+
+    call_count = {"n": 0}
+
+    def fake_get(url, headers, timeout):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return _Resp(404, {"errors": [{"status": "404"}]})
+        return _Resp(200, {"data": {"id": "PR123"}})
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.get",
+        fake_get,
+    )
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags._get_auth_headers",
+        lambda config: {"Authorization": "Bearer mock", "x-api-key": "mock"},
+    )
+    result = _reactor_get(config, "/properties/PR123")
+    assert result["data"]["id"] == "PR123"
+    assert call_count["n"] == 2
+    assert not cache_file.exists()
+
+
+def test_reactor_get_no_retry_without_oauth(tags_env, monkeypatch):
+    """404 without OAuth config should raise immediately (no retry)."""
+    config = _make_config()
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.get",
+        lambda url, headers, timeout: _Resp(404, {"errors": [{"status": "404"}]}),
+    )
+    with pytest.raises(RuntimeError, match="404"):
+        _reactor_get(config, "/properties/PR123")
