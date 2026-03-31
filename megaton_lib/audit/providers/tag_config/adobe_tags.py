@@ -152,6 +152,21 @@ def _get_auth_headers(config: AdobeTagsConfig) -> dict[str, str]:
 # ---- low-level HTTP ----
 
 
+def _should_retry_404(config: AdobeTagsConfig) -> bool:
+    """Clear token cache on 404 so the next request gets a fresh token.
+
+    Adobe Reactor API returns 404 (not 401) when the bearer token is stale.
+    Returns True if a cache file was removed and a retry is worthwhile.
+    """
+    if not (config.oauth and config.oauth.token_cache_file):
+        return False
+    cache = Path(config.oauth.token_cache_file)
+    if cache.exists():
+        cache.unlink()
+        return True
+    return False
+
+
 def _reactor_get(config: AdobeTagsConfig, endpoint: str, *, query: str = "") -> dict[str, Any]:
     headers = _get_auth_headers(config)
     base = config.base_url.rstrip("/")
@@ -160,6 +175,11 @@ def _reactor_get(config: AdobeTagsConfig, endpoint: str, *, query: str = "") -> 
         url = f"{url}?{query}"
 
     resp = requests.get(url, headers=headers, timeout=30)
+
+    if resp.status_code == 404 and _should_retry_404(config):
+        headers = _get_auth_headers(config)
+        resp = requests.get(url, headers=headers, timeout=30)
+
     if resp.status_code < 200 or resp.status_code >= 300:
         raise RuntimeError(
             f"Adobe Tags API failed: {resp.status_code} {resp.text}",
@@ -178,6 +198,11 @@ def _reactor_patch(config: AdobeTagsConfig, endpoint: str, payload: dict[str, An
     url = f"{base}{endpoint}"
 
     resp = requests.patch(url, headers=headers, json=payload, timeout=30)
+
+    if resp.status_code == 404 and _should_retry_404(config):
+        headers = _get_auth_headers(config)
+        resp = requests.patch(url, headers=headers, json=payload, timeout=30)
+
     if resp.status_code < 200 or resp.status_code >= 300:
         raise RuntimeError(
             f"Adobe Tags API PATCH failed: {resp.status_code} {resp.text}",
@@ -192,6 +217,11 @@ def _reactor_post(config: AdobeTagsConfig, endpoint: str, payload: dict[str, Any
     url = f"{base}{endpoint}"
 
     resp = requests.post(url, headers=headers, json=payload, timeout=30)
+
+    if resp.status_code == 404 and _should_retry_404(config):
+        headers = _get_auth_headers(config)
+        resp = requests.post(url, headers=headers, json=payload, timeout=30)
+
     if resp.status_code < 200 or resp.status_code >= 300:
         raise RuntimeError(
             f"Adobe Tags API POST failed: {resp.status_code} {resp.text}",
@@ -206,6 +236,11 @@ def _reactor_delete(config: AdobeTagsConfig, endpoint: str, payload: dict[str, A
     url = f"{base}{endpoint}"
 
     resp = requests.delete(url, headers=headers, json=payload, timeout=30)
+
+    if resp.status_code == 404 and _should_retry_404(config):
+        headers = _get_auth_headers(config)
+        resp = requests.delete(url, headers=headers, json=payload, timeout=30)
+
     if resp.status_code < 200 or resp.status_code >= 300:
         raise RuntimeError(
             f"Adobe Tags API DELETE failed: {resp.status_code} {resp.text}",

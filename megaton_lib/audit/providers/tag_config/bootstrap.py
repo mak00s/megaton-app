@@ -49,6 +49,7 @@ def merge_adobe_scopes(
 def seed_adobe_oauth_env(
     *,
     payload: Mapping[str, Any] | None = None,
+    creds_file: str | Path | None = None,
     client_id: str = "",
     client_secret: str = "",
     org_id: str = "",
@@ -56,8 +57,27 @@ def seed_adobe_oauth_env(
     client_secret_env: str = "ADOBE_CLIENT_SECRET",
     org_id_env: str = "ADOBE_ORG_ID",
 ) -> tuple[str, str, str]:
-    """Resolve Adobe OAuth values from explicit args, env, and optional payload."""
-    payload = payload or {}
+    """Resolve Adobe OAuth values from explicit args, env, JSON file, and optional payload.
+
+    Resolution order (first non-empty wins):
+    1. Explicit function arguments (``client_id``, ``client_secret``, ``org_id``)
+    2. Environment variables (``ADOBE_CLIENT_ID``, etc.)
+    3. JSON credential file (``creds_file``) — loaded via ``load_adobe_oauth_credentials``
+    4. ``payload`` dict
+    """
+    merged_payload: dict[str, Any] = dict(payload or {})
+
+    if creds_file is not None:
+        creds_path = Path(creds_file).expanduser().resolve()
+        if creds_path.exists():
+            from ....credentials import load_adobe_oauth_credentials  # noqa: WPS433
+
+            file_creds = load_adobe_oauth_credentials(creds_path)
+            for key in ("client_id", "client_secret", "org_id"):
+                if file_creds.get(key) and not merged_payload.get(key):
+                    merged_payload[key] = file_creds[key]
+
+    payload = merged_payload
 
     resolved_client_id = (
         client_id.strip()
@@ -95,6 +115,7 @@ def build_tags_config(
     scopes: str | None = None,
     token_cache_file: str | Path = "credentials/.adobe_token_cache.json",
     payload: Mapping[str, Any] | None = None,
+    creds_file: str | Path | None = None,
     client_id: str = "",
     client_secret: str = "",
     org_id: str = "",
@@ -109,6 +130,7 @@ def build_tags_config(
     payload = payload or {}
     _, _, resolved_org_id = seed_adobe_oauth_env(
         payload=payload,
+        creds_file=creds_file,
         client_id=client_id,
         client_secret=client_secret,
         org_id=org_id,
