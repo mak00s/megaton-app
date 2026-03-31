@@ -1,4 +1,4 @@
-"""Shared Playwright helpers for page checks and Adobe Tags overrides."""
+"""Shared Playwright helpers for page checks, GTM preview, and Adobe Tags overrides."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import re
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Literal
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 if TYPE_CHECKING:
@@ -38,6 +38,16 @@ class TagsLaunchOverride:
     env_patterns: tuple[str, ...] = ("staging", "development")
     exact_match_urls: tuple[str, ...] = ()
     abort_old_property_assets: bool = False
+
+
+@dataclass(frozen=True)
+class GtmPreviewOverride:
+    """Configuration for routing GTM container requests to a preview workspace."""
+
+    container_id: str
+    auth_token: str
+    preview_id: str
+    cookies_win: str = "x"
 
 
 def build_tags_launch_override(
@@ -98,6 +108,83 @@ def build_tags_launch_override(
     )
 
 
+def _parse_tagassistant_preview_url(preview_url: str) -> dict[str, str]:
+    """Parse a Tag Assistant preview URL into GTM preview parameters."""
+    stripped = preview_url.strip()
+    if not stripped:
+        return {}
+
+    parsed = urlsplit(stripped)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    if not query and parsed.fragment:
+        fragment = parsed.fragment
+        if fragment.startswith("/?"):
+            fragment = fragment[2:]
+        elif fragment.startswith("?"):
+            fragment = fragment[1:]
+        query = parse_qs(fragment, keep_blank_values=True)
+
+    out: dict[str, str] = {}
+    for src_key, dst_key in (
+        ("id", "containerId"),
+        ("gtm_auth", "authToken"),
+        ("gtm_preview", "previewId"),
+        ("gtm_cookies_win", "cookiesWin"),
+    ):
+        value = (query.get(src_key) or [""])[-1].strip()
+        if value:
+            out[dst_key] = value
+    return out
+
+
+def build_gtm_preview_override(
+    config: Mapping[str, Any] | None,
+    *,
+    require: bool = False,
+    label: str = "gtmPreview",
+) -> GtmPreviewOverride | None:
+    """Build ``GtmPreviewOverride`` from config mapping.
+
+    Supported input keys:
+    - ``previewUrl``: Tag Assistant preview URL
+    - ``containerId`` or ``id``
+    - ``authToken`` or ``gtm_auth``
+    - ``previewId`` or ``gtm_preview``
+    - ``cookiesWin`` or ``gtm_cookies_win`` (defaults to ``x``)
+    """
+    if not config:
+        if require:
+            raise ValueError(f"{label} is required")
+        return None
+
+    merged = dict(config)
+    preview_url = str(merged.get("previewUrl", "")).strip()
+    if preview_url:
+        merged = {**_parse_tagassistant_preview_url(preview_url), **merged}
+
+    container_id = str(merged.get("containerId") or merged.get("id") or "").strip()
+    auth_token = str(merged.get("authToken") or merged.get("gtm_auth") or "").strip()
+    preview_id = str(merged.get("previewId") or merged.get("gtm_preview") or "").strip()
+    cookies_win = str(merged.get("cookiesWin") or merged.get("gtm_cookies_win") or "x").strip() or "x"
+
+    missing: list[str] = []
+    if not container_id:
+        missing.append("containerId")
+    if not auth_token:
+        missing.append("authToken")
+    if not preview_id:
+        missing.append("previewId")
+    if missing:
+        raise ValueError(f"{label} is missing required field(s): {', '.join(missing)}")
+
+    return GtmPreviewOverride(
+        container_id=container_id,
+        auth_token=auth_token,
+        preview_id=preview_id,
+        cookies_win=cookies_win,
+    )
+
+
 def describe_tags_launch_override(
     override: TagsLaunchOverride | None,
 ) -> dict[str, Any] | None:
@@ -110,6 +197,20 @@ def describe_tags_launch_override(
         "envPatterns": list(override.env_patterns),
         "exactMatchUrls": list(override.exact_match_urls),
         "abortOldPropertyAssets": override.abort_old_property_assets,
+    }
+
+
+def describe_gtm_preview_override(
+    override: GtmPreviewOverride | None,
+) -> dict[str, Any] | None:
+    """Return stable metadata for saved GTM preview runs."""
+    if override is None:
+        return None
+    return {
+        "containerId": override.container_id,
+        "previewId": override.preview_id,
+        "cookiesWin": override.cookies_win,
+        "authTokenPresent": bool(override.auth_token),
     }
 
 
@@ -151,6 +252,44 @@ def _response_headers(response) -> dict[str, str]:
     headers = dict(response.headers)
     headers.pop("content-length", None)
     return headers
+
+
+def _inject_gtm_preview_params(
+    request_url: str,
+    override: GtmPreviewOverride,
+) -> str:
+    """Return GTM request URL with preview parameters appended/replaced."""
+    parsed = urlsplit(request_url)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    query["id"] = [override.container_id]
+    query["gtm_auth"] = [override.auth_token]
+    query["gtm_preview"] = [override.preview_id]
+    query["gtm_cookies_win"] = [override.cookies_win]
+    return urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            urlencode(query, doseq=True),
+            parsed.fragment,
+        )
+    )
+
+
+def configure_gtm_preview_override(
+    page: Page,
+    override: GtmPreviewOverride,
+) -> None:
+    """Configure Playwright routes to load a GTM container in preview mode."""
+    for path in ("gtm.js", "ns.html"):
+        pattern = re.compile(
+            rf"^https://www\.googletagmanager\.com/{re.escape(path)}\?.*([?&])id={re.escape(override.container_id)}(?:[&#].*)?$"
+        )
+
+        def _handle_gtm_preview(route, request, *, _override=override):  # type: ignore[no-untyped-def]
+            route.continue_(url=_inject_gtm_preview_params(request.url, _override))
+
+        page.route(pattern, _handle_gtm_preview)
 
 
 def configure_tags_launch_override(
@@ -269,6 +408,7 @@ def run_page(
     headless: bool = True,
     ignore_https_errors: bool = False,
     basic_auth: dict[str, str] | None = None,
+    gtm_preview: GtmPreviewOverride | None = None,
     tags_override: TagsLaunchOverride | None = None,
     setup: Callable[[Page], None] | None = None,
     callback: Callable[[Page], Any],
@@ -285,6 +425,8 @@ def run_page(
         context = browser.new_context(**context_options)
         page = context.new_page()
         try:
+            if gtm_preview is not None:
+                configure_gtm_preview_override(page, gtm_preview)
             if tags_override is not None:
                 configure_tags_launch_override(page, url, tags_override)
             if setup is not None:

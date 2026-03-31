@@ -613,12 +613,20 @@ Notes:
 | `select_headers(headers)` | Keep stable request/response headers for debug output |
 | `extract_mbox_names(payload)` | Extract Target delivery mbox names from request payload |
 | `PageEventCapture(...)` | Collect Playwright console logs, page errors, failed requests, and Target delivery calls |
+| `GtmPreviewOverride(...)` | Describe how GTM container requests should be routed to a workspace preview |
 | `TagsLaunchOverride(...)` | Describe how Adobe Tags launch assets should be replaced during Playwright runs |
+| `build_gtm_preview_override(config, ...)` | Build GTM preview override config from Tag Assistant URL or raw params |
+| `configure_gtm_preview_override(page, override)` | Attach Playwright routes that append GTM preview parameters to container requests |
+| `describe_gtm_preview_override(override)` | Return stable metadata dict for saved GTM preview runs (omits auth token) |
+| `build_tags_launch_override(config, ...)` | Build `TagsLaunchOverride` from config mapping with dev/region overrides |
+| `describe_tags_launch_override(override)` | Return stable metadata dict for saved Tags override runs |
 | `configure_tags_launch_override(page, url, override)` | Attach Playwright routes that swap Adobe Tags assets for one page/origin |
 | `run_page(...)` | Open a Playwright page with optional basic auth, HTTPS ignore, and Tags override support |
 | `run_with_basic_auth_page(...)` | Open a page with BASIC auth and run a callback in Playwright |
 | `run_with_launch_override(...)` | Backward-compatible helper for legacy `satelliteLib-*.js` replacement |
 | `capture_selector_state(page, selectors)` | Snapshot selector existence/opacity/child counts for page validation |
+| `build_validation_run_metadata(...)` | Build standard metadata dict (execution mode, project, scenario, timestamps) |
+| `write_validation_json(path, report)` | Write validation report JSON with parent dir creation |
 
 #### Adobe Tags Launch Override
 
@@ -667,6 +675,37 @@ Notes:
 - `run_with_launch_override(...)` performs one initial `page.goto(...)` before your callback runs. Do not call `page.goto(...)` again for the same URL unless you intentionally want a second load.
 - `run_with_basic_auth_page(...)` is still useful when you only need BASIC auth and no Tags replacement.
 - `legacy_satellite` HTML rewriting is scoped to the initial `run_page(url=...)` origin. If your callback later moves to another origin, that later HTML will not be rewritten by the original route.
+
+#### GTM Preview Override
+
+Use `GtmPreviewOverride` when you need to validate a site against an unpublished GTM workspace draft.
+
+```python
+from megaton_lib.validation import GtmPreviewOverride, run_page
+
+override = GtmPreviewOverride(
+    container_id="GTM-TJKK7S5",
+    auth_token="...",
+    preview_id="env-361",
+)
+
+def validate(page):
+    page.goto("https://corp.shiseido.com/jp/rd/safety/ingredients/", wait_until="networkidle", timeout=90000)
+    page.wait_for_timeout(3000)
+    return {"url": page.url}
+
+result = run_page(
+    "https://corp.shiseido.com/jp/rd/safety/ingredients/",
+    gtm_preview=override,
+    callback=validate,
+)
+```
+
+Notes:
+
+- Prefer `build_gtm_preview_override({"previewUrl": "<tag assistant url>"}, require=True)` when you already have a Tag Assistant preview link.
+- GTM preview support rewrites matching `gtm.js` / `ns.html` requests to include `gtm_auth`, `gtm_preview`, and `gtm_cookies_win`.
+- The preview auth token is intentionally not persisted in validation metadata.
 
 ### Adobe Tags Sync Helpers (`megaton_lib.audit.providers.tag_config`)
 

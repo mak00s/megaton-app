@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from megaton_lib.validation.playwright_pages import (
+    GtmPreviewOverride,
     TagsLaunchOverride,
+    build_gtm_preview_override,
     capture_selector_state,
+    configure_gtm_preview_override,
     configure_tags_launch_override,
     run_page,
     run_with_basic_auth_page,
@@ -47,8 +50,8 @@ class FakeRoute:
     def __init__(self) -> None:
         self.actions = []
 
-    def continue_(self) -> None:
-        self.actions.append(("continue", None))
+    def continue_(self, **kwargs) -> None:
+        self.actions.append(("continue", kwargs or None))
 
     def abort(self) -> None:
         self.actions.append(("abort", None))
@@ -172,6 +175,60 @@ def test_configure_tags_launch_override_auto_registers_expected_routes():
     ]
 
 
+def test_build_gtm_preview_override_parses_tagassistant_url():
+    override = build_gtm_preview_override(
+        {
+            "previewUrl": (
+                "https://tagassistant.google.com/#/?id=GTM-TJKK7S5"
+                "&url=https%3A%2F%2Fcorp.shiseido.com%2Fjp%2Frd%2Fsafety%2F"
+                "&source=TAG_MANAGER"
+                "&canonical_id=6020437"
+                "&gtm_auth=token123"
+                "&gtm_preview=env-361"
+            )
+        },
+        require=True,
+    )
+
+    assert override == GtmPreviewOverride(
+        container_id="GTM-TJKK7S5",
+        auth_token="token123",
+        preview_id="env-361",
+        cookies_win="x",
+    )
+
+
+def test_configure_gtm_preview_override_rewrites_gtm_request():
+    page = FakePage()
+    override = GtmPreviewOverride(
+        container_id="GTM-TJKK7S5",
+        auth_token="token123",
+        preview_id="env-361",
+    )
+
+    configure_gtm_preview_override(page, override)
+
+    assert len(page.route_calls) == 2
+    handler = page.route_calls[0][1]
+    route = FakeRoute()
+    request = FakeRequest(
+        "https://www.googletagmanager.com/gtm.js?id=GTM-TJKK7S5&l=dataLayer",
+    )
+    handler(route, request)
+    assert route.actions == [
+        (
+            "continue",
+            {
+                "url": (
+                    "https://www.googletagmanager.com/gtm.js"
+                    "?id=GTM-TJKK7S5&l=dataLayer&gtm_auth=token123"
+                    "&gtm_preview=env-361&gtm_cookies_win=x"
+                )
+            },
+        )
+    ]
+
+
 def test_run_page_applies_override_before_callback(monkeypatch):
     page = FakePage()
     browser = FakeBrowser(page)
@@ -201,6 +258,29 @@ def test_run_page_applies_override_before_callback(monkeypatch):
         "**/launch-*staging*.js",
         "**/launch-*development*.js",
     ]
+
+
+def test_run_page_applies_gtm_preview_before_callback(monkeypatch):
+    page = FakePage()
+    browser = FakeBrowser(page)
+    chromium = FakeChromium(browser)
+    manager = FakePlaywrightManager(FakePlaywright(chromium))
+
+    import megaton_lib.validation.playwright_pages as mod
+
+    monkeypatch.setattr(mod, "sync_playwright", lambda: manager)
+
+    result = run_page(
+        "https://example.test/page",
+        gtm_preview=GtmPreviewOverride(
+            container_id="GTM-TJKK7S5",
+            auth_token="token123",
+            preview_id="env-361",
+        ),
+        callback=lambda opened_page: len(opened_page.route_calls),
+    )
+
+    assert result == 2
 
 
 def test_abort_old_property_assets_only_blocks_competing_launch_assets():
