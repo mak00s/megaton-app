@@ -707,6 +707,21 @@ Notes:
 - GTM preview support rewrites matching `gtm.js` / `ns.html` requests to include `gtm_auth`, `gtm_preview`, and `gtm_cookies_win`.
 - The preview auth token is intentionally not persisted in validation metadata.
 
+### Adobe Tags Bootstrap (`megaton_lib.audit.providers.tag_config`)
+
+| Function | Description |
+|---|---|
+| `load_env_file(path)` | Load `KEY=VALUE` pairs from a file into `os.environ` (setdefault) |
+| `seed_adobe_oauth_env(...)` | Resolve Adobe OAuth credentials from args, env, JSON file, and payload dict. Sets resolved values into `os.environ`. |
+| `build_tags_config(...)` | Build `AdobeTagsConfig` after resolving OAuth settings via `seed_adobe_oauth_env` |
+
+Notes:
+
+- `seed_adobe_oauth_env` resolution order: explicit args → env vars → `creds_file` JSON → `payload` dict
+- `creds_file` accepts a path to a JSON file with `client_id`, `client_secret`, `org_id` keys (loaded via `load_adobe_oauth_credentials`)
+- `build_tags_config` passes `creds_file` through to `seed_adobe_oauth_env`
+- `load_env_file` silently skips if the file does not exist
+
 ### Adobe Tags Sync Helpers (`megaton_lib.audit.providers.tag_config`)
 
 | Function | Description |

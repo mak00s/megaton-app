@@ -87,8 +87,8 @@ def tags_env(monkeypatch):
 def test_reactor_post_success(tags_env, monkeypatch):
     config = _make_config()
     monkeypatch.setattr(
-        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.post",
-        lambda url, headers, json, timeout: _Resp(201, {"data": {"id": "BL1"}}),
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        lambda method, url, **kw: _Resp(201, {"data": {"id": "BL1"}}),
     )
     result = _reactor_post(config, "/libraries/LB1/builds", {"data": {}})
     assert result["data"]["id"] == "BL1"
@@ -97,8 +97,8 @@ def test_reactor_post_success(tags_env, monkeypatch):
 def test_reactor_post_error_raises(tags_env, monkeypatch):
     config = _make_config()
     monkeypatch.setattr(
-        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.post",
-        lambda url, headers, json, timeout: _Resp(422, {"errors": [{"detail": "bad"}]}),
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        lambda method, url, **kw: _Resp(422, {"errors": [{"detail": "bad"}]}),
     )
     with pytest.raises(RuntimeError, match="POST failed"):
         _reactor_post(config, "/libraries/LB1/builds", {"data": {}})
@@ -110,8 +110,8 @@ def test_reactor_post_error_raises(tags_env, monkeypatch):
 def test_build_library_returns_summary(tags_env, monkeypatch):
     config = _make_config()
     monkeypatch.setattr(
-        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.post",
-        lambda url, headers, json, timeout: _Resp(201, {
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        lambda method, url, **kw: _Resp(201, {
             "data": {
                 "id": "BL123",
                 "type": "builds",
@@ -134,7 +134,7 @@ def test_build_library_returns_summary(tags_env, monkeypatch):
 def test_list_library_resources_detects_stale(tags_env, monkeypatch):
     config = _make_config()
 
-    def mock_get(url, headers, timeout):
+    def mock_request(method, url, **kw):
         if "/rules" in url:
             return _Resp(200, {
                 "data": [{
@@ -154,8 +154,8 @@ def test_list_library_resources_detects_stale(tags_env, monkeypatch):
         })
 
     monkeypatch.setattr(
-        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.get",
-        mock_get,
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        mock_request,
     )
     result = list_library_resources(config, "LB789")
     assert len(result["rules"]) == 1
@@ -169,8 +169,8 @@ def test_list_library_resources_no_stale(tags_env, monkeypatch):
     config = _make_config()
 
     monkeypatch.setattr(
-        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.get",
-        lambda url, headers, timeout: _Resp(200, {
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        lambda method, url, **kw: _Resp(200, {
             "data": [{
                 "id": "RL1",
                 "attributes": {"name": "Rule 1", "revision_number": 5, "dirty": False},
@@ -189,8 +189,8 @@ def test_list_library_resources_no_stale(tags_env, monkeypatch):
 def test_list_rule_revisions(tags_env, monkeypatch):
     config = _make_config()
     monkeypatch.setattr(
-        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.get",
-        lambda url, headers, timeout: _Resp(200, {
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        lambda method, url, **kw: _Resp(200, {
             "data": [
                 {
                     "id": "RL1-rev1",
@@ -252,7 +252,11 @@ def test_revise_library_rules_409_retry(tags_env, monkeypatch):
             "data": [{"type": "rules", "id": "RL-new-1"}],
         })
 
-    def mock_get(url, headers, timeout):
+    def mock_request(method, url, **kw):
+        if method == "DELETE":
+            call_count["delete"] += 1
+            return _Resp(200, {})
+        # GET (for paginated list of library rules)
         return _Resp(200, {
             "data": [{
                 "id": "RL-rev-old",
@@ -263,21 +267,13 @@ def test_revise_library_rules_409_retry(tags_env, monkeypatch):
             "meta": {"pagination": {}},
         })
 
-    def mock_delete(url, headers, json, timeout):
-        call_count["delete"] += 1
-        return _Resp(200, {})
-
     monkeypatch.setattr(
         "megaton_lib.audit.providers.tag_config.adobe_tags.requests.post",
         mock_post,
     )
     monkeypatch.setattr(
-        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.get",
-        mock_get,
-    )
-    monkeypatch.setattr(
-        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.delete",
-        mock_delete,
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        mock_request,
     )
     result = revise_library_rules(config, "LB1", ["RL-origin-1"])
     assert result["revised_count"] == 1
@@ -377,9 +373,8 @@ def test_refresh_library_resources_rolls_back_failed_rule_refresh(tags_env, monk
 def test_find_dirty_origin_rules(tags_env, monkeypatch):
     config = _make_config()
 
-    def mock_get(url, headers, timeout):
+    def mock_request(method, url, **kw):
         if "/libraries/" in url and "/rules" in url:
-            # Library rules list (revision copies)
             return _Resp(200, {
                 "data": [
                     {
@@ -398,7 +393,6 @@ def test_find_dirty_origin_rules(tags_env, monkeypatch):
                 "meta": {"pagination": {}},
             })
         if "RL-origin-1" in url:
-            # Origin rule 1: dirty
             return _Resp(200, {
                 "data": {
                     "id": "RL-origin-1",
@@ -406,7 +400,6 @@ def test_find_dirty_origin_rules(tags_env, monkeypatch):
                 },
             })
         if "RL-origin-2" in url:
-            # Origin rule 2: clean
             return _Resp(200, {
                 "data": {
                     "id": "RL-origin-2",
@@ -416,8 +409,8 @@ def test_find_dirty_origin_rules(tags_env, monkeypatch):
         return _Resp(200, {"data": [], "meta": {"pagination": {}}})
 
     monkeypatch.setattr(
-        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.get",
-        mock_get,
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        mock_request,
     )
     result = find_dirty_origin_rules(config, "LB1")
     assert result == ["RL-origin-1"]
@@ -430,27 +423,27 @@ def test_deploy_library(tags_env, monkeypatch):
     config = _make_config()
     call_log = []
 
-    def mock_get(url, headers, timeout):
-        if "/libraries/" in url and "/rules" in url:
-            return _Resp(200, {
-                "data": [{
-                    "id": "RL-rev-1",
-                    "attributes": {"name": "Rule 1", "revision_number": 3, "dirty": False},
-                    "meta": {"latest_revision_number": 3},
-                    "relationships": {"origin": {"data": {"id": "RL-origin-1", "type": "rules"}}},
-                }],
-                "meta": {"pagination": {}},
-            })
-        if "RL-origin-1" in url:
-            return _Resp(200, {
-                "data": {
-                    "id": "RL-origin-1",
-                    "attributes": {"name": "Rule 1", "revision_number": 0, "dirty": True},
-                },
-            })
-        return _Resp(200, {"data": [], "meta": {"pagination": {}}})
-
-    def mock_post(url, headers, json, timeout):
+    def mock_request(method, url, **kw):
+        if method == "GET":
+            if "/libraries/" in url and "/rules" in url:
+                return _Resp(200, {
+                    "data": [{
+                        "id": "RL-rev-1",
+                        "attributes": {"name": "Rule 1", "revision_number": 3, "dirty": False},
+                        "meta": {"latest_revision_number": 3},
+                        "relationships": {"origin": {"data": {"id": "RL-origin-1", "type": "rules"}}},
+                    }],
+                    "meta": {"pagination": {}},
+                })
+            if "RL-origin-1" in url:
+                return _Resp(200, {
+                    "data": {
+                        "id": "RL-origin-1",
+                        "attributes": {"name": "Rule 1", "revision_number": 0, "dirty": True},
+                    },
+                })
+            return _Resp(200, {"data": [], "meta": {"pagination": {}}})
+        # POST
         call_log.append(url)
         if "/relationships/rules" in url:
             return _Resp(200, {"data": [{"type": "rules", "id": "RL-new-1"}]})
@@ -464,9 +457,16 @@ def test_deploy_library(tags_env, monkeypatch):
             })
         return _Resp(200, {})
 
+    def mock_post(url, headers, json, timeout):
+        """Handle direct requests.post calls from _revise_library_resources."""
+        call_log.append(url)
+        if "/relationships/rules" in url:
+            return _Resp(200, {"data": [{"type": "rules", "id": "RL-new-1"}]})
+        return _Resp(200, {})
+
     monkeypatch.setattr(
-        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.get",
-        mock_get,
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        mock_request,
     )
     monkeypatch.setattr(
         "megaton_lib.audit.providers.tag_config.adobe_tags.requests.post",
@@ -557,15 +557,15 @@ def test_reactor_get_retries_on_404_with_oauth_cache(monkeypatch, tmp_path):
 
     call_count = {"n": 0}
 
-    def fake_get(url, headers, timeout):
+    def fake_request(method, url, **kw):
         call_count["n"] += 1
         if call_count["n"] == 1:
             return _Resp(404, {"errors": [{"status": "404"}]})
         return _Resp(200, {"data": {"id": "PR123"}})
 
     monkeypatch.setattr(
-        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.get",
-        fake_get,
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        fake_request,
     )
     monkeypatch.setattr(
         "megaton_lib.audit.providers.tag_config.adobe_tags._get_auth_headers",
@@ -581,8 +581,42 @@ def test_reactor_get_no_retry_without_oauth(tags_env, monkeypatch):
     """404 without OAuth config should raise immediately (no retry)."""
     config = _make_config()
     monkeypatch.setattr(
-        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.get",
-        lambda url, headers, timeout: _Resp(404, {"errors": [{"status": "404"}]}),
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        lambda method, url, **kw: _Resp(404, {"errors": [{"status": "404"}]}),
     )
     with pytest.raises(RuntimeError, match="404"):
         _reactor_get(config, "/properties/PR123")
+
+
+# ---- _should_retry_404 unit tests ----
+
+
+def test_should_retry_404_clears_cache(tmp_path):
+    from megaton_lib.audit.providers.tag_config.adobe_tags import _should_retry_404
+    from megaton_lib.audit.config import AdobeOAuthConfig
+
+    cache = tmp_path / ".cache.json"
+    cache.write_text("{}")
+    oauth = AdobeOAuthConfig(token_cache_file=str(cache))
+    config = AdobeTagsConfig(property_id="PR1", oauth=oauth)
+
+    assert _should_retry_404(config) is True
+    assert not cache.exists()
+
+
+def test_should_retry_404_no_cache_file(tmp_path):
+    from megaton_lib.audit.providers.tag_config.adobe_tags import _should_retry_404
+    from megaton_lib.audit.config import AdobeOAuthConfig
+
+    cache = tmp_path / "nonexistent.json"
+    oauth = AdobeOAuthConfig(token_cache_file=str(cache))
+    config = AdobeTagsConfig(property_id="PR1", oauth=oauth)
+
+    assert _should_retry_404(config) is False
+
+
+def test_should_retry_404_no_oauth():
+    from megaton_lib.audit.providers.tag_config.adobe_tags import _should_retry_404
+
+    config = AdobeTagsConfig(property_id="PR1")
+    assert _should_retry_404(config) is False

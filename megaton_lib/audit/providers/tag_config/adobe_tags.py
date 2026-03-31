@@ -167,19 +167,39 @@ def _should_retry_404(config: AdobeTagsConfig) -> bool:
     return False
 
 
-def _reactor_get(config: AdobeTagsConfig, endpoint: str, *, query: str = "") -> dict[str, Any]:
+def _reactor_request(
+    config: AdobeTagsConfig,
+    method: str,
+    url: str,
+    *,
+    json_body: dict[str, Any] | None = None,
+) -> requests.Response:
+    """Send a Reactor API request with 404 token-refresh retry."""
     headers = _get_auth_headers(config)
+    kwargs: dict[str, Any] = {"headers": headers, "timeout": 30}
+    if json_body is not None:
+        kwargs["json"] = json_body
+
+    resp = requests.request(method, url, **kwargs)
+
+    if resp.status_code == 404 and _should_retry_404(config):
+        kwargs["headers"] = _get_auth_headers(config)
+        resp = requests.request(method, url, **kwargs)
+
+    return resp
+
+
+def _build_url(config: AdobeTagsConfig, endpoint: str, query: str = "") -> str:
     base = config.base_url.rstrip("/")
     url = f"{base}{endpoint}"
     if query:
         url = f"{url}?{query}"
+    return url
 
-    resp = requests.get(url, headers=headers, timeout=30)
 
-    if resp.status_code == 404 and _should_retry_404(config):
-        headers = _get_auth_headers(config)
-        resp = requests.get(url, headers=headers, timeout=30)
-
+def _reactor_get(config: AdobeTagsConfig, endpoint: str, *, query: str = "") -> dict[str, Any]:
+    url = _build_url(config, endpoint, query)
+    resp = _reactor_request(config, "GET", url)
     if resp.status_code < 200 or resp.status_code >= 300:
         raise RuntimeError(
             f"Adobe Tags API failed: {resp.status_code} {resp.text}",
@@ -193,16 +213,8 @@ def _reactor_get(config: AdobeTagsConfig, endpoint: str, *, query: str = "") -> 
 
 def _reactor_patch(config: AdobeTagsConfig, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Send a PATCH request to the Reactor API."""
-    headers = _get_auth_headers(config)
-    base = config.base_url.rstrip("/")
-    url = f"{base}{endpoint}"
-
-    resp = requests.patch(url, headers=headers, json=payload, timeout=30)
-
-    if resp.status_code == 404 and _should_retry_404(config):
-        headers = _get_auth_headers(config)
-        resp = requests.patch(url, headers=headers, json=payload, timeout=30)
-
+    url = _build_url(config, endpoint)
+    resp = _reactor_request(config, "PATCH", url, json_body=payload)
     if resp.status_code < 200 or resp.status_code >= 300:
         raise RuntimeError(
             f"Adobe Tags API PATCH failed: {resp.status_code} {resp.text}",
@@ -212,16 +224,8 @@ def _reactor_patch(config: AdobeTagsConfig, endpoint: str, payload: dict[str, An
 
 def _reactor_post(config: AdobeTagsConfig, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Send a POST request to the Reactor API."""
-    headers = _get_auth_headers(config)
-    base = config.base_url.rstrip("/")
-    url = f"{base}{endpoint}"
-
-    resp = requests.post(url, headers=headers, json=payload, timeout=30)
-
-    if resp.status_code == 404 and _should_retry_404(config):
-        headers = _get_auth_headers(config)
-        resp = requests.post(url, headers=headers, json=payload, timeout=30)
-
+    url = _build_url(config, endpoint)
+    resp = _reactor_request(config, "POST", url, json_body=payload)
     if resp.status_code < 200 or resp.status_code >= 300:
         raise RuntimeError(
             f"Adobe Tags API POST failed: {resp.status_code} {resp.text}",
@@ -231,16 +235,8 @@ def _reactor_post(config: AdobeTagsConfig, endpoint: str, payload: dict[str, Any
 
 def _reactor_delete(config: AdobeTagsConfig, endpoint: str, payload: dict[str, Any]) -> None:
     """Send a DELETE request to the Reactor API (relationship removal)."""
-    headers = _get_auth_headers(config)
-    base = config.base_url.rstrip("/")
-    url = f"{base}{endpoint}"
-
-    resp = requests.delete(url, headers=headers, json=payload, timeout=30)
-
-    if resp.status_code == 404 and _should_retry_404(config):
-        headers = _get_auth_headers(config)
-        resp = requests.delete(url, headers=headers, json=payload, timeout=30)
-
+    url = _build_url(config, endpoint)
+    resp = _reactor_request(config, "DELETE", url, json_body=payload)
     if resp.status_code < 200 or resp.status_code >= 300:
         raise RuntimeError(
             f"Adobe Tags API DELETE failed: {resp.status_code} {resp.text}",

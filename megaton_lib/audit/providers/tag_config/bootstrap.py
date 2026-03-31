@@ -6,12 +6,7 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
-from ...config import AdobeOAuthConfig, AdobeTagsConfig
-
-DEFAULT_TAGS_SCOPES = (
-    "openid,AdobeID,read_organizations,"
-    "additional_info.projectedProductContext,additional_info.roles"
-)
+from ...config import AdobeOAuthConfig, AdobeTagsConfig, DEFAULT_ADOBE_SCOPES
 
 
 def load_env_file(path: str | Path) -> None:
@@ -36,7 +31,7 @@ def merge_adobe_scopes(
     required: tuple[str, ...] = ("read_organizations", "additional_info.roles"),
 ) -> str:
     """Return a comma-separated scope string with required scopes appended."""
-    source = (base_scopes or DEFAULT_TAGS_SCOPES).strip()
+    source = (base_scopes or DEFAULT_ADOBE_SCOPES).strip()
     ordered = [item.strip() for item in source.split(",") if item.strip()]
     seen = set(ordered)
     for item in required:
@@ -96,9 +91,15 @@ def seed_adobe_oauth_env(
     )
 
     if not resolved_client_id:
-        raise RuntimeError("Adobe client_id is missing")
+        raise RuntimeError(
+            f"Adobe client_id is missing: set {client_id_env} env var, "
+            "pass client_id explicitly, or provide a creds_file"
+        )
     if not resolved_client_secret:
-        raise RuntimeError("Adobe client_secret is missing")
+        raise RuntimeError(
+            f"Adobe client_secret is missing: set {client_secret_env} env var, "
+            "pass client_secret explicitly, or provide a creds_file"
+        )
 
     os.environ[client_id_env] = resolved_client_id
     os.environ[client_secret_env] = resolved_client_secret
