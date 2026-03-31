@@ -15,6 +15,11 @@ except Exception:  # pragma: no cover - optional dependency
 DEFAULT_CONFIG_ROOT = Path("configs/audit/projects")
 SUPPORTED_SUFFIXES = (".yaml", ".yml", ".json")
 
+DEFAULT_ADOBE_SCOPES = (
+    "openid,AdobeID,read_organizations,"
+    "additional_info.projectedProductContext,additional_info.roles"
+)
+
 
 class ConfigError(ValueError):
     """Raised when audit project configuration is invalid."""
@@ -30,10 +35,7 @@ class AdobeOAuthConfig:
     client_secret_env: str = "ADOBE_CLIENT_SECRET"
     org_id_env: str = "ADOBE_ORG_ID"
     org_id: str | None = None
-    scopes: str = (
-        "openid,AdobeID,read_organizations,"
-        "additional_info.projectedProductContext,additional_info.roles"
-    )
+    scopes: str = DEFAULT_ADOBE_SCOPES
     token_cache_file: str = "credentials/.adobe_token_cache.json"
 
 

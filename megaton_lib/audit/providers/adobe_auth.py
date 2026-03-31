@@ -15,12 +15,12 @@ from typing import Any
 
 import requests
 
+from ..config import DEFAULT_ADOBE_SCOPES
+
 IMS_TOKEN_URL = "https://ims-na1.adobelogin.com/ims/token/v3"
 
-DEFAULT_SCOPES = (
-    "openid,AdobeID,read_organizations,"
-    "additional_info.projectedProductContext,additional_info.roles"
-)
+# Re-export for backward compatibility
+DEFAULT_SCOPES = DEFAULT_ADOBE_SCOPES
 
 
 @dataclass(slots=True)
