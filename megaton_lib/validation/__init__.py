@@ -9,6 +9,10 @@ from .adobe_analytics import (
     print_validation_report,
     run_aa_validation,
 )
+from .auth_profiles import (
+    load_auth_profile_store,
+    resolve_auth_profile,
+)
 from .contracts import check_rule, resolve_path, validate_contract
 from .followups import (
     DEFAULT_PENDING_COMMENT,
@@ -92,6 +96,7 @@ __all__ = [
     'get_pending_verification_tasks',
     'load_validation_config',
     'load_json_credentials',
+    'load_auth_profile_store',
     'load_pending_verification_store',
     'mark_verification_task_completed',
     'mark_verification_task_completed_by_file',
@@ -102,6 +107,7 @@ __all__ = [
     'print_validation_report',
     'record_checkout_stage',
     'register_pending_verification_task',
+    'resolve_auth_profile',
     'resolve_path',
     'run_aa_validation',
     'run_pending_verification_cli',
