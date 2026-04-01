@@ -8,7 +8,6 @@ import re
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -18,9 +17,7 @@ else:
     Page = Any
 
 from .adobe_analytics import dump_digital_data
-
-
-JST = timezone(timedelta(hours=9))
+from .followups import JST, append_pending_verification_task, next_aa_reflection_time
 ADOBE_BEACON_HOSTS = ("edge.adobedc.net", "s-adobe.wacoal.jp")
 DEFAULT_CAPTCHA_SELECTORS = (
     ".g-recaptcha",
@@ -143,16 +140,6 @@ def load_json_credentials(path: Path) -> dict[str, Any]:
         raise FileNotFoundError(f"Credentials file not found: {path}")
     with open(path, encoding="utf-8") as f:
         return json.load(f)
-
-
-def next_aa_reflection_time(now: datetime) -> datetime:
-    """Return the next expected AA batch reflection time in JST."""
-    base = now.replace(second=0, microsecond=0)
-    if base.minute < 30:
-        bucket_close = base.replace(minute=30)
-    else:
-        bucket_close = base.replace(minute=0) + timedelta(hours=1)
-    return bucket_close + timedelta(minutes=30)
 
 
 def is_login_form_page(page: Page, current_url: str = "") -> bool:
@@ -349,31 +336,6 @@ def wait_for_condition_with_heartbeat(
         except timeout_exc_type:
             waited_seconds = min(timeout_ms, int((time.monotonic() - started_at) * 1000)) / 1000
             print(f"     ... waiting for {label} ({waited_seconds:.0f}/{total_seconds:.0f}s)", flush=True)
-
-
-def append_pending_verification_task(
-    pending_file: Path,
-    task: Mapping[str, Any],
-    *,
-    duplicate_keys: Sequence[str] = (),
-) -> tuple[bool, dict[str, Any] | None]:
-    """Append a pending AA verification task unless a duplicate already exists."""
-    if pending_file.exists():
-        with open(pending_file, encoding="utf-8") as f:
-            data = json.load(f)
-    else:
-        data = {"verifications": []}
-
-    verifications = data.setdefault("verifications", [])
-    if duplicate_keys:
-        for existing in verifications:
-            if all(existing.get(key) == task.get(key) for key in duplicate_keys):
-                return False, existing
-
-    verifications.append(dict(task))
-    with open(pending_file, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-    return True, None
 
 
 def append_unique_checkpoint(
