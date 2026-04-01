@@ -109,6 +109,26 @@ def seed_adobe_oauth_env(
     return resolved_client_id, resolved_client_secret, resolved_org_id
 
 
+def adobe_tags_output_root(property_id: str = "") -> Path:
+    """Return the canonical export root for one Adobe Tags property.
+
+    Resolution order (all evaluated at call time via ``os.getenv``):
+      1. ``ANALYSIS_ADOBE_TAGS_OUTPUT_ROOT`` (explicit override)
+      2. ``TAGS_OUTPUT_ROOT`` (``.env`` shorthand)
+      3. ``adobe-tags/{property_id}`` (fallback)
+    """
+    override = os.getenv("ANALYSIS_ADOBE_TAGS_OUTPUT_ROOT", "").strip()
+    if not override:
+        override = os.getenv("TAGS_OUTPUT_ROOT", "").strip()
+    if override:
+        return Path(override)
+
+    resolved = property_id.strip()
+    if not resolved:
+        raise RuntimeError("Adobe Tags property_id is required to resolve export root")
+    return Path("adobe-tags") / resolved
+
+
 def build_tags_config(
     *,
     property_id: str,
