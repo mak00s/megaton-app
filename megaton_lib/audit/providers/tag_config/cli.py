@@ -1,4 +1,4 @@
-"""Reusable CLI entrypoints for Adobe Tags export and apply workflows.
+"""Reusable CLI entrypoints for Adobe Tags and GTM export/apply workflows.
 
 Analysis repos should call these from thin wrapper scripts, passing their
 own ``tags_config_factory`` for repo-specific credential resolution.
@@ -100,15 +100,110 @@ def tags_export_main(
         tags_config = first_config if i == 0 else factory(property_id=pid, page_size=page_size)
         output = root / adobe_tags_output_root(pid)
 
-        print(f"Exporting Adobe Tags property: {pid}")
+        print(f"Syncing Adobe Tags property: {pid}")
         print(f"  resources: {resources}")
         if filters:
             print(f"  filters: {filters}")
         print(f"  output: {output}")
 
         summary = export_property(tags_config, output, resources, filters=filters or None)
-        for resource, count in summary.items():
-            print(f"  {resource}: {count} items exported")
+        has_changes = False
+        for resource, stats in summary.items():
+            if isinstance(stats, dict):
+                a, u, d, eq = stats.get("added", 0), stats.get("updated", 0), stats.get("deleted", 0), stats.get("unchanged", 0)
+                parts = []
+                if a:
+                    parts.append(f"+{a}")
+                if u:
+                    parts.append(f"~{u}")
+                if d:
+                    parts.append(f"-{d}")
+                parts.append(f"={eq}")
+                print(f"  {resource}: {' '.join(parts)}")
+                if a or u or d:
+                    has_changes = True
+            elif isinstance(stats, str) and stats != "unchanged":
+                print(f"  {resource}: {stats}")
+                has_changes = True
+        print(f"  has_changes: {has_changes}")
+
+    print("Done.")
+
+
+# ---------------------------------------------------------------------------
+# GTM Export
+# ---------------------------------------------------------------------------
+
+
+def gtm_export_main(
+    *,
+    container_public_id: str | None = None,
+    project_root: str | Path | None = None,
+) -> None:
+    """Reusable GTM container export entrypoint.
+
+    Parameters
+    ----------
+    container_public_id:
+        GTM container public ID (e.g. ``GTM-XXXXX``).  Falls back to
+        ``--container-id`` CLI arg or ``GTM_CONTAINER_PUBLIC_ID`` env var.
+    project_root:
+        Project root for resolving relative output paths.
+    """
+    parser = argparse.ArgumentParser(description="Export GTM container config")
+    parser.add_argument("--container-id", default="", help="GTM container public ID")
+    parser.add_argument(
+        "--resources", default="",
+        help="Comma-separated resource types to export (default: all)",
+    )
+    parser.add_argument("--output", default="", help="Output directory")
+    args, _ = parser.parse_known_args()
+
+    cid = (
+        container_public_id
+        or args.container_id.strip()
+        or os.environ.get("GTM_CONTAINER_PUBLIC_ID", "").strip()
+    )
+    if not cid:
+        print("ERROR: no GTM container ID. Set GTM_CONTAINER_PUBLIC_ID or use --container-id.", file=sys.stderr)
+        sys.exit(1)
+
+    from ...audit.config import GtmConfig
+    from .gtm import export_container, ALL_RESOURCES
+
+    resources_str = args.resources.strip() or os.environ.get("GTM_EXPORT_RESOURCES", "")
+    resources: list[str] | None = None
+    if resources_str:
+        resources = [r.strip() for r in resources_str.split(",") if r.strip()]
+
+    config = GtmConfig(container_public_id=cid)
+    root = Path(project_root or Path.cwd())
+    output = Path(args.output) if args.output.strip() else root / "gtm" / cid
+
+    print(f"Exporting GTM container: {cid}")
+    print(f"  resources: {resources or list(ALL_RESOURCES)}")
+    print(f"  output: {output}")
+
+    summary = export_container(config, output, resources=resources)
+    has_changes = False
+    for resource, stats in summary.items():
+        if isinstance(stats, dict):
+            a, u, d, eq = stats.get("added", 0), stats.get("updated", 0), stats.get("deleted", 0), stats.get("unchanged", 0)
+            parts = []
+            if a:
+                parts.append(f"+{a}")
+            if u:
+                parts.append(f"~{u}")
+            if d:
+                parts.append(f"-{d}")
+            parts.append(f"={eq}")
+            print(f"  {resource}: {' '.join(parts)}")
+            if a or u or d:
+                has_changes = True
+        elif isinstance(stats, str) and stats != "unchanged":
+            print(f"  {resource}: {stats}")
+            has_changes = True
+    print(f"  has_changes: {has_changes}")
 
     print("Done.")
 

@@ -1,0 +1,8 @@
+project_id: shibuya-yokohama
+tag_source:
+  source: gtm
+  gtm:
+    container_public_id: GTM-5VP2QRHF
+    variable_name: Site Name
+ga4:
+  property_id: "254800682"

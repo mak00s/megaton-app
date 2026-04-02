@@ -1,0 +1,8 @@
+project_id: shibuya-subdomain
+tag_source:
+  source: gtm
+  gtm:
+    container_public_id: GTM-5WQPJTBZ
+    variable_name: Site Name
+ga4:
+  property_id: "492311970"

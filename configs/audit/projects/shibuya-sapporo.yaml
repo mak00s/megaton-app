@@ -1,0 +1,8 @@
+project_id: shibuya-sapporo
+tag_source:
+  source: gtm
+  gtm:
+    container_public_id: GTM-KT6RLNK
+    variable_name: Site Name
+ga4:
+  property_id: "251616452"

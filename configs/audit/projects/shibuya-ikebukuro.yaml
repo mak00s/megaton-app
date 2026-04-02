@@ -1,0 +1,8 @@
+project_id: shibuya-ikebukuro
+tag_source:
+  source: gtm
+  gtm:
+    container_public_id: GTM-WJ5P4TC9
+    variable_name: Site Name
+ga4:
+  property_id: "253611291"

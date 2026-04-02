@@ -8,7 +8,7 @@ from typing import Any
 
 from megaton_lib.audit.config import AuditProjectConfig
 from megaton_lib.audit.providers.analytics import fetch_aa_site_metric, fetch_site_sessions, fetch_unclassified_pages
-from megaton_lib.audit.providers.tag_config import fetch_adobe_tags_mapping, fetch_gtm_mapping
+from megaton_lib.audit.providers.tag_config import fetch_adobe_tags_mapping, fetch_gtm_mapping, sync_container as sync_gtm_container
 from megaton_lib.audit.reporters import write_dict_csv, write_report_json
 from megaton_lib.audit.tasks import build_site_mapping_report, parse_mapping_markdown
 
@@ -76,17 +76,50 @@ class AuditRunner:
             }
 
     def export_tag_mapping(self, *, output_dir: str | Path) -> dict[str, Any]:
-        """Export current tag mapping to output directory."""
+        """Export tag configuration to output directory.
+
+        For GTM sources, exports the full container (tags, triggers,
+        variables, etc.) and also extracts the regex mapping.
+        For Adobe Tags, exports the mapping only (unchanged behaviour).
+        """
+        out = Path(output_dir)
         mapping, metadata = self._fetch_tag_mapping_with_fallback()
-        payload = {
+
+        # GTM: sync full container alongside the mapping
+        container_summary: dict[str, Any] | None = None
+        if self.config.tag_source.source == "gtm" and self.config.tag_source.gtm:
+            gtm_cfg = self.config.tag_source.gtm
+            container_dir = out / gtm_cfg.container_public_id
+            container_summary = sync_gtm_container(
+                gtm_cfg, container_dir,
+                resources=list(gtm_cfg.export_resources),
+            )
+
+        payload: dict[str, Any] = {
             "project_id": self.config.project_id,
             "run_date": date.today().isoformat(),
             "tag_source": self.config.tag_source.source,
             "metadata": metadata,
             "mapping": mapping,
         }
-        artifact = write_report_json(payload, output_dir=output_dir, file_stem=f"tag_mapping_{self.config.project_id}")
+        if container_summary is not None:
+            payload["container_export"] = container_summary
+            # Determine if any resource had adds, updates, or deletes
+            has_changes = False
+            for v in container_summary.values():
+                if isinstance(v, dict):
+                    if v.get("added") or v.get("updated") or v.get("deleted"):
+                        has_changes = True
+                        break
+                elif isinstance(v, str) and v not in ("unchanged",):
+                    has_changes = True
+                    break
+            payload["has_changes"] = has_changes
+
+        artifact = write_report_json(payload, output_dir=out, file_stem=f"tag_mapping_{self.config.project_id}")
         payload["artifacts"] = {"json": str(artifact)}
+        if container_summary is not None:
+            payload["artifacts"]["container_dir"] = str(container_dir)
         return payload
 
     def run_site_mapping(

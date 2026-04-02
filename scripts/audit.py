@@ -68,10 +68,36 @@ def _print_site_mapping_summary(report: dict) -> None:
             print(f"  - {key}: {value}")
 
 
+def _format_sync_stats(stats: dict) -> str:
+    """Format {added, updated, deleted, unchanged} as compact string."""
+    a, u, d, eq = stats.get("added", 0), stats.get("updated", 0), stats.get("deleted", 0), stats.get("unchanged", 0)
+    parts = []
+    if a:
+        parts.append(f"+{a}")
+    if u:
+        parts.append(f"~{u}")
+    if d:
+        parts.append(f"-{d}")
+    parts.append(f"={eq}")
+    return " ".join(parts)
+
+
 def _print_export_summary(payload: dict) -> None:
     print(f"project: {payload.get('project_id')}")
     print(f"source:  {payload.get('tag_source')}")
     print(f"mapping_count: {len(payload.get('mapping', {}))}")
+    container_export = payload.get("container_export")
+    if isinstance(container_export, dict):
+        resource_parts = []
+        for k, v in container_export.items():
+            if isinstance(v, dict):
+                resource_parts.append(f"{k}: {_format_sync_stats(v)}")
+            elif isinstance(v, str) and v != "unchanged":
+                resource_parts.append(f"{k}: {v}")
+        if resource_parts:
+            print(f"container: {', '.join(resource_parts)}")
+    if "has_changes" in payload:
+        print(f"has_changes: {payload['has_changes']}")
     artifacts = payload.get("artifacts")
     if isinstance(artifacts, dict):
         for key, value in artifacts.items():

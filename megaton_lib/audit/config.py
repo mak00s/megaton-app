@@ -43,6 +43,9 @@ class AdobeOAuthConfig:
 class GtmConfig:
     container_public_id: str
     variable_name: str = "Site Name"
+    export_resources: tuple[str, ...] = (
+        "tags", "triggers", "variables", "built_in_variables", "folders",
+    )
 
 
 @dataclass(frozen=True)
@@ -192,6 +195,11 @@ def _parse_tag_source(node: Any) -> TagSourceConfig:
 
     if source == "gtm":
         gtm_node = _expect_mapping(node.get("gtm") or {}, path="tag_source.gtm")
+        raw_resources = gtm_node.get("export_resources")
+        export_resources: tuple[str, ...] | None = None
+        if isinstance(raw_resources, list):
+            export_resources = tuple(str(r).strip() for r in raw_resources if str(r).strip())
+
         gtm_cfg = GtmConfig(
             container_public_id=_expect_nonempty_str(
                 gtm_node,
@@ -199,6 +207,7 @@ def _parse_tag_source(node: Any) -> TagSourceConfig:
                 path="tag_source.gtm",
             ),
             variable_name=(gtm_node.get("variable_name") or "Site Name").strip(),
+            **({"export_resources": export_resources} if export_resources else {}),
         )
 
     if source == "adobe_tags":

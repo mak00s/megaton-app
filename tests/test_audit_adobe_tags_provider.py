@@ -487,15 +487,16 @@ def test_export_property_no_longer_raises_name_error(tags_env, monkeypatch, tmp_
     config = _make_config()
     monkeypatch.setattr(
         "megaton_lib.audit.providers.tag_config.adobe_tags._reactor_get",
-        lambda cfg, endpoint, params=None: {"data": {"id": "PR123"}},
+        lambda cfg, endpoint, params=None, query=None: {"data": {"id": "PR123"}},
+    )
+    _sync_stats = {"added": 0, "updated": 0, "deleted": 0, "unchanged": 0}
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags._sync_rules",
+        lambda cfg, out_dir, **kw: {**_sync_stats, "added": 1},
     )
     monkeypatch.setattr(
-        "megaton_lib.audit.providers.tag_config.adobe_tags._export_rules",
-        lambda cfg, out_dir: 1,
-    )
-    monkeypatch.setattr(
-        "megaton_lib.audit.providers.tag_config.adobe_tags._export_data_elements",
-        lambda cfg, out_dir: 2,
+        "megaton_lib.audit.providers.tag_config.adobe_tags._sync_data_elements",
+        lambda cfg, out_dir, **kw: {**_sync_stats, "added": 2},
     )
     monkeypatch.setattr(
         "megaton_lib.audit.providers.tag_config.adobe_tags.list_extensions",
@@ -512,13 +513,10 @@ def test_export_property_no_longer_raises_name_error(tags_env, monkeypatch, tmp_
 
     result = export_property(config, tmp_path)
 
-    assert result == {
-        "rules": 1,
-        "data-elements": 2,
-        "extensions": 1,
-        "environments": 0,
-        "libraries": 0,
-    }
+    assert result["property.json"] in ("added", "updated", "unchanged")
+    assert result["rules"]["added"] == 1
+    assert result["data-elements"]["added"] == 2
+    assert isinstance(result["extensions"], dict)
     assert (tmp_path / "property.json").exists()
     assert (tmp_path / "extensions" / "ex1_core.json").exists()
 

@@ -1,0 +1,8 @@
+project_id: shibuya-umeda
+tag_source:
+  source: gtm
+  gtm:
+    container_public_id: GTM-NNN33DH3
+    variable_name: Site Name
+ga4:
+  property_id: "250423487"
