@@ -147,11 +147,11 @@ python scripts/audit.py site-mapping \
   --days 30 \
   --output output/audit
 
-# タグ設定（mapping）だけをエクスポート
+# タグ設定を同期（GTM: コンテナ全体、差分のみ書き込み）
 python scripts/audit.py export-tag-config \
-  --project example \
+  --project shiseido \
   --config-root configs/audit/projects \
-  --output output/audit
+  --output gtm/
 ```
 
 - 共通部分（1-9）は `megaton-app` 側に実装

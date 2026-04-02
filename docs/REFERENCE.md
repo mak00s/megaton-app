@@ -132,7 +132,7 @@ Project-specific logic (`10-12`) should stay in each analysis repository.
 | Command | Description |
 |---|---|
 | `site-mapping` | Tag mapping vs GA4/AA observed values |
-| `export-tag-config` | Export current tag mapping snapshot |
+| `export-tag-config` | Sync tag config to local directory (GTM: full container, Adobe Tags: full property). Reports `has_changes`. |
 
 ### Common options
 
@@ -155,12 +155,13 @@ Project-specific logic (`10-12`) should stay in each analysis repository.
 ### Project config
 
 - Directory: `configs/audit/projects/`
-- Example: `configs/audit/projects/example.json`
+- Format: YAML or JSON (e.g., `shiseido.yaml`, `shibuya-shibuya.yaml`)
 - Keys:
   - `tag_source` (`gtm` or `adobe_tags`)
   - `ga4` (`property_id`, dimensions, metrics)
   - optional `aa` (`company_id`, `rsid`, `dimension`, `metric`)
   - optional `fallback_mapping_path` (markdown table fallback)
+  - GTM-specific: `export_resources` (default: all) to limit exported resource types
 
 ### Audit Runtime Environment Variables
 
