@@ -339,3 +339,56 @@ def save_sheet_from_template(
 
     mg.save.to.sheet(sheet_name, df, start_row=start_row, **(save_kwargs or {}))
     return True
+
+
+def write_sheet_blocks(
+    mg,
+    *,
+    sheet_name: str,
+    blocks: list[tuple[str, list[list]]],
+    sheet_url: str | None = None,
+    create_if_missing: bool = True,
+    clear_sheet: bool = False,
+) -> bool:
+    """Write one or more rectangular blocks to a worksheet.
+
+    Each block is a tuple of ``(a1, values)`` where ``values`` is the 2-D list
+    accepted by gspread ``Worksheet.update``.
+    """
+    if sheet_url and not mg.open.sheet(sheet_url):
+        raise RuntimeError(f"Could not open sheet URL: {sheet_url}")
+    if not getattr(mg, "gs", None) or not getattr(mg.gs, "_driver", None):
+        raise ValueError("Google Sheets is not opened. Call mg.open.sheet(url) first.")
+
+    sheets = list(getattr(mg.gs, "sheets", []) or [])
+    if sheet_name not in sheets:
+        if not create_if_missing:
+            print(f"[skip] {sheet_name}: worksheet missing and create_if_missing=False")
+            return False
+        mg.gs.sheet.create(sheet_name)
+
+    select_fn = getattr(getattr(mg, "sheets", None), "select", None) or getattr(mg.gs.sheet, "select", None)
+    if not callable(select_fn) or not select_fn(sheet_name):
+        raise RuntimeError(f"Failed to select worksheet: {sheet_name}")
+
+    ws = getattr(mg.gs.sheet, "_driver", None)
+    if not (ws and hasattr(ws, "update")):
+        print(f"[skip] {sheet_name}: worksheet driver does not support update()")
+        return False
+
+    if clear_sheet:
+        try:
+            if hasattr(ws, "clear"):
+                ws.clear()
+            else:
+                mg.gs.sheet.clear()
+        except Exception:
+            pass
+
+    wrote = False
+    for a1, values in blocks:
+        if not values:
+            continue
+        ws.update(a1, values)
+        wrote = True
+    return wrote
