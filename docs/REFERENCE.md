@@ -586,7 +586,7 @@ Notes:
 
 | Function | Description |
 |----------|-------------|
-| `read_sheet_table(mg, sheet_url, sheet_name)` | Read a worksheet into DataFrame (trimmed headers, empty rows dropped) |
+| `read_sheet_table(mg, sheet_url, sheet_name, header_row=0)` | Read a worksheet into DataFrame (trimmed headers, empty rows dropped) |
 | `load_pattern_map(mg, sheet_url, sheet_name, key_col, value_col)` | Load mapping table as `{pattern: value}` dict |
 | `upsert_or_skip(mg, name, df, keys, ...)` | Skip empty input, otherwise upsert to worksheet |
 | `replace_sheet_by_group_keys(mg, sheet_url, sheet_name, ...)` | Replace matching group rows (e.g. month+clinic) and overwrite |
