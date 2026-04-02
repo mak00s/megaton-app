@@ -191,6 +191,37 @@ Failure:
 }
 ```
 
+### Report Validation / ExecutionTracker
+
+`megaton_lib.report_validation` は notebook のレポート実行を追跡するユーティリティ。
+
+#### `init_report_tracker(report_name, *, write_enabled=True, **window_values)`
+
+`ExecutionTracker` を初期化する。`MEGATON_RUN_SUMMARY_PATH` 環境変数が設定されている場合、実行サマリー JSON を書き出す。
+
+**パラメータ:**
+- `report_name` (str) - レポート名（サマリーに記録）
+- `write_enabled` (bool) - `False` にすると全 Sheets 書き込みをスキップ。`WRITE_TO_SHEETS` パラメータと組み合わせて使う
+- `**window_values` - レポート期間情報（`last_month_from`, `last_month_to` 等）
+
+#### `finish_report_tracker(tracker, *, status="skipped", notes=None, errors=None)`
+
+実行サマリーを確定し、コンソールに表示する。GitHub Actions では job summary に出力される。
+
+#### `ExecutionTracker` の Sheets 書き込みメソッド
+
+| メソッド | 説明 |
+|---|---|
+| `tracker.save_sheet(mg, gs_url=, sheet_name=, df=)` | 全行上書き |
+| `tracker.upsert_sheet(mg, gs_url=, sheet_name=, df=, keys=)` | キーで upsert |
+| `tracker.save_sheet_from_template(mg, gs_url=, sheet_name=, df=)` | テンプレートシートから複製して保存 |
+| `tracker.replace_sheet_groups(mg, gs_url=, sheet_name=, df_new=, remove_group_keys=)` | グループ単位で置換 |
+| `tracker.duplicate_sheet(mg, gs_url=, source_sheet_name=, new_sheet_name=)` | シート複製 |
+| `tracker.update_sheet_cells(mg, gs_url=, cells_to_update=)` | セル更新 |
+| `tracker.append_sheet(mg, gs_url=, sheet_name=, df=)` | 追記 |
+
+全メソッドは `write_enabled=False` 時にスキップし、run summary に `mode="skipped_write"` として記録する。
+
 ### Job Management
 
 #### Job States

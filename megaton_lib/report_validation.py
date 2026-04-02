@@ -97,12 +97,14 @@ def init_report_tracker(
     report_name: str,
     *,
     logger: logging.Logger | None = None,
+    write_enabled: bool = True,
     **window_values,
 ):
     tracker = ExecutionTracker(
         run_summary_path=os.getenv("MEGATON_RUN_SUMMARY_PATH", "").strip(),
         report_name=report_name,
         logger=logger,
+        write_enabled=write_enabled,
     )
     if window_values:
         tracker.set_run_window(**window_values)
@@ -129,6 +131,7 @@ class ExecutionTracker:
     run_summary_path: str = ""
     report_name: str = "report"
     logger: logging.Logger | None = None
+    write_enabled: bool = True
     run_summary: dict = field(init=False)
     frame_cache: dict[tuple[str, str], pd.DataFrame] = field(default_factory=dict)
     cell_update_cache: dict[tuple[str, str], dict] = field(default_factory=dict)
@@ -311,6 +314,18 @@ class ExecutionTracker:
         except Exception:
             return pd.DataFrame()
 
+    def _skip_if_disabled(self, gs_url: str, sheet_name: str, *, note: str = "write_disabled") -> bool:
+        if not self.write_enabled:
+            self.logger.info("[skip] %s: write disabled", sheet_name)
+            self.record_sheet_event(
+                gs_url,
+                sheet_name,
+                "skipped_write",
+                note=note,
+            )
+            return True
+        return False
+
     def save_sheet(
         self,
         mg,
@@ -322,6 +337,8 @@ class ExecutionTracker:
         note: str = "",
         start_row: int | None = None,
     ) -> bool:
+        if self._skip_if_disabled(gs_url, sheet_name):
+            return False
         saved = save_sheet_table(
             mg,
             sheet_url=gs_url,
@@ -349,6 +366,8 @@ class ExecutionTracker:
         new_sheet_name: str,
         cell_update: dict[str, str] | None = None,
     ) -> bool:
+        if self._skip_if_disabled(gs_url, new_sheet_name, note=f"write_disabled source={source_sheet_name}"):
+            return False
         duplicated = duplicate_sheet_into(
             mg,
             sheet_url=gs_url,
@@ -368,6 +387,8 @@ class ExecutionTracker:
 
     def update_sheet_cells(self, mg, *, gs_url: str, cells_to_update: dict[str, dict[str, str]]):
         for sheet_name, updates in cells_to_update.items():
+            if self._skip_if_disabled(gs_url, sheet_name, note=f"write_disabled cells={','.join(updates.keys())}"):
+                continue
             update_cells(mg, sheet_url=gs_url, sheet_name=sheet_name, values=updates)
             self.record_sheet_event(
                 gs_url,
@@ -388,6 +409,8 @@ class ExecutionTracker:
         note: str = "",
         **kwargs,
     ) -> bool:
+        if self._skip_if_disabled(gs_url, sheet_name):
+            return False
         if not mg.open.sheet(gs_url):
             raise RuntimeError(f"Could not open sheet URL: {gs_url}")
         updated = upsert_or_skip(
@@ -417,6 +440,8 @@ class ExecutionTracker:
         df: pd.DataFrame,
         note: str = "",
     ) -> bool:
+        if self._skip_if_disabled(gs_url, sheet_name):
+            return False
         if not mg.open.sheet(gs_url):
             raise RuntimeError(f"Could not open sheet URL: {gs_url}")
         mg.append.to.sheet(sheet_name=sheet_name)
@@ -442,6 +467,8 @@ class ExecutionTracker:
         note: str = "",
         **kwargs,
     ) -> bool:
+        if self._skip_if_disabled(gs_url, sheet_name):
+            return False
         if not mg.open.sheet(gs_url):
             raise RuntimeError(f"Could not open sheet URL: {gs_url}")
         saved = save_sheet_from_template(
@@ -475,6 +502,8 @@ class ExecutionTracker:
         columns: list[str],
         note: str = "",
     ) -> pd.DataFrame:
+        if self._skip_if_disabled(gs_url, sheet_name):
+            return df_new
         out = replace_sheet_by_group_keys(
             mg,
             sheet_url=gs_url,
