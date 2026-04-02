@@ -146,6 +146,7 @@ def _replace_mg(*, existing_rows: list[dict] | None = None, sheets: list[str] | 
 
 
 def _read_mg(*, rows: list[dict], sheet_name: str = "config"):
+    worksheet_mock = SimpleNamespace(get_all_values=Mock(return_value=[]))
     mg = SimpleNamespace(
         open=SimpleNamespace(sheet=Mock(return_value=True)),
         gs=SimpleNamespace(
@@ -153,6 +154,7 @@ def _read_mg(*, rows: list[dict], sheet_name: str = "config"):
                 data=rows,
                 select=Mock(return_value=True),
             ),
+            _driver=SimpleNamespace(worksheet=Mock(return_value=worksheet_mock)),
         ),
     )
     return mg
@@ -293,6 +295,26 @@ def test_read_sheet_table_returns_trimmed_dataframe():
     mg = _read_mg(rows=[{" a ": 1}, {" a ": 2}])
     out = read_sheet_table(mg, sheet_url="https://example.com", sheet_name="config")
     assert out.columns.tolist() == ["a"]
+    assert len(out) == 2
+
+
+def test_read_sheet_table_supports_non_default_header_row():
+    mg = _read_mg(rows=[], sheet_name="config")
+    mg.gs._driver.worksheet.return_value.get_all_values.return_value = [
+        ["note", "note2"],
+        [" 年月 ", " クリニック ", " 来院数 "],
+        ["2024-01", "渋谷", "10"],
+        ["2024-02", "新宿", "12"],
+    ]
+
+    out = read_sheet_table(
+        mg,
+        sheet_url="https://example.com",
+        sheet_name="config",
+        header_row=1,
+    )
+
+    assert out.columns.tolist() == ["年月", "クリニック", "来院数"]
     assert len(out) == 2
 
 

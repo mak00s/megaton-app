@@ -13,7 +13,13 @@ from typing import Optional
 import pandas as pd
 
 
-def read_sheet_table(mg, *, sheet_url: str, sheet_name: str) -> pd.DataFrame:
+def read_sheet_table(
+    mg,
+    *,
+    sheet_url: str,
+    sheet_name: str,
+    header_row: int = 0,
+) -> pd.DataFrame:
     """Read worksheet values into a DataFrame.
 
     Returns empty DataFrame when the worksheet has no rows.
@@ -21,11 +27,29 @@ def read_sheet_table(mg, *, sheet_url: str, sheet_name: str) -> pd.DataFrame:
     if not mg.open.sheet(sheet_url):
         raise RuntimeError(f"Could not open sheet URL: {sheet_url}")
     mg.gs.sheet.select(sheet_name)
-    data = mg.gs.sheet.data or []
-    df = pd.DataFrame(data)
+
+    header_row = int(header_row)
+    if header_row < 0:
+        raise ValueError("header_row must be >= 0")
+
+    if header_row == 0:
+        data = mg.gs.sheet.data or []
+        df = pd.DataFrame(data)
+        if df.empty:
+            return df
+        df.columns = [str(c).strip() for c in df.columns]
+        return df.dropna(how="all")
+
+    worksheet = mg.gs._driver.worksheet(sheet_name)
+    values = worksheet.get_all_values()
+    if not values or header_row >= len(values):
+        return pd.DataFrame()
+
+    headers = [str(c).strip() for c in values[header_row]]
+    rows = values[header_row + 1 :]
+    df = pd.DataFrame(rows, columns=headers)
     if df.empty:
         return df
-    df.columns = [str(c).strip() for c in df.columns]
     return df.dropna(how="all")
 
 
@@ -143,6 +167,79 @@ def update_cells(mg, *, sheet_url: str, sheet_name: str, values: dict[str, str])
     mg.gs.sheet.select(sheet_name)
     for cell, value in values.items():
         mg.gs.sheet._driver.update_acell(cell, value)
+
+
+def save_sheet_table(
+    mg,
+    *,
+    sheet_url: str,
+    sheet_name: str,
+    df: pd.DataFrame,
+    sort_by: str | list[str] | None = None,
+    sort_desc: bool = True,
+    create_if_missing: bool = True,
+    auto_width: bool = True,
+    freeze_header: bool = True,
+    start_row: int | None = None,
+) -> bool:
+    """Open a workbook and overwrite a worksheet with a DataFrame."""
+    if df is None or not isinstance(df, pd.DataFrame):
+        raise TypeError("df must be a pandas DataFrame")
+    if not mg.open.sheet(sheet_url):
+        raise RuntimeError(f"Could not open sheet URL: {sheet_url}")
+
+    if start_row is None:
+        mg._sheets.save_sheet(
+            sheet_name,
+            df,
+            sort_by=sort_by,
+            sort_desc=sort_desc,
+            create_if_missing=create_if_missing,
+            auto_width=auto_width,
+            freeze_header=freeze_header,
+        )
+    else:
+        mg.save.to.sheet(
+            sheet_name,
+            df,
+            start_row=start_row,
+            freeze_header=freeze_header,
+            auto_width=auto_width,
+        )
+    return True
+
+
+def duplicate_sheet_into(
+    mg,
+    *,
+    sheet_url: str,
+    source_sheet_name: str,
+    new_sheet_name: str,
+    cell_update: dict[str, str] | None = None,
+) -> bool:
+    """Duplicate a worksheet inside the target workbook."""
+    if not mg.open.sheet(sheet_url):
+        raise RuntimeError(f"Could not open sheet URL: {sheet_url}")
+
+    duplicate_fn = getattr(mg.sheets, "duplicate", None)
+    if callable(duplicate_fn):
+        return bool(
+            duplicate_fn(
+                source_sheet_name,
+                new_sheet_name,
+                cell_update=cell_update,
+            )
+        )
+
+    source_worksheet = mg.gs._driver.worksheet(source_sheet_name)
+    mg.gs._driver.duplicate_sheet(
+        source_worksheet.id,
+        new_sheet_name=new_sheet_name,
+    )
+    duplicated = mg.sheets.select(new_sheet_name)
+    if duplicated and cell_update:
+        mg.sheet.cell.set(cell_update["cell"], cell_update["value"])
+    return bool(duplicated)
 
 
 def save_sheet_from_template(
