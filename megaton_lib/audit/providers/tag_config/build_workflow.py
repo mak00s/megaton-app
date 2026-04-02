@@ -37,12 +37,12 @@ def collect_changed_resources(
             else:
                 status = "CHANGED"
 
-            if "/rules/" in path:
+            if "rules/" in path:
                 for part in Path(path).parts:
                     if part.startswith("rl"):
                         changed.append({"id": part.split("_")[0].upper(), "type": "rules"})
                         break
-            elif "/data-elements/" in path:
+            elif "data-elements/" in path:
                 changed.append({"id": component_id, "type": "data_elements"})
         else:
             status = "OK"
