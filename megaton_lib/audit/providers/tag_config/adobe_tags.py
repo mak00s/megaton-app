@@ -12,6 +12,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import shutil
 from typing import Any
 from urllib.parse import quote as _url_quote
 
@@ -775,42 +776,14 @@ def extract_custom_code(component: dict[str, Any]) -> tuple[str, str] | None:
 # ---- export property ----
 
 
-def export_property(
+def _legacy_export_property(
     config: AdobeTagsConfig,
     output_root: str | Path,
     resources: list[str] | None = None,
     *,
     filters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Export an Adobe Tags property to a local directory.
-
-    Mirrors the structure produced by the at-recs ``export_adobe_tags.sh``.
-
-    Parameters
-    ----------
-    config : AdobeTagsConfig
-        Property configuration (property_id, auth, etc.).
-    output_root : str | Path
-        Root directory for output files.
-    resources : list[str] | None
-        Resource types to export.
-        Default: ``["rules", "data-elements", "extensions", "environments", "libraries"]``
-    filters : dict[str, Any] | None
-        Per-resource API-side filters.  Keys are resource type names
-        (``"rules"``, ``"data-elements"``); values are dicts of filter kwargs
-        forwarded to the corresponding ``list_*`` function.
-
-        Example::
-
-            filters={
-                "rules": {"name_contains": "Adobe Target"},
-                "data-elements": {"enabled_only": True},
-            }
-
-    Returns
-    -------
-    dict with summary counts per resource type.
-    """
+    """Legacy full-overwrite export (kept for reference, unused)."""
     if resources is None:
         resources = ["rules", "data-elements", "extensions", "environments", "libraries"]
     if filters is None:
@@ -819,7 +792,6 @@ def export_property(
     root = Path(output_root)
     root.mkdir(parents=True, exist_ok=True)
 
-    # Export property metadata
     prop_body = _reactor_get(config, f"/properties/{config.property_id}")
     prop_data = prop_body.get("data", {})
     (root / "property.json").write_text(
@@ -973,6 +945,253 @@ def _export_data_elements(
         encoding="utf-8",
     )
     return len(elements)
+
+
+# ---- sync (diff-aware export) ----
+
+
+def _write_if_changed(path: Path, content: str) -> str:
+    """Write text file only if content differs. Returns 'added'|'updated'|'unchanged'."""
+    if path.exists():
+        existing = path.read_text(encoding="utf-8")
+        if existing == content:
+            return "unchanged"
+        path.write_text(content, encoding="utf-8")
+        return "updated"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return "added"
+
+
+def _tally(stats: dict[str, int], status: str) -> None:
+    stats[status] = stats.get(status, 0) + 1
+
+
+def _delete_unexpected(
+    directory: Path,
+    expected: set[str],
+    stats: dict[str, int],
+    *,
+    glob_pattern: str = "*",
+    skip: set[str] | None = None,
+) -> None:
+    """Delete files in *directory* not in *expected*."""
+    skip_names = skip or set()
+    for existing in directory.glob(glob_pattern):
+        if existing.name in skip_names:
+            continue
+        if existing.name not in expected:
+            if existing.is_dir():
+                shutil.rmtree(existing)
+            else:
+                existing.unlink()
+            _tally(stats, "deleted")
+
+
+def _sync_items(items: list[dict[str, Any]], out_dir: Path) -> dict[str, int]:
+    """Sync simple resources (extensions, environments, libraries)."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stats: dict[str, int] = {"added": 0, "updated": 0, "deleted": 0, "unchanged": 0}
+
+    expected_files: set[str] = set()
+    index_entries: list[dict[str, Any]] = []
+
+    for item in items:
+        item_id = item.get("id", "unknown")
+        attrs = item.get("attributes", {})
+        name = attrs.get("name", item_id) if isinstance(attrs, dict) else item_id
+        basename = _resource_basename(item_id, name)
+        filename = f"{basename}.json"
+        expected_files.add(filename)
+
+        index_entries.append({"id": item_id, "name": name})
+        content = json.dumps(item, indent=2, ensure_ascii=False)
+        _tally(stats, _write_if_changed(out_dir / filename, content))
+
+    _write_if_changed(out_dir / "index.json", json.dumps(index_entries, indent=2, ensure_ascii=False))
+    _delete_unexpected(out_dir, expected_files, stats, skip={"index.json"})
+    return stats
+
+
+def _sync_rules(
+    config: AdobeTagsConfig,
+    out_dir: Path,
+    *,
+    name_contains: str | None = None,
+    enabled_only: bool = False,
+) -> dict[str, int]:
+    """Sync rules with components and custom code."""
+    rules = list_rules(config, name_contains=name_contains, enabled_only=enabled_only)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stats: dict[str, int] = {"added": 0, "updated": 0, "deleted": 0, "unchanged": 0}
+
+    expected_dirs: set[str] = set()
+    index_entries: list[dict[str, Any]] = []
+
+    for rule in rules:
+        rule_id = rule.get("id", "unknown")
+        attrs = rule.get("attributes", {})
+        name = attrs.get("name", rule_id) if isinstance(attrs, dict) else rule_id
+        dir_name = _resource_basename(rule_id, name)
+        expected_dirs.add(dir_name)
+
+        rule_dir = out_dir / dir_name
+        rule_dir.mkdir(parents=True, exist_ok=True)
+
+        # Sync rule metadata
+        _tally(stats, _write_if_changed(
+            rule_dir / "rule.json",
+            json.dumps(rule, indent=2, ensure_ascii=False),
+        ))
+
+        # Sync components
+        components = list_rule_components(config, rule_id)
+        expected_comp_files: set[str] = {"rule.json"}
+
+        for comp in components:
+            comp_id = comp.get("id", "unknown")
+            comp_attrs = comp.get("attributes", {})
+            comp_name = comp_attrs.get("name", comp_id) if isinstance(comp_attrs, dict) else comp_id
+            comp_base = _resource_basename(comp_id, comp_name)
+
+            comp_filename = f"{comp_base}.json"
+            expected_comp_files.add(comp_filename)
+            _tally(stats, _write_if_changed(
+                rule_dir / comp_filename,
+                json.dumps(comp, indent=2, ensure_ascii=False),
+            ))
+
+            # Custom code
+            code_info = extract_custom_code(comp)
+            if code_info:
+                source, lang = code_info
+                ext = ".html" if lang == "html" else ".js"
+                code_filename = f"{comp_base}.custom-code{ext}"
+                expected_comp_files.add(code_filename)
+                _tally(stats, _write_if_changed(rule_dir / code_filename, source))
+
+        # Delete unexpected files within this rule dir
+        _delete_unexpected(rule_dir, expected_comp_files, stats)
+
+        index_entries.append({
+            "id": rule_id,
+            "name": name,
+            "component_count": len(components),
+        })
+
+    _write_if_changed(out_dir / "index.json", json.dumps(index_entries, indent=2, ensure_ascii=False))
+
+    # Delete rule directories that no longer exist
+    for entry in out_dir.iterdir():
+        if entry.name == "index.json":
+            continue
+        if entry.is_dir() and entry.name not in expected_dirs:
+            shutil.rmtree(entry)
+            _tally(stats, "deleted")
+
+    return stats
+
+
+def _sync_data_elements(
+    config: AdobeTagsConfig,
+    out_dir: Path,
+    *,
+    name_contains: str | None = None,
+    enabled_only: bool = False,
+) -> dict[str, int]:
+    """Sync data elements with custom code."""
+    elements = list_data_elements(config, name_contains=name_contains, enabled_only=enabled_only)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stats: dict[str, int] = {"added": 0, "updated": 0, "deleted": 0, "unchanged": 0}
+
+    expected_files: set[str] = set()
+    index_entries: list[dict[str, Any]] = []
+
+    for elem in elements:
+        elem_id = elem.get("id", "unknown")
+        attrs = elem.get("attributes", {})
+        name = attrs.get("name", elem_id) if isinstance(attrs, dict) else elem_id
+        basename = _resource_basename(elem_id, name)
+
+        json_filename = f"{basename}.json"
+        expected_files.add(json_filename)
+        _tally(stats, _write_if_changed(
+            out_dir / json_filename,
+            json.dumps(elem, indent=2, ensure_ascii=False),
+        ))
+
+        code_info = extract_custom_code(elem)
+        if code_info:
+            source, lang = code_info
+            ext = ".html" if lang == "html" else ".js"
+            code_filename = f"{basename}.custom-code{ext}"
+            expected_files.add(code_filename)
+            _tally(stats, _write_if_changed(out_dir / code_filename, source))
+
+        index_entries.append({"id": elem_id, "name": name})
+
+    _write_if_changed(out_dir / "index.json", json.dumps(index_entries, indent=2, ensure_ascii=False))
+    _delete_unexpected(out_dir, expected_files, stats, skip={"index.json"})
+    return stats
+
+
+def sync_property(
+    config: AdobeTagsConfig,
+    output_root: str | Path,
+    resources: list[str] | None = None,
+    *,
+    filters: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Sync an Adobe Tags property to a local directory.
+
+    Only writes files that changed and deletes files for removed resources.
+    Interface matches ``sync_container()`` from the GTM provider.
+
+    Returns a summary dict with per-resource change counts and
+    ``"property.json"`` status.
+    """
+    if resources is None:
+        resources = ["rules", "data-elements", "extensions", "environments", "libraries"]
+    if filters is None:
+        filters = {}
+
+    root = Path(output_root)
+    root.mkdir(parents=True, exist_ok=True)
+
+    summary: dict[str, Any] = {}
+
+    # Sync property metadata
+    prop_body = _reactor_get(config, f"/properties/{config.property_id}")
+    prop_data = prop_body.get("data", {})
+    summary["property.json"] = _write_if_changed(
+        root / "property.json",
+        json.dumps(prop_data, indent=2, ensure_ascii=False),
+    )
+
+    for resource in resources:
+        res_dir = root / resource
+        resource_filters = filters.get(resource, {})
+
+        if resource == "rules":
+            summary[resource] = _sync_rules(config, res_dir, **resource_filters)
+        elif resource == "data-elements":
+            summary[resource] = _sync_data_elements(config, res_dir, **resource_filters)
+        elif resource in ("extensions", "environments", "libraries"):
+            list_fn = {
+                "extensions": list_extensions,
+                "environments": list_environments,
+                "libraries": list_libraries,
+            }[resource]
+            items = list_fn(config)
+            summary[resource] = _sync_items(items, res_dir)
+        else:
+            summary[resource] = {"added": 0, "updated": 0, "deleted": 0, "unchanged": 0}
+
+    return summary
+
+
+# Backwards-compatible alias — export is now sync
+export_property = sync_property
 
 
 # ---- apply custom code ----
