@@ -40,7 +40,10 @@ def collect_changed_resources(
             if "rules/" in path:
                 for part in Path(path).parts:
                     if part.startswith("rl"):
-                        changed.append({"id": part.split("_")[0].upper(), "type": "rules"})
+                        # Restore Reactor ID casing: "RL" prefix + lowercase hex
+                        raw_id = part.split("_")[0]
+                        origin_id = "RL" + raw_id[2:]
+                        changed.append({"id": origin_id, "type": "rules"})
                         break
             elif "data-elements/" in path:
                 changed.append({"id": component_id, "type": "data_elements"})
