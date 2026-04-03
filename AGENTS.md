@@ -1,359 +1,114 @@
 # megaton-app
 
-Toolkit for fetching, processing, and visualizing data from GA4, Search Console, Adobe Analytics, and BigQuery.
+Toolkit for fetching, processing, and visualizing data from GA4, GSC, BigQuery, Adobe Analytics, Adobe Tags, Target, and Google Sheets.
 
-## Self-Maintenance
-- 実装・運用に繰り返し効く**恒久的な知見**だけを更新対象にする。
-- タスク固有のメモ、一時的な注意点、単なるテスト数の増減はここに追記しない。
-- 既存記述が明確に古い/誤っている場合は、関連タスクの変更と一緒に修正する。
+## 1. Scope
 
-## Validation Policy
+- `megaton_lib/` is the reusable core used by multiple repos.
+- `scripts/` are thin CLIs over `megaton_lib`.
+- `app/` is Streamlit UI code only.
+- Keep business logic generic here; project-specific behavior belongs in the calling repo.
 
-- `megaton_lib.validation` は Playwright / contract / AA beacon 検証の shared-first な正本
-- result JSON の metadata は `megaton_lib.validation.metadata.build_validation_run_metadata` を使って揃える
-- new validation entrypoint は `docs/templates/validation_thin_entrypoint.py` を出発点にする
-- validation repo の棚卸しには `python scripts/check_validation_usage.py /path/to/repo` を使う
+## 2. Self-Maintenance
 
-## Directory Structure
+- Update this file only for durable, cross-repo rules.
+- Do not add task notes, temporary inventories, or one-off troubleshooting here.
+- If a rule is really a user-facing workflow, put it in `docs/USAGE.md` or `docs/REFERENCE.md` instead.
 
-```
-megaton-app/
-├── megaton_lib/               # Shared library (used by other repos via pip install -e)
-│   ├── megaton_client.py      #   GA4/GSC/BQ/AA init & query execution (core module)
-│   ├── credentials.py         #   Service account auto-detection
-│   ├── ga4_helpers.py         #   GA4 report execution & DataFrame helpers
-│   ├── gsc_utils.py           #   GSC aggregation / dedup / threshold helpers
-│   ├── table_utils.py         #   Pattern map/classification helpers
-│   ├── traffic.py             #   Source normalization and channel reclassification
-│   ├── sheets.py              #   Google Sheets read/write & group-key replace helpers
-│   ├── analysis.py            #   show() and analysis utilities
-│   ├── params_validator.py    #   JSON parameter schema validation
-│   ├── job_manager.py         #   Async job management
-│   ├── batch_runner.py        #   Batch execution
-│   ├── result_inspector.py    #   Pipeline processing (where/sort/group etc.)
-│   ├── date_template.py       #   Date template resolution (today-7d etc.)
-│   ├── periods.py             #   Period utilities
-│   ├── date_utils.py          #   Month range / timezone / month parsing helpers
-│   ├── params_diff.py         #   params.json diff detection
-│   ├── notebook.py            #   Notebook initialization helper
-│   └── audit/                 #   Reusable audit framework
-│       ├── config.py          #     Project config model & YAML/JSON loader
-│       ├── runner.py          #     Audit orchestration
-│       ├── reporters.py       #     Report generation
-│       ├── tasks/
-│       │   └── site_mapping.py#     Site-mapping audit task
-│       └── providers/
-│           ├── adobe_auth.py  #     Shared Adobe IMS OAuth (AA/Reactor/Target)
-│           ├── analytics/
-│           │   ├── aa.py      #     Adobe Analytics API client
-│           │   └── ga4.py     #     GA4 audit provider
-│           ├── tag_config/
-│           │   ├── adobe_tags.py#   Adobe Tags (Reactor) API client
-│           │   └── gtm.py     #     GTM audit provider
-│           └── target/
-│               ├── client.py  #     Adobe Target API client
-│               ├── recs.py    #     Target Recommendations export/apply
-│               ├── feeds.py   #     Target feeds export
-│               └── getoffer_scope.py# getOffer scope detection
-├── scripts/
-│   ├── query.py               # Unified CLI (auto-routes GA4/GSC/BQ/AA by source)
-│   ├── run_notebook.py        # Run notebooks from CLI with parameter override
-│   └── audit.py               # Audit CLI (site-mapping etc.)
-├── app/
-│   ├── streamlit_app.py       # Streamlit UI main
-│   ├── i18n.py                # JA/EN translation (t() function)
-│   └── ui/                    # UI components
-│       ├── params_utils.py    #   Filter row DataFrame operations
-│       ├── query_builders.py  #   params.json builder
-│       ├── table_format.py    #   Table display formatting & datetime detection
-│       └── ga4_fields.py      #   GA4 dimension/metric definitions
-├── schemas/                   # JSON schema
-├── credentials/               # Service account JSON (.gitignore)
-├── input/                     # params.json (Streamlit UI <-> Agent handoff ONLY)
-├── output/                    # Query results & job artifacts
-├── configs/                   # Site aliases, batch configs, audit project configs
-├── tests/                     # pytest
-└── docs/                      # USAGE.md, REFERENCE.md, CHANGELOG.md
-```
+## 3. Source of Truth
 
-## Available Resources
+Use this order when information conflicts:
 
-Credentials in `credentials/` provide access to the following. To refresh:
-`python scripts/query.py --list-gsc-sites --json` / `--list-ga4-properties --json`
+1. implementation under `megaton_lib/`, `scripts/`, `app/`
+2. tests under `tests/`
+3. `docs/REFERENCE.md`
+4. `docs/USAGE.md`
+5. `AGENTS.md`
 
-### GSC Sites
+## 4. Directory Guide
 
-| Site URL | Notes |
-|---|---|
-| `https://corp.shiseido.com/` | 資生堂企業情報サイト (full domain) |
-| `https://corp.shiseido.com/slqm/jp/` | SLQM (prefix property) |
-| `https://shibuya-kyousei.gr.jp/` | 渋谷矯正歯科 (gr.jp) |
-| `https://www.shibuyakyousei.jp/` | 渋谷矯正歯科 |
-| `https://www.shinjukushinbi.com/` | 新宿 |
-| `https://www.yokohamakyousei.com/` | 横浜 |
-| `https://www.nambakyousei.com/` | 難波 |
-| `https://www.hakatakyousei.com/` | 博多 |
-| `https://umeda-cure.jp/` | 梅田 |
-| `https://tenjinkyousei.com/` | 天神 |
-| `https://ikebukurokyousei.com/` | 池袋 |
-| `https://tokyo-cure.jp/` | 東京八重洲 |
-| `https://sendai-cure.jp/` | 仙台 |
-| `https://sapporo-cure.jp/` | 札幌 |
+- `megaton_lib/`: shared library
+- `scripts/query.py`: unified CLI for GA4 / GSC / BQ / AA queries
+- `scripts/run_notebook.py`: notebook runner
+- `scripts/audit.py`: audit CLI
+- `app/`: Streamlit UI
+- `configs/`: aliases and project config
+- `credentials/`: local credential JSONs, gitignored
+- `input/`: Streamlit handoff only
+- `output/`: result files and job artifacts
 
-### GA4 Properties
+## 5. Credential and Resource Discovery
 
-| Property ID | Name | Site URL |
-|---|---|---|
-| `334854563` | 【新】資生堂企業情報サイト - GA4 | `corp.shiseido.com` |
-| `411947632` | GA4 - Shiseido ALL - Prod | (all Shiseido sites) |
-| `404579165` | 資生堂150年史 | `corp.shiseido.com/150th/` |
-| `432304087` | corp_to_shiseido.co.jp | (redirect tracking) |
-| `254470346` | 渋谷 - GA4 | `www.shibuyakyousei.jp` |
-| `341415410` | shibuya-kyousei.gr.jp | `shibuya-kyousei.gr.jp` |
-| `254477007` | 新宿 - GA4 | `www.shinjukushinbi.com` |
-| `254800682` | 横浜 - GA4 | `www.yokohamakyousei.com` |
-| `254475127` | 難波 - GA4 | `www.nambakyousei.com` |
-| `254818909` | 博多 - GA4 | `www.hakatakyousei.com` |
-| `250423487` | 梅田 - GA4 | `umeda-cure.jp` |
-| `251231302` | 天神 - GA4 | `tenjinkyousei.com` |
-| `253611291` | 池袋 - GA4 | `ikebukurokyousei.com` |
-| `254467517` | 東京八重洲 - GA4 | `tokyo-cure.jp` |
-| `266373360` | 仙台 - GA4 | `sendai-cure.jp` |
-| `251616452` | 札幌 - GA4 | `sapporo-cure.jp` |
-| `283927309` | WITH - GA4 | `with-orthodontics.com` |
-| `492311970` | kyousei-clinic.jp + dentamap | `kyousei-clinic.jp` |
+- Do not hardcode mutable site inventories into AGENTS.
+- Discover live resources with commands:
+  - `python scripts/query.py --list-gsc-sites --json`
+  - `python scripts/query.py --list-ga4-properties --json`
+  - `python scripts/query.py --list-bq-datasets --json`
+- Prefer aliases from `configs/sites.local.json` or `configs/sites.json` over raw URLs and property IDs.
+- Service account JSONs live under `credentials/` and should stay local.
 
-## Site Aliases
+## 6. Query Workflow
 
-Instead of remembering full URLs and property IDs, use short aliases defined in `configs/sites.local.json` (or `configs/sites.json` if you manage it locally). Use `configs/sites.example.json` as the template:
+### CLI first
 
-```json
-{"schema_version":"1.0","source":"gsc","site":"corp","date_range":{"start":"today-7d","end":"today"},"dimensions":["query"]}
-```
-
-The `"site"` field auto-resolves to `site_url` (GSC) or `property_id` (GA4).
-
-## How to Fetch Data
-
-### CLI (recommended for agents)
-
-`--params` accepts **any JSON file path**. Write your query to a file and pass its path.
-
-> **Important**: `input/params.json` is the Streamlit UI handoff file (polled every 2s).
-> For CLI-only queries, write to a **separate file** (e.g., `output/my_query.json`).
+Use `scripts/query.py` for ad-hoc extraction unless you are intentionally working at the library layer.
 
 ```bash
-# Write query JSON to a file, then execute
-python scripts/query.py --params output/my_query.json --json
-
-# Save result to CSV
 python scripts/query.py --params output/my_query.json --output output/result.csv
-
-# Async jobs
-python scripts/query.py --submit --params output/my_query.json
-python scripts/query.py --result <job_id> --head 20
-
-# List available properties/sites
-python scripts/query.py --list-ga4-properties --json
-python scripts/query.py --list-gsc-sites --json
 ```
 
-### Query JSON format
+- `--params` accepts any JSON file path
+- do not overwrite `input/params.json` for CLI-only work
+- prefer `--output` over `--json` for non-trivial results
+- reuse saved files when practical
 
-All queries require `schema_version: "1.0"` and a `source` field.
+### Query basics
 
-**GSC query:**
-```json
-{
-  "schema_version": "1.0",
-  "source": "gsc",
-  "site_url": "https://corp.shiseido.com/",
-  "date_range": {"start": "2026-01-01", "end": "2026-01-31"},
-  "dimensions": ["query", "date"],
-  "filter": "page:equals:https://corp.shiseido.com/jp/news/detail.html?n=00000000002077",
-  "limit": 25000
-}
-```
+- every query needs `schema_version: "1.0"`
+- `source` must be one of `ga4`, `gsc`, `bq`, `aa`
+- use `pipeline` to reduce result size at query time
+- BigQuery jobs in this ecosystem usually require `location="asia-northeast1"`
 
-**GA4 query:**
-```json
-{
-  "schema_version": "1.0",
-  "source": "ga4",
-  "property_id": "334854563",
-  "date_range": {"start": "today-7d", "end": "today"},
-  "dimensions": ["date", "sessionDefaultChannelGroup"],
-  "metrics": ["sessions", "activeUsers"],
-  "filter_d": "sessionDefaultChannelGroup==Organic Search",
-  "limit": 1000
-}
-```
+## 7. Library Rules
 
-### GSC Filter Syntax
+- Keep `megaton_lib/` generic and reusable.
+- Do not move UI concerns into `megaton_lib/`.
+- Prefer extending existing helpers over creating parallel variants.
+- `show()` should be used for DataFrame inspection instead of dumping large tables to stdout.
 
-Format: `dimension:operator:expression` (semicolon-separated for multiple filters)
+## 8. Validation Policy
 
-| Operator | Example |
-|---|---|
-| `contains` | `query:contains:不正ログイン` |
-| `notContains` | `query:notContains:brand` |
-| `equals` | `page:equals:https://example.com/path?q=1` |
-| `notEquals` | `page:notEquals:https://example.com/` |
-| `includingRegex` | `page:includingRegex:/blog/.*2026` |
-| `excludingRegex` | `query:excludingRegex:^$` |
+- `megaton_lib.validation` is the shared-first home for Playwright, contracts, and AA beacon validation.
+- Validation metadata should use `megaton_lib.validation.metadata.build_validation_run_metadata`.
+- New validation entrypoints should start from `docs/templates/validation_thin_entrypoint.py`.
+- Use `python scripts/check_validation_usage.py /path/to/repo` when inventorying validation usage across repos.
 
-Multiple filters (AND): `query:contains:keyword;page:includingRegex:/blog/`
+## 9. Testing
 
-### Post-fetch Pipeline
-
-Add `pipeline` to the query JSON to filter/sort/aggregate results.
-
-```json
-{
-  "pipeline": {
-    "sort": "clicks DESC",
-    "where": "clicks > 10",
-    "head": 30
-  }
-}
-```
-
-Full pipeline options: `transform`, `where`, `group_by` + `aggregate`, `sort`, `columns`, `head`.
-Processing order (fixed): transform → where → group-by+aggregate → sort → columns → head.
-Details: [docs/REFERENCE.md](docs/REFERENCE.md#result-pipeline)
-
-### Direct Python
-
-```python
-from megaton_lib.megaton_client import query_ga4, query_gsc
-from megaton_lib.analysis import show
-
-df = query_ga4("PROPERTY_ID", "2026-01-01", "2026-01-31",
-               dimensions=["date", "sessionDefaultChannelGroup"],
-               metrics=["sessions"],
-               filter_d="sessionDefaultChannelGroup==Organic Search")
-show(df)                              # Display first 20 rows
-show(df, save="output/result.csv")    # Save to CSV + display
-```
-
-### Streamlit UI Integration
-
-Write to `input/params.json` -> UI auto-syncs every 2 seconds.
-`schema_version: "1.0"` required. Only fields defined for the `source` are allowed.
-
-## Recipes
-
-### Investigate traffic to a specific URL
-
-Find which queries drove traffic to a page, broken down by date:
-
-```json
-{
-  "schema_version": "1.0",
-  "source": "gsc",
-  "site_url": "https://corp.shiseido.com/",
-  "date_range": {"start": "2026-01-01", "end": "2026-01-31"},
-  "dimensions": ["query", "date"],
-  "filter": "page:equals:https://corp.shiseido.com/jp/news/detail.html?n=00000000002077",
-  "limit": 25000,
-  "pipeline": {"sort": "clicks DESC", "head": 50}
-}
-```
-
-To find the spike date first, use `"dimensions": ["date"]` without `"query"`.
-
-### Find top queries for a site
-
-```json
-{
-  "schema_version": "1.0",
-  "source": "gsc",
-  "site_url": "https://www.shibuyakyousei.jp/",
-  "date_range": {"start": "today-28d", "end": "today-3d"},
-  "dimensions": ["query"],
-  "limit": 1000,
-  "pipeline": {"sort": "clicks DESC", "head": 30}
-}
-```
-
-### Compare traffic by page
-
-```json
-{
-  "schema_version": "1.0",
-  "source": "gsc",
-  "site_url": "https://www.shibuyakyousei.jp/",
-  "date_range": {"start": "today-28d", "end": "today-3d"},
-  "dimensions": ["page"],
-  "limit": 5000,
-  "pipeline": {"sort": "clicks DESC", "head": 30}
-}
-```
-
-### GA4 channel trend
-
-```json
-{
-  "schema_version": "1.0",
-  "source": "ga4",
-  "property_id": "254470346",
-  "date_range": {"start": "today-30d", "end": "today"},
-  "dimensions": ["date", "sessionDefaultChannelGroup"],
-  "metrics": ["sessions", "activeUsers"],
-  "limit": 5000,
-  "pipeline": {"sort": "date ASC"}
-}
-```
-
-### GA4 landing page performance (Organic Search only)
-
-```json
-{
-  "schema_version": "1.0",
-  "source": "ga4",
-  "property_id": "254470346",
-  "date_range": {"start": "today-30d", "end": "today"},
-  "dimensions": ["landingPage"],
-  "metrics": ["sessions", "activeUsers", "keyEvents"],
-  "filter_d": "sessionDefaultChannelGroup==Organic Search",
-  "limit": 5000,
-  "pipeline": {"sort": "sessions DESC", "head": 30}
-}
-```
-
-## Rules
-
-1. **Use `show()`**: Never `print(df.to_string())`. For large results, use `save=` to write CSV
-2. **Prefer CLI**: Use `scripts/query.py` directly when human confirmation is not needed
-3. **Don't overwrite `input/params.json`**: Use a separate file for CLI queries
-4. **Jupytext**: Edit `.py` files -> `jupytext --sync notebooks/**/*.ipynb`
-5. **Run tests**: After changing `megaton_lib/` or `app/`, run `python -m pytest -q`
-6. **BQ location**: Always pass `query_bq(..., location="asia-northeast1")`
-7. **Keep megaton_lib/ generic**: `app/` is for UI-specific code only
-
-## Tests
+Run the practical subset for touched areas:
 
 ```bash
-python -m pytest -q                    # All tests
-python -m pytest -q -m unit           # Unit only
-python -m pytest -q --cov=scripts.query --cov-report=term-missing  # Coverage
+python -m pytest -q
+python -m pytest -q -m unit
 ```
 
-Tests use API mocks (SimpleNamespace pattern) with no external dependencies.
+- after changing `megaton_lib/` or `app/`, run targeted tests at minimum
+- keep mocks and fixtures in `tests/`
 
-### Adobe API auth
+## 10. Adobe Auth
 
-AA, Adobe Tags (Reactor), and Target share `AdobeOAuthClient` in `megaton_lib/audit/providers/adobe_auth.py`.
-Preferred setup: place Adobe OAuth JSON files under `ADOBE_CREDS_PATH` or local `credentials/`.
-Supported JSON keys are `client_id`, `client_secret`, and `org_id` or `ims_org_id`; `scopes`, `company_id`, and `token_cache_file` are optional.
-Environment variables `ADOBE_CLIENT_ID`, `ADOBE_CLIENT_SECRET`, and `ADOBE_ORG_ID` remain supported as fallback.
-Adobe Analytics company lists and metadata queries can auto-route across multiple discovered Adobe credential files by `company_id`.
-Tokens are cached to disk and auto-refreshed on expiry or 401.
+- Adobe Analytics, Reactor, and Target share the auth layer in `megaton_lib/audit/providers/adobe_auth.py`
+- preferred local setup is credential JSON under `credentials/`
+- supported fallback env vars remain:
+  - `ADOBE_CLIENT_ID`
+  - `ADOBE_CLIENT_SECRET`
+  - `ADOBE_ORG_ID`
+- tokens may be cached to disk and refreshed automatically
 
-## Documentation
+## 11. Documentation
 
-| Document | Language | Contents |
-|----------|----------|----------|
-| [docs/USAGE.md](docs/USAGE.md) | Japanese | Setup, quick start, recipes (will be split into JA/EN later) |
-| [docs/REFERENCE.md](docs/REFERENCE.md) | English | JSON schema, all CLI options, pipeline, megaton API, auth |
-| [docs/CHANGELOG.md](docs/CHANGELOG.md) | English | Change history |
+- `docs/USAGE.md`: setup and common workflows
+- `docs/REFERENCE.md`: schema, CLI options, pipeline, auth, and library APIs
+- `docs/CHANGELOG.md`: change history
+
+Keep AGENTS short; keep detailed examples and full schema references in the docs.
