@@ -966,11 +966,14 @@ def query_bq(
     params: Mapping[str, object] | None = None,
     *,
     location: Optional[str] = None,
+    force_native: bool = False,
+    creds_hint: str = "corp",
 ) -> pd.DataFrame:
     """Run a BigQuery query and return a DataFrame.
 
     Without params, uses Megaton BQ wrapper for backward compatibility.
-    With params, uses ``google.cloud.bigquery.Client`` directly.
+    With params, or when ``force_native=True``, uses
+    ``google.cloud.bigquery.Client`` directly.
 
     Args:
         project_id: GCP project ID.
@@ -978,24 +981,31 @@ def query_bq(
         params: Query params in ``{"name": "value"}`` form.
             Currently treated as STRING type.
         location: BQ job location. If None, client default is used.
+        force_native: Use native ``google.cloud.bigquery.Client`` even when
+            ``params`` is None. Useful when the caller needs explicit
+            ``location`` handling or native BigQuery features.
+        creds_hint: Credential filename hint passed to ``get_bq_client()``
+            when native BigQuery client is used.
 
     Returns:
         Query result DataFrame.
     """
     normalized_params = _normalize_bq_params(params)
-    if normalized_params is None:
+    if normalized_params is None and not force_native:
         bq = get_bigquery(project_id)
         return bq.run(sql, to_dataframe=True)
 
     bigquery = _bigquery_module()
-    client = get_bq_client(project_id)
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter(k, "STRING", v)
-            for k, v in normalized_params.items()
-        ]
-    )
-    kwargs: dict = {"job_config": job_config}
+    client = get_bq_client(project_id, creds_hint=creds_hint)
+    kwargs: dict = {}
+    if normalized_params is not None:
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter(k, "STRING", v)
+                for k, v in normalized_params.items()
+            ]
+        )
+        kwargs["job_config"] = job_config
     if location is not None:
         kwargs["location"] = location
     return client.query(sql, **kwargs).to_dataframe()

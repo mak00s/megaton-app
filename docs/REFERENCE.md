@@ -1015,12 +1015,24 @@ bq.dataset.tables              # ['table1', 'table2']
 
 **BigQuery (native client):**
 
-`query_bq()` uses `google.cloud.bigquery.Client`:
+`query_bq()` uses `google.cloud.bigquery.Client` when `params` is provided or `force_native=True`:
 1. `GOOGLE_APPLICATION_CREDENTIALS` if set
 2. Otherwise, select from `MEGATON_CREDS_PATH` / `credentials/*.json`
    - `creds_hint` parameter matches filename substring
    - `credentials/` resolution follows the same order as GA4/GSC (CWD → parent walk → package-parent fallback)
    - Falls back to first candidate
+
+Example:
+
+```python
+df = query_bq(
+    "my-project",
+    "SELECT 1",
+    location="asia-northeast1",
+    force_native=True,
+    creds_hint="shibuya",
+)
+```
 
 ### In Notebooks
 

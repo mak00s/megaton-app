@@ -329,6 +329,16 @@ Notebook の場合:
 ```python
 from megaton_lib.megaton_client import query_bq
 df = query_bq("my-gcp-project", "SELECT ...", location="asia-northeast1")
+
+# Force native BigQuery client when you need explicit location handling
+# or native client features even without query params.
+df = query_bq(
+    "my-gcp-project",
+    "SELECT ...",
+    location="asia-northeast1",
+    force_native=True,
+    creds_hint="shibuya",
+)
 ```
 
 ### CLI で結果をフィルタ・集計する
