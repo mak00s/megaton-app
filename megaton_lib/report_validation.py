@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
@@ -116,7 +117,7 @@ def init_report_tracker(
 def finish_report_tracker(
     tracker: "ExecutionTracker",
     *,
-    status: str = "skipped",
+    status: str = "passed",
     notes=None,
     errors=None,
 ):
@@ -155,6 +156,17 @@ class ExecutionTracker:
                 "errors": [],
             },
         }
+        atexit.register(self._finalize_on_exit)
+
+    def _finalize_on_exit(self):
+        if self.run_summary.get("finished_at_jst"):
+            return
+        validation = self.run_summary.get("validation", {}) or {}
+        errors = list(validation.get("errors", []) or [])
+        fallback_error = "Process exited before finish_report_tracker() completed."
+        if fallback_error not in errors:
+            errors.append(fallback_error)
+        self.set_validation_summary("failed", validation.get("notes", []), errors)
 
     def persist(self):
         if not self.run_summary_path:
@@ -306,12 +318,35 @@ class ExecutionTracker:
             return self.normalize_sheet_df(self.frame_cache[key])
         return self._read_sheet_df_remote(mg, gs_url, sheet_name)
 
-    def read_sheet_df(self, mg, gs_url: str, sheet_name: str) -> pd.DataFrame:
+    def read_sheet_df(
+        self,
+        mg,
+        gs_url: str,
+        sheet_name: str,
+        *,
+        strict: bool = False,
+    ) -> pd.DataFrame:
+        """Read a worksheet into a DataFrame.
+
+        Parameters
+        ----------
+        strict:
+            When *True*, propagate any read error to the caller instead of
+            returning an empty DataFrame.  Use this for cumulative sheets
+            where silently losing the existing data would cause overwrites.
+        """
         try:
             return self.normalize_sheet_df(
                 read_sheet_table(mg, sheet_url=gs_url, sheet_name=sheet_name)
             )
-        except Exception:
+        except Exception as exc:
+            if strict:
+                raise
+            self.logger.warning(
+                "read_sheet_df(%s) failed, returning empty DataFrame: %s",
+                sheet_name,
+                exc,
+            )
             return pd.DataFrame()
 
     def _skip_if_disabled(self, gs_url: str, sheet_name: str, *, note: str = "write_disabled") -> bool:

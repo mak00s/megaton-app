@@ -358,6 +358,29 @@ class TestMegatonExecution(unittest.TestCase):
         self.assertTrue(df.empty)
         fake_client.query.assert_called_once()
 
+    def test_query_bq_force_native_without_params(self):
+        """force_native=True should bypass legacy wrapper even without params."""
+        fake_client = MagicMock()
+        fake_client.query.return_value.to_dataframe.return_value = pd.DataFrame([{"x": 1}])
+
+        with patch("megaton_lib.megaton_client.get_bq_client", return_value=fake_client) as mocked_client, \
+             patch("megaton_lib.megaton_client.get_bigquery") as mocked_legacy:
+            df = mc.query_bq(
+                "proj",
+                "SELECT 1 AS x",
+                location="asia-northeast1",
+                force_native=True,
+            )
+
+        self.assertEqual(len(df), 1)
+        mocked_legacy.assert_not_called()
+        mocked_client.assert_called_once_with("proj", creds_hint="corp")
+        fake_client.query.assert_called_once()
+        self.assertEqual(
+            fake_client.query.call_args.kwargs["location"],
+            "asia-northeast1",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
