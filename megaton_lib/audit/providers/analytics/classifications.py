@@ -507,18 +507,239 @@ class ClassificationsClient:
         return results
 
 
-def print_verify_results(results: dict[str, dict]) -> None:
-    """Print verification results in a readable table."""
+    def _resolve_classification_dim(
+        self,
+        dataset_id: str,
+        column: str,
+        dimension: str,
+    ) -> str:
+        """Resolve the AA report dimension ID for a classification column.
+
+        Classification columns are mapped to ``variables/{dimension}.{N}``
+        where *N* is the 1-based column index in the classification schema.
+
+        Returns
+        -------
+        str
+            e.g. ``"variables/evar29.1"``
+        """
+        columns = self.get_classification_columns(dataset_id, verbose=False)
+        if column not in columns:
+            raise RuntimeError(
+                f"Column {column!r} not found. Available: {columns}"
+            )
+        col_index = columns.index(column) + 1  # 1-based
+        dim_base = dimension if dimension.startswith("variables/") else f"variables/{dimension}"
+        return f"{dim_base}.{col_index}"
+
+    def verify_column_via_report(
+        self,
+        rsid: str,
+        dimension: str,
+        column: str,
+        expected: dict[str, str],
+        *,
+        date_from: str = "",
+        date_to: str = "",
+        sample_size: int = 10,
+        verbose: bool = True,
+    ) -> dict[str, dict]:
+        """Verify classification reflection via AA Reporting API (Level 2).
+
+        Queries actual AA reports with breakdowns to confirm classification
+        values are reflected end-to-end.  Requires ``AdobeAnalyticsClient``
+        and ``pandas`` (imported lazily).
+
+        Parameters
+        ----------
+        expected : dict[str, str]
+            Mapping of ``{Key: expected_value}``.
+        date_from, date_to : str
+            ISO date strings for the report range.  Defaults to last 30 days.
+        sample_size : int
+            Max keys to spot-check via report breakdown (default 10).
+
+        Returns
+        -------
+        dict[str, dict]
+            Per-key result with ``"expected"``, ``"actual"``, ``"match"``
+            and ``"source"`` (``"report"`` / ``"no_traffic"``) keys.
+        """
+        from datetime import date as _date, timedelta
+
+        from megaton_lib.audit.config import AdobeAnalyticsConfig
+        from megaton_lib.audit.providers.analytics.aa import AdobeAnalyticsClient
+
+        if not date_from:
+            date_from = (_date.today() - timedelta(days=30)).isoformat()
+        if not date_to:
+            date_to = _date.today().isoformat()
+
+        dataset_id = self.find_dataset_id(rsid=rsid, dimension=dimension)
+        classification_dim = self._resolve_classification_dim(
+            dataset_id, column, dimension,
+        )
+        if verbose:
+            print(f"[info] Dataset: {dataset_id} ({rsid} / {dimension})")
+            print(f"[info] Classification dim: {classification_dim}")
+            print(f"[info] Report range: {date_from} ~ {date_to}")
+
+        # Build AA report client, passing credentials from existing auth
+        dim_base = dimension if not dimension.startswith("variables/") else dimension.split("/", 1)[1]
+        aa_config = AdobeAnalyticsConfig(
+            company_id=self.company_id,
+            rsid=rsid,
+            dimension=dim_base,
+            client_id=self._auth.client_id,
+            client_secret=self._auth.client_secret,
+            org_id=self._auth.org_id,
+            token_cache_file=str(self._auth._token_cache_path),
+        )
+        aa_client = AdobeAnalyticsClient(config=aa_config)
+
+        # Step 1: Get traffic keys with itemIds
+        if verbose:
+            print(f"[info] Querying {dim_base} traffic keys...")
+        df = aa_client.get_report(
+            rsid=rsid,
+            dimension=f"variables/{dim_base}",
+            metrics=["occurrences"],
+            date_from=date_from,
+            date_to=date_to,
+            limit=50000,
+        )
+
+        # Build {key_value: itemId} mapping
+        traffic_keys: dict[str, int] = {}
+        if not df.empty:
+            dim_col = next(
+                (c for c in df.columns if dim_base in c.lower() or "value" in c.lower()),
+                None,
+            )
+            if dim_col:
+                for _, row in df.iterrows():
+                    key = str(row.get(dim_col, "")).strip()
+                    item_id = row.get("itemId")
+                    if key and item_id is not None:
+                        traffic_keys[key] = int(item_id)
+
+        if verbose:
+            print(f"[info] Keys with traffic: {len(traffic_keys):,}")
+
+        # Step 2: Select keys to check
+        import random
+
+        keys_with_traffic = [k for k in expected if k in traffic_keys]
+        keys_no_traffic = [k for k in expected if k not in traffic_keys]
+
+        if verbose and keys_no_traffic:
+            print(f"[info] Keys without traffic (skipped): {len(keys_no_traffic)}")
+
+        if sample_size > 0 and len(keys_with_traffic) > sample_size:
+            keys_to_check = random.sample(keys_with_traffic, sample_size)
+        else:
+            keys_to_check = keys_with_traffic
+
+        if verbose:
+            print(f"[info] Spot-checking {len(keys_to_check)} keys via report breakdown...")
+
+        # Step 3: Breakdown each key
+        results: dict[str, dict] = {}
+        for i, key in enumerate(keys_to_check):
+            item_id = traffic_keys[key]
+            exp_val = expected[key]
+            try:
+                breakdown_df = aa_client.get_report(
+                    rsid=rsid,
+                    dimension=classification_dim,
+                    metrics=["occurrences"],
+                    date_from=date_from,
+                    date_to=date_to,
+                    limit=10,
+                    breakdown={
+                        "id": "0",
+                        "type": "breakdown",
+                        "dimension": f"variables/{dim_base}",
+                        "itemId": item_id,
+                    },
+                )
+            except Exception as exc:
+                results[key] = {
+                    "expected": exp_val,
+                    "actual": f"ERROR: {exc}",
+                    "match": False,
+                    "source": "error",
+                }
+                if verbose:
+                    print(f"  [{i + 1}] {key} ... ERROR")
+                continue
+
+            if breakdown_df.empty:
+                actual_val = ""
+            else:
+                value_col = next(
+                    (c for c in breakdown_df.columns
+                     if "value" in c.lower() or classification_dim.split("/")[-1] in c.lower()),
+                    None,
+                )
+                actual_val = str(breakdown_df.iloc[0][value_col]).strip() if value_col else ""
+
+            match = actual_val == exp_val
+            results[key] = {
+                "expected": exp_val,
+                "actual": actual_val,
+                "match": match,
+                "source": "report",
+            }
+            if verbose:
+                status = "OK" if match else "NG"
+                print(f"  [{i + 1}] {key} ... {status}")
+
+        # Add no-traffic keys
+        for key in keys_no_traffic:
+            results[key] = {
+                "expected": expected[key],
+                "actual": "",
+                "match": False,
+                "source": "no_traffic",
+            }
+
+        return results
+
+
+def print_verify_results(results: dict[str, dict], *, label: str = "") -> None:
+    """Print verification results in a readable table.
+
+    Parameters
+    ----------
+    label : str
+        Optional header label (e.g. ``"Level 1: Export API"``).
+    """
     total = len(results)
     matched = sum(1 for r in results.values() if r["match"])
     mismatched = total - matched
 
-    print(f"\n{'Key':<25} {'Expected':<15} {'Actual':<15} {'Result'}")
-    print("-" * 65)
-    for key, r in results.items():
-        status = "OK" if r["match"] else "NG"
-        print(f"{key:<25} {r['expected']:<15} {r['actual']:<15} {status}")
-    print("-" * 65)
+    if label:
+        print(f"\n{'='*65}")
+        print(f"  {label}")
+
+    has_source = any("source" in r for r in results.values())
+    if has_source:
+        print(f"\n{'Key':<25} {'Expected':<15} {'Actual':<15} {'Result':<6} {'Source'}")
+        print("-" * 75)
+        for key, r in results.items():
+            status = "OK" if r["match"] else "NG"
+            source = r.get("source", "")
+            print(f"{key:<25} {r['expected']:<15} {r['actual']:<15} {status:<6} {source}")
+        print("-" * 75)
+    else:
+        print(f"\n{'Key':<25} {'Expected':<15} {'Actual':<15} {'Result'}")
+        print("-" * 65)
+        for key, r in results.items():
+            status = "OK" if r["match"] else "NG"
+            print(f"{key:<25} {r['expected']:<15} {r['actual']:<15} {status}")
+        print("-" * 65)
+
     print(f"Total: {total}, OK: {matched}, NG: {mismatched}")
 
     if mismatched > 0:
@@ -527,111 +748,3 @@ def print_verify_results(results: dict[str, dict]) -> None:
             "反映には数時間かかる場合があります。時間をおいて再実行してください。"
         )
 
-
-# ---------------------------------------------------------------------------
-# CLI entrypoint (python -m ...classifications)
-# ---------------------------------------------------------------------------
-
-def _cli_main() -> None:
-    """CLI for verifying classification upload reflection."""
-    import argparse
-    import sys
-
-    parser = argparse.ArgumentParser(
-        description="AA 分類データの反映を確認する",
-    )
-    parser.add_argument("--company-id", required=True, help="Adobe Analytics company ID")
-    parser.add_argument("--rsid", required=True, help="Report suite ID")
-    parser.add_argument("--dimension", required=True, help="AA dimension (e.g. evar29, prop10)")
-    parser.add_argument("--column", required=True, help="Classification column name")
-    parser.add_argument("--org-id", default="", help="Adobe org ID (default: ADOBE_ORG_ID env)")
-    parser.add_argument("--token-cache", default="", help="Path to token cache file")
-    parser.add_argument(
-        "--creds-file",
-        default="",
-        help="JSON file with client_id, client_secret, org_id",
-    )
-
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument(
-        "--keys",
-        help="Comma-separated key=value pairs (e.g. A100012345=社員,A100067890=業者)",
-    )
-    group.add_argument("--diff-tsv", type=Path, help="TSV file with Key and column value")
-    parser.add_argument("--sample", type=int, default=0, help="Sample N keys from diff-tsv (0=all)")
-
-    args = parser.parse_args()
-
-    # Parse expected values
-    expected: dict[str, str] = {}
-    if args.keys:
-        for pair in args.keys.split(","):
-            pair = pair.strip()
-            if "=" not in pair:
-                print(f"[error] Invalid key=value pair: {pair!r}", file=sys.stderr)
-                sys.exit(1)
-            k, v = pair.split("=", 1)
-            expected[k.strip()] = v.strip()
-    elif args.diff_tsv:
-        if not args.diff_tsv.exists():
-            print(f"[error] File not found: {args.diff_tsv}", file=sys.stderr)
-            sys.exit(1)
-        with open(args.diff_tsv, encoding="utf-8", newline="") as f:
-            reader = csv.DictReader(f, delimiter="\t")
-            for row in reader:
-                key = (row.get("Key") or "").strip()
-                val = (row.get(args.column) or "").strip()
-                if key and val:
-                    expected[key] = val
-
-    if not expected:
-        print("[error] No keys to verify", file=sys.stderr)
-        sys.exit(1)
-
-    # Sample if requested
-    if args.sample > 0 and len(expected) > args.sample:
-        import random
-
-        keys = random.sample(list(expected), args.sample)
-        expected = {k: expected[k] for k in keys}
-
-    print(f"[info] Verifying {len(expected):,} keys...")
-
-    from megaton_lib.audit.providers.adobe_auth import AdobeOAuthClient
-
-    kwargs: dict = {}
-    if args.creds_file:
-        import json as _json
-
-        creds = _json.loads(Path(args.creds_file).read_text(encoding="utf-8"))
-        for k in ("client_id", "client_secret", "org_id"):
-            if creds.get(k):
-                kwargs[k] = creds[k]
-    if args.org_id:
-        kwargs["org_id"] = args.org_id
-    if args.token_cache:
-        kwargs["token_cache_file"] = args.token_cache
-    auth = AdobeOAuthClient(**kwargs)
-    client = ClassificationsClient(auth=auth, company_id=args.company_id)
-    results = client.verify_column(
-        rsid=args.rsid,
-        dimension=args.dimension,
-        column=args.column,
-        expected=expected,
-    )
-    print_verify_results(results)
-
-    mismatched = sum(1 for r in results.values() if not r["match"])
-    sys.exit(1 if mismatched else 0)
-
-
-if __name__ == "__main__":
-    import sys as _sys
-    from pathlib import Path as _Path
-
-    # Enable direct execution (python classifications.py ...)
-    _megaton_app = str(_Path(__file__).resolve().parents[4])
-    if _megaton_app not in _sys.path:
-        _sys.path.insert(0, _megaton_app)
-
-    _cli_main()
