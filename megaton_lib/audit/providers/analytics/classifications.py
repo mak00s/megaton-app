@@ -637,8 +637,8 @@ class ClassificationsClient:
             )
             if keys_no_traffic:
                 print(
-                    f"[info] ※ トラフィックのないキーはレポートに出現しないため"
-                    f"ブレークダウン検証をスキップします"
+                    f"[info] ※ トラフィックのない {len(keys_no_traffic)} キーは"
+                    f"レポートに出現しないためブレークダウン検証をスキップします"
                 )
 
         if sample_size > 0 and len(keys_with_traffic) > sample_size:
