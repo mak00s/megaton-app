@@ -55,7 +55,7 @@ streamlit run app/streamlit_app.py
 python scripts/query.py --params input/params.json
 
 # AA classifications verify
-python -m megaton_lib.audit.providers.analytics.classifications --company-id wacoal1 --rsid wacoal-all --dimension evar29 --column "関係者" --keys A100012345=社員
+python -m megaton_lib.audit.providers.analytics.verify_classification --company-id wacoal1 --rsid wacoal-all --dimension evar29 --column "関係者" --keys A100012345=社員
 
 # Audit CLI (shared 1-9 features)
 python scripts/audit.py site-mapping --project example --config-root configs/audit/projects --output output/audit

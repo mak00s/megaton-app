@@ -6,8 +6,9 @@ import pytest
 
 from megaton_lib.audit.providers.analytics.classifications import (
     ClassificationsClient,
-    _cli_main,
+    print_verify_results,
 )
+from megaton_lib.audit.providers.analytics.verify_classification import main as cli_main
 
 
 class _DummyAuth:
@@ -70,6 +71,7 @@ def test_cli_main_omits_empty_token_cache(monkeypatch):
                 "A1000": {"expected": "社員", "actual": "社員", "match": True},
             }
 
+    # Patch at the module where cli_main will import from
     monkeypatch.setattr(
         "megaton_lib.audit.providers.adobe_auth.AdobeOAuthClient",
         _DummyAdobeOAuthClient,
@@ -80,11 +82,11 @@ def test_cli_main_omits_empty_token_cache(monkeypatch):
     )
     monkeypatch.setattr(
         "megaton_lib.audit.providers.analytics.classifications.print_verify_results",
-        lambda results: None,
+        lambda results, **kwargs: None,
     )
 
     argv = [
-        "classifications.py",
+        "verify_classification.py",
         "--company-id",
         "wacoal1",
         "--rsid",
@@ -98,7 +100,7 @@ def test_cli_main_omits_empty_token_cache(monkeypatch):
     ]
     with patch("sys.argv", argv):
         with pytest.raises(SystemExit) as excinfo:
-            _cli_main()
+            cli_main()
 
     assert excinfo.value.code == 0
     assert "token_cache_file" not in captured_auth_kwargs

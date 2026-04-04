@@ -121,12 +121,12 @@ python scripts/query.py \
 ### AA の Classification 反映を確認する
 
 分類ファイルを Adobe Analytics に投入した後、数時間おいて反映結果を確認したいときは
-`megaton_lib.audit.providers.analytics.classifications` の CLI を使う。
+`megaton_lib.audit.providers.analytics.verify_classification` の CLI を使う。
 
 少数キーを直接確認する:
 
 ```bash
-python -m megaton_lib.audit.providers.analytics.classifications \
+python -m megaton_lib.audit.providers.analytics.verify_classification \
   --company-id wacoal1 \
   --rsid wacoal-all \
   --dimension evar29 \
@@ -137,7 +137,7 @@ python -m megaton_lib.audit.providers.analytics.classifications \
 差分TSVからまとめて確認する:
 
 ```bash
-python -m megaton_lib.audit.providers.analytics.classifications \
+python -m megaton_lib.audit.providers.analytics.verify_classification \
   --company-id wacoal1 \
   --rsid wacoal-all \
   --dimension evar29 \

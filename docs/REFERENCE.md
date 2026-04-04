@@ -181,7 +181,7 @@ Notes:
 Module entrypoint:
 
 ```bash
-python -m megaton_lib.audit.providers.analytics.classifications ...
+python -m megaton_lib.audit.providers.analytics.verify_classification ...
 ```
 
 Use this when you need to verify whether uploaded classification values have been reflected in Adobe Analytics.
@@ -195,8 +195,11 @@ Use this when you need to verify whether uploaded classification values have bee
 | `--keys` | Comma-separated `key=value` pairs |
 | `--diff-tsv` | TSV file containing `Key` and target column |
 | `--sample` | Randomly sample N keys from `--diff-tsv` |
+| `--creds-file` | JSON file with `client_id`, `client_secret`, `org_id` |
 | `--org-id` | Optional Adobe Org ID override |
 | `--token-cache` | Optional token cache file override |
+| `--report` | Also verify via AA Reporting API breakdown (Level 2) |
+| `--report-sample` | Keys to spot-check in report mode (default: 10) |
 
 Constraints:
 - `--keys` and `--diff-tsv` are mutually exclusive
@@ -207,7 +210,7 @@ Constraints:
 Examples:
 
 ```bash
-python -m megaton_lib.audit.providers.analytics.classifications \
+python -m megaton_lib.audit.providers.analytics.verify_classification \
   --company-id wacoal1 \
   --rsid wacoal-all \
   --dimension evar29 \
@@ -216,7 +219,7 @@ python -m megaton_lib.audit.providers.analytics.classifications \
 ```
 
 ```bash
-python -m megaton_lib.audit.providers.analytics.classifications \
+python -m megaton_lib.audit.providers.analytics.verify_classification \
   --company-id wacoal1 \
   --rsid wacoal-all \
   --dimension evar29 \
