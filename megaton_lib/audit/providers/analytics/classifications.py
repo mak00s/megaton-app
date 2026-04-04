@@ -599,7 +599,7 @@ class ClassificationsClient:
 
         # Step 1: Get traffic keys with itemIds
         if verbose:
-            print(f"[info] Querying {dim_base} traffic keys...")
+            print(f"[info] Querying {dim_base} report ({date_from} ~ {date_to})...")
         df = aa_client.get_report(
             rsid=rsid,
             dimension=f"variables/{dim_base}",
@@ -623,17 +623,23 @@ class ClassificationsClient:
                     if key and item_id is not None:
                         traffic_keys[key] = int(item_id)
 
-        if verbose:
-            print(f"[info] Keys with traffic: {len(traffic_keys):,}")
-
         # Step 2: Select keys to check
         import random
 
         keys_with_traffic = [k for k in expected if k in traffic_keys]
         keys_no_traffic = [k for k in expected if k not in traffic_keys]
 
-        if verbose and keys_no_traffic:
-            print(f"[info] Keys without traffic (skipped): {len(keys_no_traffic)}")
+        if verbose:
+            print(
+                f"[info] Requested keys: {len(expected)}"
+                f" (with traffic: {len(keys_with_traffic)},"
+                f" no traffic: {len(keys_no_traffic)})"
+            )
+            if keys_no_traffic:
+                print(
+                    f"[info] ※ トラフィックのないキーはレポートに出現しないため"
+                    f"ブレークダウン検証をスキップします"
+                )
 
         if sample_size > 0 and len(keys_with_traffic) > sample_size:
             keys_to_check = random.sample(keys_with_traffic, sample_size)
@@ -641,7 +647,7 @@ class ClassificationsClient:
             keys_to_check = keys_with_traffic
 
         if verbose:
-            print(f"[info] Spot-checking {len(keys_to_check)} keys via report breakdown...")
+            print(f"[info] Checking {len(keys_to_check)} key(s) via report breakdown...")
 
         # Step 3: Breakdown each key
         results: dict[str, dict] = {}
@@ -671,7 +677,7 @@ class ClassificationsClient:
                     "source": "error",
                 }
                 if verbose:
-                    print(f"  [{i + 1}] {key} ... ERROR")
+                    print(f"  [{i + 1}/{len(keys_to_check)}] {key}: ERROR ({exc})")
                 continue
 
             if breakdown_df.empty:
@@ -693,7 +699,11 @@ class ClassificationsClient:
             }
             if verbose:
                 status = "OK" if match else "NG"
-                print(f"  [{i + 1}] {key} ... {status}")
+                actual_display = actual_val or "(empty)"
+                print(
+                    f"  [{i + 1}/{len(keys_to_check)}] {key}:"
+                    f" expected={exp_val!r}, actual={actual_display!r} → {status}"
+                )
 
         # Add no-traffic keys
         for key in keys_no_traffic:
