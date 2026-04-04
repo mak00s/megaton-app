@@ -112,9 +112,9 @@ def main() -> None:
 
     kwargs: dict = {}
     if args.creds_file:
-        import json
+        from megaton_lib.credentials import load_adobe_oauth_credentials
 
-        creds = json.loads(Path(args.creds_file).read_text(encoding="utf-8"))
+        creds = load_adobe_oauth_credentials(args.creds_file)
         for k in ("client_id", "client_secret", "org_id"):
             if creds.get(k):
                 kwargs[k] = creds[k]
