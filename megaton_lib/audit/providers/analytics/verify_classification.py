@@ -134,7 +134,7 @@ def main() -> None:
     )
     print_verify_results(results, label="Level 1: Classification Export API")
 
-    mismatched = sum(1 for r in results.values() if not r["match"])
+    failed = sum(1 for r in results.values() if r["match"] is False)
 
     # ---- Level 2: Report API check (optional) ---------------------------------
     if args.report:
@@ -146,9 +146,9 @@ def main() -> None:
             sample_size=args.report_sample,
         )
         print_verify_results(report_results, label="Level 2: AA Reporting API")
-        mismatched += sum(1 for r in report_results.values() if not r["match"])
+        failed += sum(1 for r in report_results.values() if r["match"] is False)
 
-    sys.exit(1 if mismatched else 0)
+    sys.exit(1 if failed else 0)
 
 
 if __name__ == "__main__":
