@@ -45,7 +45,12 @@ analysis repo 側には project 固有の URL、selector、操作手順、期待
 - `megaton_lib.validation.build_gtm_preview_override`
 - `megaton_lib.validation.describe_tags_launch_override`
 - `megaton_lib.validation.describe_gtm_preview_override`
+- `megaton_lib.validation.load_auth_profile_store`
+- `megaton_lib.validation.resolve_auth_profile`
 - `megaton_lib.validation.write_validation_json`
+
+auth profile helper は、1つのローカル JSON に複数のログイン情報や環境別 credential を持たせ、
+validation script 側で profile 名だけ切り替えたいときに使う。
 
 ## Thin Entrypoint Template
 

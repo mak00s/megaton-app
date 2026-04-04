@@ -18,10 +18,19 @@ def __getattr__(name: str):
             "fetch_site_sessions": fetch_site_sessions,
             "fetch_unclassified_pages": fetch_unclassified_pages,
         }[name]
+    if name in {"ClassificationsClient", "print_verify_results"}:
+        from .classifications import ClassificationsClient, print_verify_results
+
+        return {
+            "ClassificationsClient": ClassificationsClient,
+            "print_verify_results": print_verify_results,
+        }[name]
     raise AttributeError(name)
 
 __all__ = [
     "AdobeAnalyticsClient",
+    "ClassificationsClient",
+    "print_verify_results",
     "fetch_aa_site_metric",
     "fetch_site_sessions",
     "fetch_unclassified_pages",

@@ -176,6 +176,55 @@ Notes:
 - Adobe Analytics can also auto-detect OAuth JSON files in `ADOBE_CREDS_PATH` or `credentials/`.
 - Adobe OAuth JSON shape: `client_id`, `client_secret`, `org_id` (or `ims_org_id`), optional `scopes`.
 
+### Adobe Analytics Classifications CLI
+
+Module entrypoint:
+
+```bash
+python -m megaton_lib.audit.providers.analytics.classifications ...
+```
+
+Use this when you need to verify whether uploaded classification values have been reflected in Adobe Analytics.
+
+| Option | Description |
+|---|---|
+| `--company-id` | Adobe Analytics company ID |
+| `--rsid` | Report suite ID |
+| `--dimension` | AA dimension such as `evar29` or `prop10` |
+| `--column` | Classification column name to verify |
+| `--keys` | Comma-separated `key=value` pairs |
+| `--diff-tsv` | TSV file containing `Key` and target column |
+| `--sample` | Randomly sample N keys from `--diff-tsv` |
+| `--org-id` | Optional Adobe Org ID override |
+| `--token-cache` | Optional token cache file override |
+
+Constraints:
+- `--keys` and `--diff-tsv` are mutually exclusive
+- `--diff-tsv` must contain a `Key` column and the target `--column`
+- dimension matching is exact (`evar2` does not match `evar29`)
+- omitting `--token-cache` falls back to the auth client's default cache path
+
+Examples:
+
+```bash
+python -m megaton_lib.audit.providers.analytics.classifications \
+  --company-id wacoal1 \
+  --rsid wacoal-all \
+  --dimension evar29 \
+  --column "関係者" \
+  --keys A100012345=社員,A100067890=業者
+```
+
+```bash
+python -m megaton_lib.audit.providers.analytics.classifications \
+  --company-id wacoal1 \
+  --rsid wacoal-all \
+  --dimension evar29 \
+  --column "関係者" \
+  --diff-tsv output/classification_diff.tsv \
+  --sample 20
+```
+
 - With `pipeline` in params.json: `data.pipeline` includes `input_rows` / `output_rows`
 - `--result` jobs: use CLI args (`--where` / `--sort` etc.)
 
@@ -659,6 +708,8 @@ Notes:
 | `capture_selector_state(page, selectors)` | Snapshot selector existence/opacity/child counts for page validation |
 | `build_validation_run_metadata(...)` | Build standard metadata dict (execution mode, project, scenario, timestamps) |
 | `write_validation_json(path, report)` | Write validation report JSON with parent dir creation |
+| `load_auth_profile_store(path)` | Load a local JSON credential store for named auth profiles |
+| `resolve_auth_profile(store_or_path, profile_name, ...)` | Resolve one named auth profile and optionally require specific fields |
 
 #### Adobe Tags Launch Override
 
@@ -743,6 +794,7 @@ Notes:
 
 | Function | Description |
 |---|---|
+| `adobe_tags_output_root(property_id)` | Return the canonical local output path for one Adobe Tags property |
 | `load_env_file(path)` | Load `KEY=VALUE` pairs from a file into `os.environ` (setdefault) |
 | `seed_adobe_oauth_env(...)` | Resolve Adobe OAuth credentials from args, env, JSON file, and payload dict. Sets resolved values into `os.environ`. |
 | `build_tags_config(...)` | Build `AdobeTagsConfig` after resolving OAuth settings via `seed_adobe_oauth_env` |
@@ -752,7 +804,38 @@ Notes:
 - `seed_adobe_oauth_env` resolution order: explicit args → env vars → `creds_file` JSON → `payload` dict
 - `creds_file` accepts a path to a JSON file with `client_id`, `client_secret`, `org_id` keys (loaded via `load_adobe_oauth_credentials`)
 - `build_tags_config` passes `creds_file` through to `seed_adobe_oauth_env`
+- `adobe_tags_output_root(property_id)` defaults to `adobe-tags/<property_id>` under the chosen project root
 - `load_env_file` silently skips if the file does not exist
+
+### Adobe Tags / GTM CLI Entrypoints (`megaton_lib.audit.providers.tag_config`)
+
+These helpers are intended for thin wrapper scripts in analysis repos.
+
+| Function | Description |
+|---|---|
+| `tags_export_main(...)` | Reusable Adobe Tags export CLI with env-driven resource/filter resolution |
+| `tags_apply_main(...)` | Reusable Adobe Tags apply/build CLI with dry-run default |
+| `gtm_export_main(...)` | Reusable GTM container export CLI |
+
+#### `tags_export_main(...)`
+
+- resolves property IDs from `--property-id`, `property_ids=...`, or `TAGS_PROPERTY_ID`
+- preloads the first config so `.env` values are available before reading export filter env vars
+- reads `TAGS_EXPORT_RESOURCES`, `TAGS_RULE_NAME_CONTAINS`, `TAGS_RULE_ENABLED_ONLY`, `TAGS_DE_ENABLED_ONLY`
+- writes under `project_root / adobe_tags_output_root(property_id)`
+
+#### `tags_apply_main(...)`
+
+- defaults to dry-run unless `--apply` is passed
+- resolves dev build settings from `TAGS_DEV_LIBRARY_ID` and `TAGS_DEV_LAUNCH_URL`
+- runs the build workflow automatically when a dev library ID is available and `--skip-build` is not set
+- falls back to apply-only mode when no library ID is configured
+
+#### `gtm_export_main(...)`
+
+- resolves container ID from `--container-id`, `container_public_id=...`, or `GTM_CONTAINER_PUBLIC_ID`
+- accepts `--resources` or `GTM_EXPORT_RESOURCES`
+- defaults output to `gtm/<container_id>` under the chosen project root
 
 ### Adobe Tags Sync Helpers (`megaton_lib.audit.providers.tag_config`)
 
@@ -762,6 +845,42 @@ Notes:
 | `find_component_id(code_file)` | Resolve Reactor component/data-element ID from exported custom-code file path |
 | `apply_custom_code_tree(config, root, dry_run=True)` | Apply all exported `*.custom-code.*` files under a property tree |
 
+#### Validation Auth Profiles
+
+Use auth profiles when one local JSON file stores multiple named login credentials or tenant settings for validation flows.
+
+Accepted store shapes:
+
+```json
+{
+  "profiles": {
+    "stg": {"username": "user@example.com", "password": "secret"},
+    "prod": {"username": "user2@example.com", "password": "secret2"}
+  }
+}
+```
+
+or a flat mapping:
+
+```json
+{
+  "stg": {"username": "user@example.com", "password": "secret"},
+  "prod": {"username": "user2@example.com", "password": "secret2"}
+}
+```
+
+Example:
+
+```python
+from megaton_lib.validation import resolve_auth_profile
+
+profile = resolve_auth_profile(
+    "credentials/storefront_profiles.json",
+    "stg",
+    required_fields=("username", "password"),
+)
+```
+
 ### Adobe Target Activity Helpers (`megaton_lib.audit.providers.target`)
 
 | Function | Description |
@@ -770,6 +889,53 @@ Notes:
 | `resolve_activity_ids(index_path, raw_ids="")` | Resolve activity IDs from explicit input or exported `index.json` |
 | `fetch_activity(client, tenant_id, activity_id)` | Fetch one AB activity detail JSON |
 | `export_activities(client, tenant_id, output_root, activity_ids)` | Export selected Target activities and write `index.json` |
+
+### Adobe Analytics Classifications (`megaton_lib.audit.providers.analytics`)
+
+| Symbol | Description |
+|---|---|
+| `ClassificationsClient(auth, company_id, ...)` | Adobe Analytics Classifications API client for dataset discovery, export, import, and verify flows |
+| `print_verify_results(results)` | Print `verify_column()` output as a compact table |
+
+#### `ClassificationsClient`
+
+| Method | Description |
+|---|---|
+| `find_dataset_id(rsid, dimension)` | Resolve the classification dataset ID for one exact dimension name |
+| `create_export_job(dataset_id, ...)` | Start an export job |
+| `download_export_file(job_id)` | Download the TSV for a completed export job |
+| `export_classification(dataset_id, ...)` | Export TSV with create → poll → download |
+| `create_import_job(dataset_id, ...)` | Start an import job |
+| `upload_file(job_id, content, ...)` | Upload TSV content or a local file path |
+| `commit_job(job_id)` | Commit an import job |
+| `import_classification(dataset_id, content, ...)` | Import TSV with create → upload → commit → poll |
+| `get_classification_columns(dataset_id)` | Discover current classification column names from an export header |
+| `export_column_as_dict(dataset_id, column)` | Return `{Key: value}` mapping for one column |
+| `verify_column(rsid, dimension, column, expected)` | Compare expected values against current AA values |
+
+Example:
+
+```python
+from megaton_lib.audit.providers.adobe_auth import AdobeOAuthClient
+from megaton_lib.audit.providers.analytics import (
+    ClassificationsClient,
+    print_verify_results,
+)
+
+auth = AdobeOAuthClient()
+client = ClassificationsClient(auth=auth, company_id="wacoal1")
+
+results = client.verify_column(
+    rsid="wacoal-all",
+    dimension="evar29",
+    column="関係者",
+    expected={
+        "A100012345": "社員",
+        "A100067890": "業者",
+    },
+)
+print_verify_results(results)
+```
 
 ---
 

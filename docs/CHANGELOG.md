@@ -2,6 +2,17 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+### 2026-04-04
+
+- Added Adobe Analytics classifications support in `megaton_lib.audit.providers.analytics`:
+  - `ClassificationsClient` for dataset discovery, export, import, column inspection, and post-upload verification
+  - module CLI `python -m megaton_lib.audit.providers.analytics.classifications` for reflection checks using `--keys` or `--diff-tsv`
+  - exported `ClassificationsClient` and `print_verify_results` from `megaton_lib.audit.providers.analytics`
+- Fixed classifications verification edge cases:
+  - CLI no longer crashes when `--token-cache` is omitted
+  - dataset lookup now requires exact dimension matching, avoiding prefix collisions such as `evar2` vs `evar29`
+- Added regression tests for classifications dimension matching and CLI default token-cache behavior
+
 ### 2026-03-28 (v0.7.0)
 
 - Added shared validation helpers in `megaton_lib.validation`:

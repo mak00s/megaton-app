@@ -10,6 +10,7 @@ AI agents can drive the entire workflow through a simple JSON file, with no MCP 
 - **Streamlit UI** — Browse GA4/GSC/AA/BQ data with filtering, table/chart tabs, and CSV export
 - **CLI** — Run queries from JSON, async jobs, batch execution, and result pipelines
 - **Audit CLI** — Reusable audits for GTM/Adobe Tags + GA4/AA (`scripts/audit.py`)
+- **Adobe Helpers** — Shared OAuth, AA segment listing, and classifications export/import/verify helpers
 - **Notebook** — Develop analyses interactively, then run them as scheduled jobs
 
 ![Streamlit UI](docs/images/megaton-app.png)
@@ -53,6 +54,9 @@ streamlit run app/streamlit_app.py
 # CLI
 python scripts/query.py --params input/params.json
 
+# AA classifications verify
+python -m megaton_lib.audit.providers.analytics.classifications --company-id wacoal1 --rsid wacoal-all --dimension evar29 --column "関係者" --keys A100012345=社員
+
 # Audit CLI (shared 1-9 features)
 python scripts/audit.py site-mapping --project example --config-root configs/audit/projects --output output/audit
 
@@ -65,7 +69,7 @@ python -m pytest -q
 | Document | Contents |
 |----------|----------|
 | [docs/USAGE.md](docs/USAGE.md) | Setup, quick start, recipes, and how-to for Notebook / CLI / Streamlit |
-| [docs/REFERENCE.md](docs/REFERENCE.md) | JSON schema, CLI options, pipeline, megaton API, and auth |
+| [docs/REFERENCE.md](docs/REFERENCE.md) | JSON schema, CLI options, classifications/validation helpers, megaton API, and auth |
 | [docs/VALIDATION.md](docs/VALIDATION.md) | Shared-first validation policy, result schema, thin entrypoint template, and detection rule |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | Change history |
 
@@ -90,7 +94,7 @@ megaton-app/
 │       ├── config.py           # Project config model & loader
 │       └── providers/
 │           ├── adobe_auth.py   # Shared Adobe IMS OAuth
-│           ├── analytics/      # AA & GA4 audit providers
+│           ├── analytics/      # AA query/classifications + GA4 audit providers
 │           ├── tag_config/     # Adobe Tags & GTM providers (+ sync helpers)
 │           └── target/         # Adobe Target Recs/Activities API helpers
 ├── scripts/            # CLI tools (query.py, run_notebook.py, audit.py)

@@ -118,6 +118,40 @@ python scripts/query.py \
 
 詳細な JSON パラメータ例（`segment_definition` / `breakdown`）は [REFERENCE.md](REFERENCE.md) を参照。
 
+### AA の Classification 反映を確認する
+
+分類ファイルを Adobe Analytics に投入した後、数時間おいて反映結果を確認したいときは
+`megaton_lib.audit.providers.analytics.classifications` の CLI を使う。
+
+少数キーを直接確認する:
+
+```bash
+python -m megaton_lib.audit.providers.analytics.classifications \
+  --company-id wacoal1 \
+  --rsid wacoal-all \
+  --dimension evar29 \
+  --column "関係者" \
+  --keys A100012345=社員,A100067890=業者
+```
+
+差分TSVからまとめて確認する:
+
+```bash
+python -m megaton_lib.audit.providers.analytics.classifications \
+  --company-id wacoal1 \
+  --rsid wacoal-all \
+  --dimension evar29 \
+  --column "関係者" \
+  --diff-tsv output/classification_diff.tsv \
+  --sample 20
+```
+
+メモ:
+- `--keys` と `--diff-tsv` はどちらか一方を指定する
+- `--sample` は `--diff-tsv` からランダムに N 件だけ確認したいときに使う
+- `--token-cache` を省略した場合は `AdobeOAuthClient` の既定キャッシュを使う
+- `--org-id` を省略した場合は `ADOBE_ORG_ID` または Adobe OAuth JSON の値を使う
+
 ### AA の連続クエリで rsid/日付/セグメントを使い回す
 
 `AdobeAnalyticsClient.query_context()` で共通パラメータを保持し、`report()` / `breakdown()` を簡潔に呼べる。
