@@ -705,12 +705,12 @@ class ClassificationsClient:
                     f" expected={exp_val!r}, actual={actual_display!r} → {status}"
                 )
 
-        # Add no-traffic keys
+        # Record no-traffic keys as skipped (not counted as pass or fail)
         for key in keys_no_traffic:
             results[key] = {
                 "expected": expected[key],
                 "actual": "",
-                "match": False,
+                "match": None,  # None = skipped (neither OK nor NG)
                 "source": "no_traffic",
             }
 
@@ -725,9 +725,9 @@ def print_verify_results(results: dict[str, dict], *, label: str = "") -> None:
     label : str
         Optional header label (e.g. ``"Level 1: Export API"``).
     """
-    total = len(results)
-    matched = sum(1 for r in results.values() if r["match"])
-    mismatched = total - matched
+    matched = sum(1 for r in results.values() if r["match"] is True)
+    skipped = sum(1 for r in results.values() if r["match"] is None)
+    failed = sum(1 for r in results.values() if r["match"] is False)
 
     if label:
         print(f"\n{'='*65}")
@@ -738,7 +738,10 @@ def print_verify_results(results: dict[str, dict], *, label: str = "") -> None:
         print(f"\n{'Key':<25} {'Expected':<15} {'Actual':<15} {'Result':<6} {'Source'}")
         print("-" * 75)
         for key, r in results.items():
-            status = "OK" if r["match"] else "NG"
+            if r["match"] is None:
+                status = "SKIP"
+            else:
+                status = "OK" if r["match"] else "NG"
             source = r.get("source", "")
             print(f"{key:<25} {r['expected']:<15} {r['actual']:<15} {status:<6} {source}")
         print("-" * 75)
@@ -750,9 +753,12 @@ def print_verify_results(results: dict[str, dict], *, label: str = "") -> None:
             print(f"{key:<25} {r['expected']:<15} {r['actual']:<15} {status}")
         print("-" * 65)
 
-    print(f"Total: {total}, OK: {matched}, NG: {mismatched}")
+    summary = f"OK: {matched}, NG: {failed}"
+    if skipped:
+        summary += f", SKIP: {skipped}"
+    print(summary)
 
-    if mismatched > 0:
+    if failed > 0:
         print(
             "\n[warn] 未反映のキーがあります。"
             "反映には数時間かかる場合があります。時間をおいて再実行してください。"
