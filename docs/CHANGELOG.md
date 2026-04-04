@@ -6,11 +6,14 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 - Added Adobe Analytics classifications support in `megaton_lib.audit.providers.analytics`:
   - `ClassificationsClient` for dataset discovery, export, import, column inspection, and post-upload verification
-  - module CLI `python -m megaton_lib.audit.providers.analytics.classifications` for reflection checks using `--keys` or `--diff-tsv`
+  - `verify_classification.py` CLI (`python -m megaton_lib.audit.providers.analytics.verify_classification`) for reflection checks using `--keys` or `--diff-tsv`
+  - Level 2 report verification via `--report` flag (AA Reporting API breakdown check)
+  - `--creds-file` option using shared `load_adobe_oauth_credentials` (supports `org_id` / `ims_org_id` / `imsOrgId`)
   - exported `ClassificationsClient` and `print_verify_results` from `megaton_lib.audit.providers.analytics`
 - Fixed classifications verification edge cases:
   - CLI no longer crashes when `--token-cache` is omitted
   - dataset lookup now requires exact dimension matching, avoiding prefix collisions such as `evar2` vs `evar29`
+  - no-traffic keys in Level 2 are SKIP (not NG) and do not affect exit code
 - Added regression tests for classifications dimension matching and CLI default token-cache behavior
 
 ### 2026-03-28 (v0.7.0)
