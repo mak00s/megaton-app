@@ -156,9 +156,24 @@ class ClassificationsClient:
         """
         url = f"{AA_API_BASE}/{self.company_id}/classifications/job/{job_id}"
 
+        consecutive_errors = 0
+        max_consecutive_errors = 3
+
         for attempt in range(self.poll_max_attempts):
             resp = requests.get(url, headers=self._headers(), timeout=30)
+            if resp.status_code >= 500:
+                consecutive_errors += 1
+                if verbose:
+                    print(
+                        f"  [{attempt + 1}] HTTP {resp.status_code} "
+                        f"(retry {consecutive_errors}/{max_consecutive_errors})"
+                    )
+                if consecutive_errors >= max_consecutive_errors:
+                    resp.raise_for_status()
+                time.sleep(self.poll_interval * 2)
+                continue
             resp.raise_for_status()
+            consecutive_errors = 0
             data = resp.json()
 
             state = str(
@@ -366,15 +381,21 @@ class ClassificationsClient:
         filename: str = "classification.tsv",
         verbose: bool = True,
     ) -> str:
-        """Create import job, upload content, commit, and poll.
+        """Create import job, upload content, and commit.
 
         Convenience method combining :meth:`create_import_job`,
-        :meth:`upload_file`, :meth:`commit_job`, and :meth:`poll_job`.
+        :meth:`upload_file`, and :meth:`commit_job`.
+
+        Note: The Adobe Classifications Import API does not provide a
+        polling endpoint for import jobs. After a successful commit,
+        processing happens asynchronously on Adobe's side. Use
+        :meth:`export_classification` or ``verify_classification`` CLI
+        to confirm that data has been reflected.
 
         Returns
         -------
         str
-            Final job state (``"completed"``).
+            The import job ID.
         """
         job_id = self.create_import_job(dataset_id, job_name=job_name)
         if verbose:
@@ -387,9 +408,9 @@ class ClassificationsClient:
 
         self.commit_job(job_id)
         if verbose:
-            print("  committed, polling...")
+            print("  committed (processing is asynchronous)")
 
-        return self.poll_job(job_id, verbose=verbose)
+        return job_id
 
     # ------------------------------------------------------------------
     # Helpers

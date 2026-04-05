@@ -25,10 +25,17 @@ def __getattr__(name: str):
             "ClassificationsClient": ClassificationsClient,
             "print_verify_results": print_verify_results,
         }[name]
+    if name in {"AdobeDataWarehouseClient"}:
+        from .dw import AdobeDataWarehouseClient
+
+        return {
+            "AdobeDataWarehouseClient": AdobeDataWarehouseClient,
+        }[name]
     raise AttributeError(name)
 
 __all__ = [
     "AdobeAnalyticsClient",
+    "AdobeDataWarehouseClient",
     "ClassificationsClient",
     "print_verify_results",
     "fetch_aa_site_metric",
