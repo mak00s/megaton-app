@@ -169,6 +169,35 @@ prop12_df = ctx.breakdown("page", item_id, "prop12", ["occurrences"])
 
 ドメイン固有の複合クエリが必要な場合は `AAQueryContext` をサブクラス化する。
 
+### AA Data Warehouse の template request を探す
+
+大量の scheduled request がある場合は、まず `rsid` と `updatedAfter` で候補を絞り、`name_contains` で template を探す。
+
+```bash
+python -m megaton_lib.audit.providers.analytics.dw.cli \
+  --company-id wacoal1 \
+  --find-template \
+  --rsid wacoal-all \
+  --name-contains tmpl_step_ \
+  --updated-after 2026-01-01T00:00:00Z
+```
+
+ポイント:
+
+- 一覧 API で date filter として使えるのは request の作成日 / 更新日
+- report 対象期間で直接絞ることはできない
+- 運用に入ったら template UUID を固定し、探索は bootstrap / 調査用に使う
+
+### AA Data Warehouse manifest を dry-run する
+
+```bash
+python -m megaton_lib.audit.providers.analytics.dw.cli \
+  --manifest input/dw_manifest.json \
+  --dry-run
+```
+
+最初の scheduled request は事前に Adobe UI 側で作成しておく。CLI はその template request の UUID または探索条件を使って clone 用 payload を組み立てる。
+
 ### 監査CLIを実行する（共通機能 1-9）
 
 `scripts/audit.py` は GTM / Adobe Tags の設定抽出と GA4 / AA の実績を横断して監査する共通CLI。

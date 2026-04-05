@@ -2,6 +2,17 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+### 2026-04-05
+
+- Added Adobe Analytics Data Warehouse scheduling support in `megaton_lib.audit.providers.analytics.dw`:
+  - `AdobeDataWarehouseClient` for scheduled request list/get/create/update and generated report metadata
+  - `build_adobe_auth()` / `build_dw_client()` runtime helpers for Adobe credential resolution
+  - template discovery helpers `find_template_requests()` and `resolve_template_request()`
+  - template clone helpers `build_cloned_request_body()`, `create_request_from_template()`, and `bulk_create_requests_from_template()`
+  - CLI module `python -m megaton_lib.audit.providers.analytics.dw.cli` with `--find-template`, `--list`, `--status`, and manifest-based `--dry-run` / `--create`
+- Exported `AdobeDataWarehouseClient` from `megaton_lib.audit.providers.analytics`
+- Added regression tests for DW template filtering and clone payload generation
+
 ### 2026-04-04
 
 - Added Adobe Analytics classifications support in `megaton_lib.audit.providers.analytics`:

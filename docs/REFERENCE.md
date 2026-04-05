@@ -911,7 +911,7 @@ profile = resolve_auth_profile(
 | `create_import_job(dataset_id, ...)` | Start an import job |
 | `upload_file(job_id, content, ...)` | Upload TSV content or a local file path |
 | `commit_job(job_id)` | Commit an import job |
-| `import_classification(dataset_id, content, ...)` | Import TSV with create → upload → commit → poll |
+| `import_classification(dataset_id, content, ...)` | Import TSV with create → upload → commit and return the import job ID |
 | `get_classification_columns(dataset_id)` | Discover current classification column names from an export header |
 | `export_column_as_dict(dataset_id, column)` | Return `{Key: value}` mapping for one column |
 | `verify_column(rsid, dimension, column, expected)` | Compare expected values against current AA values |
@@ -939,6 +939,79 @@ results = client.verify_column(
 )
 print_verify_results(results)
 ```
+
+### Adobe Analytics Data Warehouse (`megaton_lib.audit.providers.analytics.dw`)
+
+| Symbol | Description |
+|---|---|
+| `AdobeDataWarehouseClient(auth, company_id, ...)` | Adobe Analytics Data Warehouse scheduled request API client |
+| `build_adobe_auth(...)` | Build shared Adobe OAuth auth from explicit args, creds file, and env fallback |
+| `build_dw_client(company_id, ...)` | Build `AdobeDataWarehouseClient` from Adobe credential inputs |
+| `find_template_requests(client, ...)` | Search scheduled request summaries by `rsid`, created/updated date, status, and name/owner filters |
+| `resolve_template_request(client, ...)` | Resolve one template request detail by UUID or filtered search |
+| `build_cloned_request_body(template_detail, ...)` | Build a create/update payload from one template detail payload |
+| `create_request_from_template(client, ...)` | Create one scheduled request from a template |
+| `bulk_create_requests_from_template(client, ...)` | Create or preview multiple scheduled requests from one template |
+
+#### `AdobeDataWarehouseClient`
+
+| Method | Description |
+|---|---|
+| `list_scheduled_requests(rsid, ...)` | List scheduled request summaries for one RSID |
+| `get_scheduled_request(scheduled_request_uuid)` | Fetch one scheduled request detail payload |
+| `create_scheduled_request(body)` | Create one scheduled request |
+| `update_scheduled_request(scheduled_request_uuid, body)` | Update one scheduled request |
+| `list_reports(...)` | List generated report metadata |
+| `get_report(report_uuid)` | Fetch one generated report metadata payload |
+| `resend_report(report_uuid)` | Request resend for one generated report |
+
+#### Template discovery notes
+
+- `rsid` is required for scheduled request listing
+- date filters on list APIs target request `createdDate` / `updatedDate`, not report target range
+- if more than 100 requests share the same `updatedDate`, template discovery stops with an explicit error because the Adobe list API exposes `limit` but no safe page cursor for that tie bucket
+- if you need to distinguish by report range, output basename, or segment, fetch the detail payload and inspect:
+  - `request.reportParameters.reportRange`
+  - `request.outputFile.outputFileBasename`
+  - `request.reportParameters.segmentList`
+  - `delivery.exportLocationUUID`
+
+#### CLI
+
+Module entrypoint:
+
+```bash
+python -m megaton_lib.audit.providers.analytics.dw.cli ...
+```
+
+Examples:
+
+```bash
+python -m megaton_lib.audit.providers.analytics.dw.cli \
+  --company-id wacoal1 \
+  --find-template \
+  --rsid wacoal-all \
+  --name-contains tmpl_step_ \
+  --updated-after 2026-01-01T00:00:00Z
+```
+
+```bash
+python -m megaton_lib.audit.providers.analytics.dw.cli \
+  --manifest input/dw_manifest.json \
+  --dry-run
+```
+
+```bash
+python -m megaton_lib.audit.providers.analytics.dw.cli \
+  --manifest input/dw_manifest.json \
+  --create
+```
+
+Notes:
+
+- the first scheduled request must already exist in Adobe UI
+- create flows require `exportLocationUUID`, which is obtained from the template request detail payload
+- daily operations should prefer a fixed template UUID; search mode is mainly for bootstrap and investigation
 
 ---
 
