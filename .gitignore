@@ -1,5 +1,5 @@
-# 認証情報（credentials/内のJSONのみ除外）
-credentials/*.json
+# 認証情報（どの階層の credentials/ でも除外）
+**/credentials/*.json
 
 # 環境変数
 .env
