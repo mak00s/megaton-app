@@ -4,7 +4,14 @@ import json
 from pathlib import Path
 
 from megaton_lib.audit.config import AdobeTagsConfig
-from megaton_lib.audit.providers.tag_config.sync import apply_custom_code_tree, find_component_id, slugify_component_name
+from megaton_lib.audit.providers.tag_config.sync import (
+    apply_custom_code_tree,
+    apply_data_element_settings_tree,
+    apply_exported_changes_tree,
+    find_component_id,
+    find_data_element_id,
+    slugify_component_name,
+)
 
 
 def test_slugify_component_name():
@@ -65,3 +72,63 @@ def test_apply_custom_code_tree_calls_apply(monkeypatch, tmp_path: Path):
 
     assert calls == [{'component_id': 'RC123', 'new_code': 'console.log(1)', 'dry_run': True}]
     assert results[0]['path'] == 'rules/my-rule/rcabc_test.custom-code.js'
+
+
+def test_find_data_element_id_from_settings_sidecar(tmp_path: Path):
+    data_elements_dir = tmp_path / 'data-elements'
+    data_elements_dir.mkdir(parents=True)
+    settings_file = data_elements_dir / 'deabc_test.settings.json'
+    settings_file.write_text('{"source":"window.x"}', encoding='utf-8')
+    (data_elements_dir / 'deabc_test.json').write_text(json.dumps({'id': 'DE123'}), encoding='utf-8')
+
+    assert find_data_element_id(settings_file) == 'DE123'
+
+
+def test_apply_data_element_settings_tree_calls_apply(monkeypatch, tmp_path: Path):
+    root = tmp_path / 'property'
+    data_elements_dir = root / 'data-elements'
+    data_elements_dir.mkdir(parents=True)
+    settings_file = data_elements_dir / 'deabc_test.settings.json'
+    settings_file.write_text('{"storageDuration": "pageview", "source": "window.ctx"}', encoding='utf-8')
+    (data_elements_dir / 'deabc_test.json').write_text(json.dumps({'id': 'DE123'}), encoding='utf-8')
+
+    calls = []
+
+    def fake_apply(config, component_id, new_settings, *, dry_run=True):
+        calls.append({'component_id': component_id, 'new_settings': new_settings, 'dry_run': dry_run})
+        return {'component_id': component_id, 'changed': True, 'applied': not dry_run}
+
+    monkeypatch.setattr('megaton_lib.audit.providers.tag_config.sync.apply_data_element_settings', fake_apply)
+
+    config = AdobeTagsConfig(property_id='PR123')
+    results = apply_data_element_settings_tree(config, root, dry_run=False)
+
+    assert calls == [{
+        'component_id': 'DE123',
+        'new_settings': {'storageDuration': 'pageview', 'source': 'window.ctx'},
+        'dry_run': False,
+    }]
+    assert results[0]['path'] == 'data-elements/deabc_test.settings.json'
+
+
+def test_apply_exported_changes_tree_runs_custom_code_then_settings(monkeypatch, tmp_path: Path):
+    root = tmp_path / 'property'
+    (root / 'rules').mkdir(parents=True)
+    (root / 'data-elements').mkdir(parents=True)
+
+    monkeypatch.setattr(
+        'megaton_lib.audit.providers.tag_config.sync.apply_custom_code_tree',
+        lambda config, path, *, dry_run=True: [{'path': 'rules/r1/custom.custom-code.js', 'component_id': 'RC1'}],
+    )
+    monkeypatch.setattr(
+        'megaton_lib.audit.providers.tag_config.sync.apply_data_element_settings_tree',
+        lambda config, path, *, dry_run=True: [{'path': 'data-elements/de1.settings.json', 'component_id': 'DE1'}],
+    )
+
+    config = AdobeTagsConfig(property_id='PR123')
+    results = apply_exported_changes_tree(config, root, dry_run=True)
+
+    assert results == [
+        {'path': 'rules/r1/custom.custom-code.js', 'component_id': 'RC1'},
+        {'path': 'data-elements/de1.settings.json', 'component_id': 'DE1'},
+    ]

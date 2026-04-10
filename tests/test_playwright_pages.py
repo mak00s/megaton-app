@@ -4,13 +4,31 @@ from megaton_lib.validation.playwright_pages import (
     GtmPreviewOverride,
     TagsLaunchOverride,
     build_gtm_preview_override,
+    capture_storage_state,
+    capture_satellite_info,
     capture_selector_state,
+    click_selector_if_visible,
     configure_gtm_preview_override,
     configure_tags_launch_override,
+    enable_selector,
     run_page,
+    run_page_session,
+    run_page_with_bootstrapped_state,
     run_with_basic_auth_page,
     run_with_launch_override,
+    scroll_selector_region_to_end,
+    scroll_selector_into_view,
+    set_checkbox_checked,
+    wait_for_any_selector,
 )
+
+
+class FakeElement:
+    def __init__(self, *, visible: bool = True) -> None:
+        self.visible = visible
+
+    def is_visible(self) -> bool:
+        return self.visible
 
 
 class FakePage:
@@ -20,6 +38,11 @@ class FakePage:
         self.goto_calls = []
         self.route_calls = []
         self.wait_calls = []
+        self.selector_map: dict[str, object | None] = {}
+        self.scroll_calls: list[dict[str, str]] = []
+        self.click_calls: list[tuple[str, bool]] = []
+        self.enabled_selectors: list[str] = []
+        self.region_scrolls: list[str] = []
 
     def goto(self, url: str, **kwargs) -> None:
         self.goto_calls.append((url, kwargs))
@@ -30,14 +53,38 @@ class FakePage:
     def wait_for_timeout(self, wait_ms: int) -> None:
         self.wait_calls.append(wait_ms)
 
-    def evaluate(self, _script: str, selectors: list[str]) -> dict:
-        return {
-            selectors[0]: {"exists": True, "opacity": "1", "childCount": 2},
-            selectors[1]: {"exists": False, "opacity": None, "childCount": 0},
-        }
+    def click(self, selector: str, *, force: bool = False) -> None:
+        self.click_calls.append((selector, force))
+
+    def evaluate(self, _script: str, payload=None):
+        if isinstance(payload, list):
+            return {
+                payload[0]: {"exists": True, "opacity": "1", "childCount": 2},
+                payload[1]: {"exists": False, "opacity": None, "childCount": 0},
+            }
+        if isinstance(payload, dict) and "selector" in payload:
+            selector = payload["selector"]
+            if self.selector_map.get(selector) is None:
+                return False
+            self.scroll_calls.append(
+                {"selector": selector, "block": payload.get("block", "center")}
+            )
+            return True
+        if isinstance(payload, str):
+            if self.selector_map.get(payload) is None:
+                return False
+            if "scrollTop = el.scrollHeight" in _script:
+                self.region_scrolls.append(payload)
+                return True
+            self.enabled_selectors.append(payload)
+            return True
+        return None
 
     def title(self) -> str:
         return self._title
+
+    def query_selector(self, selector: str):
+        return self.selector_map.get(selector)
 
 
 class FakeRequest:
@@ -65,12 +112,20 @@ class FakeContext:
         self.page_obj = page
         self.options = options
         self.closed = False
+        self.added_cookies = []
 
     def new_page(self) -> FakePage:
+        self.page_obj.context = self
         return self.page_obj
 
     def close(self) -> None:
         self.closed = True
+
+    def add_cookies(self, cookies) -> None:
+        self.added_cookies.extend(cookies)
+
+    def storage_state(self) -> dict:
+        return {"cookies": [{"name": "session", "value": "abc"}], "origins": []}
 
 
 class FakeBrowser:
@@ -92,8 +147,16 @@ class FakeChromium:
         self.browser = browser
         self.launch_calls = []
 
-    def launch(self, *, headless: bool) -> FakeBrowser:
-        self.launch_calls.append(headless)
+    def launch(
+        self,
+        *,
+        headless: bool,
+        channel: str | None = None,
+        slow_mo: int | None = None,
+    ) -> FakeBrowser:
+        self.launch_calls.append(
+            {"headless": headless, "channel": channel, "slow_mo": slow_mo}
+        )
         return self.browser
 
 
@@ -122,6 +185,143 @@ def test_capture_selector_state_uses_page_metadata():
     assert result["checks"]["#b"]["exists"] is False
 
 
+def test_wait_for_any_selector_returns_first_match_after_poll(monkeypatch):
+    import megaton_lib.validation.playwright_pages as mod
+
+    page = FakePage()
+    timeline = iter([0.0, 0.2, 0.6, 0.6])
+
+    def _monotonic() -> float:
+        return next(timeline)
+
+    def _wait_for_timeout(wait_ms: int) -> None:
+        page.wait_calls.append(wait_ms)
+        page.selector_map["#loaded"] = object()
+
+    monkeypatch.setattr(mod.time, "monotonic", _monotonic)
+    monkeypatch.setattr(page, "wait_for_timeout", _wait_for_timeout)
+
+    result = wait_for_any_selector(
+        page,
+        ["#missing", "#loaded"],
+        timeout_ms=1000,
+        poll_ms=500,
+        settle_ms=300,
+    )
+
+    assert result == "#loaded"
+    assert page.wait_calls == [500, 300]
+
+
+def test_wait_for_any_selector_returns_none_on_timeout(monkeypatch):
+    import megaton_lib.validation.playwright_pages as mod
+
+    page = FakePage()
+    timeline = iter([0.0, 0.2, 0.6, 1.1])
+
+    monkeypatch.setattr(mod.time, "monotonic", lambda: next(timeline))
+
+    result = wait_for_any_selector(
+        page,
+        ["#missing"],
+        timeout_ms=1000,
+        poll_ms=400,
+    )
+
+    assert result is None
+    assert page.wait_calls == [400, 400]
+
+
+def test_click_selector_if_visible_clicks_visible_element():
+    page = FakePage()
+    page.selector_map["#banner"] = FakeElement(visible=True)
+
+    result = click_selector_if_visible(page, "#banner", settle_ms=200)
+
+    assert result is True
+    assert page.click_calls == [("#banner", False)]
+    assert page.wait_calls == [200]
+
+
+def test_click_selector_if_visible_skips_hidden_element():
+    page = FakePage()
+    page.selector_map["#banner"] = FakeElement(visible=False)
+
+    result = click_selector_if_visible(page, "#banner")
+
+    assert result is False
+    assert page.click_calls == []
+
+
+def test_scroll_selector_region_to_end_scrolls_existing_region():
+    page = FakePage()
+    page.selector_map["#region"] = object()
+
+    result = scroll_selector_region_to_end(page, "#region", settle_ms=150)
+
+    assert result is True
+    assert page.region_scrolls == ["#region"]
+    assert page.wait_calls == [150]
+
+
+def test_enable_selector_marks_selector_enabled():
+    page = FakePage()
+    page.selector_map["#submit"] = object()
+
+    result = enable_selector(page, "#submit", settle_ms=120)
+
+    assert result is True
+    assert page.enabled_selectors == ["#submit"]
+    assert page.wait_calls == [120]
+
+
+def test_set_checkbox_checked_enables_and_clicks():
+    page = FakePage()
+    page.selector_map["#agree"] = object()
+
+    result = set_checkbox_checked(page, "#agree", settle_ms=180)
+
+    assert result is True
+    assert page.enabled_selectors == ["#agree"]
+    assert page.click_calls == [("#agree", True)]
+    assert page.wait_calls == [180]
+
+
+def test_scroll_selector_into_view_returns_true_for_existing_element():
+    page = FakePage()
+    page.selector_map["#hero"] = object()
+
+    result = scroll_selector_into_view(page, "#hero", block="center", settle_ms=250)
+
+    assert result is True
+    assert page.scroll_calls == [{"selector": "#hero", "block": "center"}]
+    assert page.wait_calls == [250]
+
+
+def test_scroll_selector_into_view_returns_false_when_missing():
+    page = FakePage()
+
+    result = scroll_selector_into_view(page, "#hero")
+
+    assert result is False
+    assert page.scroll_calls == []
+    assert page.wait_calls == []
+
+
+def test_capture_satellite_info_uses_page_evaluation():
+    class SatellitePage:
+        def evaluate(self, script: str) -> dict:
+            assert "hasSatellite" in script
+            return {"hasSatellite": True, "buildDate": "2026-04-10T00:00:00Z"}
+
+    result = capture_satellite_info(SatellitePage())
+
+    assert result == {
+        "hasSatellite": True,
+        "buildDate": "2026-04-10T00:00:00Z",
+    }
+
+
 def test_run_with_basic_auth_page_opens_and_closes(monkeypatch):
     page = FakePage()
     browser = FakeBrowser(page)
@@ -142,7 +342,9 @@ def test_run_with_basic_auth_page_opens_and_closes(monkeypatch):
     )
 
     assert result == {"title": "Example"}
-    assert chromium.launch_calls == [True]
+    assert chromium.launch_calls == [
+        {"headless": True, "channel": None, "slow_mo": None}
+    ]
     assert browser.context.options["http_credentials"] == {
         "username": "user",
         "password": "pass",
@@ -254,9 +456,137 @@ def test_run_page_applies_override_before_callback(monkeypatch):
 
     assert result == 2
     assert browser.context.options["ignore_https_errors"] is True
+    assert chromium.launch_calls == [
+        {"headless": True, "channel": None, "slow_mo": None}
+    ]
     assert [pattern for pattern, _handler in page.route_calls] == [
         "**/launch-*staging*.js",
         "**/launch-*development*.js",
+    ]
+
+
+def test_run_page_passes_storage_state_and_viewport(monkeypatch):
+    page = FakePage()
+    browser = FakeBrowser(page)
+    chromium = FakeChromium(browser)
+    manager = FakePlaywrightManager(FakePlaywright(chromium))
+
+    import megaton_lib.validation.playwright_pages as mod
+
+    monkeypatch.setattr(mod, "sync_playwright", lambda: manager)
+
+    result = run_page(
+        "https://example.test/page",
+        storage_state={"cookies": []},
+        viewport={"width": 1440, "height": 900},
+        callback=lambda opened_page: opened_page.url,
+    )
+
+    assert result == "https://example.test/page"
+    assert browser.context.options["storage_state"] == {"cookies": []}
+    assert browser.context.options["viewport"] == {"width": 1440, "height": 900}
+
+
+def test_capture_storage_state_returns_context_state(monkeypatch):
+    page = FakePage()
+    browser = FakeBrowser(page)
+    chromium = FakeChromium(browser)
+    manager = FakePlaywrightManager(FakePlaywright(chromium))
+
+    import megaton_lib.validation.playwright_pages as mod
+
+    monkeypatch.setattr(mod, "sync_playwright", lambda: manager)
+
+    state = capture_storage_state(
+        ignore_https_errors=True,
+        viewport={"width": 1280, "height": 720},
+        setup=lambda opened_page: opened_page.wait_for_timeout(5),
+        callback=lambda opened_page: opened_page.goto("https://example.test/login"),
+    )
+
+    assert state == {"cookies": [{"name": "session", "value": "abc"}], "origins": []}
+    assert browser.context.options["ignore_https_errors"] is True
+    assert browser.context.options["viewport"] == {"width": 1280, "height": 720}
+
+
+def test_run_page_session_supports_cookies_and_launch_options(monkeypatch):
+    page = FakePage()
+    browser = FakeBrowser(page)
+    chromium = FakeChromium(browser)
+    manager = FakePlaywrightManager(FakePlaywright(chromium))
+
+    import megaton_lib.validation.playwright_pages as mod
+
+    monkeypatch.setattr(mod, "sync_playwright", lambda: manager)
+
+    seen = []
+
+    result = run_page_session(
+        headless=False,
+        channel="chrome",
+        slow_mo=200,
+        cookies=[{"name": "sid", "value": "123"}],
+        context_setup=lambda context: seen.append(("context", context.options.copy())),
+        setup=lambda opened_page: seen.append(("setup", opened_page.url)),
+        callback=lambda opened_page: ("ok", opened_page.context.added_cookies),
+    )
+
+    assert result == ("ok", [{"name": "sid", "value": "123"}])
+    assert chromium.launch_calls == [
+        {"headless": False, "channel": "chrome", "slow_mo": 200}
+    ]
+    assert seen == [
+        ("context", {}),
+        ("setup", "https://example.test/page"),
+    ]
+
+
+def test_run_page_with_bootstrapped_state_reuses_captured_state(monkeypatch):
+    import megaton_lib.validation.playwright_pages as mod
+
+    seen = []
+
+    monkeypatch.setattr(
+        mod,
+        "capture_storage_state",
+        lambda **kwargs: (
+            seen.append(("bootstrap", kwargs["ignore_https_errors"], kwargs["viewport"])),
+            {"cookies": [{"name": "session", "value": "boot"}]},
+        )[1],
+    )
+    monkeypatch.setattr(
+        mod,
+        "run_page",
+        lambda url, **kwargs: (
+            seen.append(("run", url, kwargs["storage_state"], kwargs["tags_override"])),
+            "ok",
+        )[1],
+    )
+
+    result = run_page_with_bootstrapped_state(
+        "https://example.test/page",
+        ignore_https_errors=True,
+        viewport={"width": 1200, "height": 800},
+        tags_override=TagsLaunchOverride(
+            launch_url="https://assets.adobedtm.com/company/property/launch-dev.js",
+            mode="launch_env",
+        ),
+        bootstrap=lambda page: None,
+        callback=lambda page: None,
+    )
+
+    assert result == "ok"
+    assert seen == [
+        ("bootstrap", True, {"width": 1200, "height": 800}),
+        (
+            "run",
+            "https://example.test/page",
+            {"cookies": [{"name": "session", "value": "boot"}]},
+            TagsLaunchOverride(
+                launch_url="https://assets.adobedtm.com/company/property/launch-dev.js",
+                mode="launch_env",
+            ),
+        ),
     ]
 
 
@@ -348,3 +678,17 @@ def test_run_with_launch_override_keeps_legacy_wrapper_behavior(monkeypatch):
     assert [pattern for pattern, _handler in page.route_calls] == [
         "https://example.test/**",
     ]
+
+
+def test_run_page_session_requires_route_url_for_tags_override():
+    try:
+        run_page_session(
+            tags_override=TagsLaunchOverride(
+                launch_url="https://assets.adobedtm.com/company/property/launch-dev.js",
+            ),
+            callback=lambda page: None,
+        )
+    except ValueError as exc:
+        assert str(exc) == "route_url is required when tags_override is provided"
+    else:  # pragma: no cover
+        raise AssertionError("Expected ValueError")

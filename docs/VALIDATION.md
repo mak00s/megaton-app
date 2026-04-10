@@ -63,6 +63,14 @@ validation script 側で profile 名だけ切り替えたいときに使う。
 3. `megaton_lib.validation.*` を呼ぶ
 4. result に shared metadata を足して保存する
 
+使い分けの目安:
+
+- 単発の page load + beacon check は `run_aa_validation()`
+- step ごとの beacon 増分を見たい場合は `AppMeasurementCapture` + `execute_appmeasurement_scenario()`
+- 長い browser/context/page session を持つ場合は `run_page_session()`
+- storefront login/session cookie 再利用まで含む場合は `run_storefront_validation_session()`
+- AA API の follow-up verifier は `run_aa_api_followup_verifier()`
+
 ## GTM Preview Rule
 
 - GTM workspace preview は `GtmPreviewOverride` を使う
@@ -95,3 +103,11 @@ python scripts/check_validation_usage.py /path/to/repo
 この metadata/save helper 強制の主対象ではない。
 
 検出されたら、まず shared helper へ寄せられないかを確認する。
+
+直近の高位 helper:
+
+- `run_page_session(...)`
+- `run_storefront_validation_session(...)`
+- `AppMeasurementCapture`
+- `execute_appmeasurement_scenario(...)`
+- `run_aa_api_followup_verifier(...)`

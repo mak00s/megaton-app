@@ -705,14 +705,39 @@ Notes:
 | `build_tags_launch_override(config, ...)` | Build `TagsLaunchOverride` from config mapping with dev/region overrides |
 | `describe_tags_launch_override(override)` | Return stable metadata dict for saved Tags override runs |
 | `configure_tags_launch_override(page, url, override)` | Attach Playwright routes that swap Adobe Tags assets for one page/origin |
+| `run_page_session(...)` | Open a browser/context/page session with cookie preload, launch options, and optional override routing |
 | `run_page(...)` | Open a Playwright page with optional basic auth, HTTPS ignore, and Tags override support |
+| `capture_storage_state(...)` | Open a temporary Playwright context, run a callback, and return `storage_state` |
+| `run_page_with_bootstrapped_state(...)` | Capture auth/bootstrap `storage_state` once, then open a second page run with that state |
 | `run_with_basic_auth_page(...)` | Open a page with BASIC auth and run a callback in Playwright |
 | `run_with_launch_override(...)` | Backward-compatible helper for legacy `satelliteLib-*.js` replacement |
 | `capture_selector_state(page, selectors)` | Snapshot selector existence/opacity/child counts for page validation |
+| `wait_for_any_selector(page, selectors, ...)` | Poll until any selector appears and optionally wait for a settle period |
+| `click_selector_if_visible(page, selector, ...)` | Click a selector only when it exists and is visible |
+| `scroll_selector_region_to_end(page, selector, ...)` | Scroll a container element to its end and report whether it existed |
+| `enable_selector(page, selector, ...)` | Clear disabled state from a selector and report whether it existed |
+| `set_checkbox_checked(page, selector, ...)` | Enable and check a checkbox-like selector when it exists |
+| `scroll_selector_into_view(page, selector, ...)` | Scroll a selector into view and report whether the element existed |
+| `capture_satellite_info(page)` | Snapshot `_satellite` presence/build metadata from the current page |
+| `parse_appmeasurement_url(url, post_data=None)` | Parse AppMeasurement params from a `b/ss` URL and optional POST body |
+| `AppMeasurementCapture()` | Collector object with `attach()`, `checkpoint()`, `since()`, `collect_after()`, `snapshot()`, `clear()`, and `wait_until_ready()`; supports custom request parsers |
+| `execute_appmeasurement_scenario(page, capture, steps)` | Run declarative AppMeasurement steps and collect per-step incremental beacons |
+| `extract_appmeasurement_request(request)` | Parse one Playwright request into AppMeasurement params when it is a `b/ss` beacon |
+| `attach_appmeasurement_capture(page, sink)` | Attach a request listener that appends parsed `b/ss` beacons into a list |
+| `slice_appmeasurement_beacons(beacons, start_index)` | Return a shallow copy of parsed beacons captured after an offset |
+| `wait_for_appmeasurement_ready(page, beacons, ...)` | Wait until a beacon fires or `_satellite` and `s` are ready |
+| `run_aa_validation(config)` | Shared AA beacon runner; supports named hooks such as `bootstrapPage` and `captureRuntime` in config |
+| `resolve_adobe_credentials_path(...)` | Resolve an Adobe credential JSON from an explicit path or candidate list |
+| `build_adobe_analytics_client(...)` | Build an Adobe Analytics API client from local credential JSON plus env fallbacks |
+| `run_aa_api_followup_verifier(...)` | Load a verification JSON, run a verifier callback, and finalize the pending task |
 | `build_validation_run_metadata(...)` | Build standard metadata dict (execution mode, project, scenario, timestamps) |
 | `write_validation_json(path, report)` | Write validation report JSON with parent dir creation |
 | `load_auth_profile_store(path)` | Load a local JSON credential store for named auth profiles |
 | `resolve_auth_profile(store_or_path, profile_name, ...)` | Resolve one named auth profile and optionally require specific fields |
+| `load_storefront_session_cookies(path)` | Load persisted storefront session cookies from JSON when present |
+| `save_storefront_session_cookies(page, path)` | Persist current browser-context cookies for later storefront sessions |
+| `run_storefront_validation_session(...)` | Run a storefront browser session with cookie preload plus shared validation setup |
+| `finalize_followup_verification(...)` | Attach follow-up metadata, save the verification JSON, and complete the matching pending task |
 
 #### Adobe Tags Launch Override
 
@@ -756,7 +781,9 @@ Important fields:
 
 Notes:
 
+- `run_page_session(...)` is the higher-level session primitive for long browser flows. Use it when the callback owns navigation across many steps and you need cookie preload, `channel`, or `slow_mo`.
 - `run_page(...)` does not navigate for you. Call `page.goto(...)` inside `callback` or `setup`.
+- `run_page(...)`, `capture_storage_state(...)`, and `run_page_with_bootstrapped_state(...)` all accept the same session options as `run_page_session(...)`, including `channel`, `slow_mo`, `cookies`, and `context_setup`.
 - `run_with_launch_override(...)` remains available for older callers, but new code should prefer `run_page(..., tags_override=TagsLaunchOverride(...))`.
 - `run_with_launch_override(...)` performs one initial `page.goto(...)` before your callback runs. Do not call `page.goto(...)` again for the same URL unless you intentionally want a second load.
 - `run_with_basic_auth_page(...)` is still useful when you only need BASIC auth and no Tags replacement.
@@ -846,7 +873,12 @@ These helpers are intended for thin wrapper scripts in analysis repos.
 |----------|-------------|
 | `slugify_component_name(name)` | Convert component names to stable ASCII slugs for file matching |
 | `find_component_id(code_file)` | Resolve Reactor component/data-element ID from exported custom-code file path |
+| `find_data_element_id(settings_file)` | Resolve a data-element ID from an exported `*.settings.json` sidecar |
+| `get_component_settings(config, component_id)` | Fetch one rule component or data element with parsed Reactor settings |
+| `apply_component_settings(config, component_id, new_settings, dry_run=True)` | PATCH full settings for one rule component or data element |
 | `apply_custom_code_tree(config, root, dry_run=True)` | Apply all exported `*.custom-code.*` files under a property tree |
+| `apply_data_element_settings_tree(config, root, dry_run=True)` | Apply exported data-element `*.settings.json` sidecars via direct Reactor PATCH |
+| `apply_exported_changes_tree(config, root, dry_run=True)` | Apply both custom-code sidecars and data-element settings sidecars under a property tree |
 
 #### Validation Auth Profiles
 

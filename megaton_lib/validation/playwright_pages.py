@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+import time
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import parse_qs, urlencode, urlparse, urlsplit, urlunsplit
@@ -15,8 +16,12 @@ else:
     Page = Any
 
 try:
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
     from playwright.sync_api import sync_playwright
 except ModuleNotFoundError:  # pragma: no cover - exercised in CI environments without Playwright
+    class PlaywrightTimeoutError(Exception):
+        """Fallback timeout error used when Playwright is unavailable."""
+
     def sync_playwright() -> Any:
         raise ModuleNotFoundError(
             "playwright is required to use megaton_lib.validation.playwright_pages. "
@@ -406,38 +411,183 @@ def run_page(
     *,
     wait_ms: int = 0,
     headless: bool = True,
+    channel: str | None = None,
+    slow_mo: int = 0,
     ignore_https_errors: bool = False,
     basic_auth: dict[str, str] | None = None,
+    storage_state: Any = None,
+    cookies: list[Mapping[str, Any]] | None = None,
+    viewport: Mapping[str, int] | None = None,
     gtm_preview: GtmPreviewOverride | None = None,
     tags_override: TagsLaunchOverride | None = None,
+    context_setup: Callable[[Any], None] | None = None,
     setup: Callable[[Page], None] | None = None,
     callback: Callable[[Page], Any],
 ) -> Any:
     """Open a Playwright page, apply optional overrides, and run a callback."""
+    def _callback(page: Page) -> Any:
+        result = callback(page)
+        if wait_ms > 0:
+            page.wait_for_timeout(wait_ms)
+        return result
+
+    return run_page_session(
+        headless=headless,
+        channel=channel,
+        slow_mo=slow_mo,
+        ignore_https_errors=ignore_https_errors,
+        basic_auth=basic_auth,
+        storage_state=storage_state,
+        cookies=cookies,
+        viewport=viewport,
+        gtm_preview=gtm_preview,
+        tags_override=tags_override,
+        route_url=url,
+        context_setup=context_setup,
+        setup=setup,
+        callback=_callback,
+    )
+
+
+def run_page_session(
+    *,
+    headless: bool = True,
+    channel: str | None = None,
+    slow_mo: int = 0,
+    ignore_https_errors: bool = False,
+    basic_auth: dict[str, str] | None = None,
+    storage_state: Any = None,
+    cookies: list[Mapping[str, Any]] | None = None,
+    viewport: Mapping[str, int] | None = None,
+    gtm_preview: GtmPreviewOverride | None = None,
+    tags_override: TagsLaunchOverride | None = None,
+    route_url: str | None = None,
+    context_setup: Callable[[Any], None] | None = None,
+    setup: Callable[[Page], None] | None = None,
+    callback: Callable[[Page], Any],
+) -> Any:
+    """Open a browser/context/page session, run a callback, and handle cleanup."""
+    if tags_override is not None and not route_url:
+        raise ValueError("route_url is required when tags_override is provided")
+
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=headless)
+        launch_options: dict[str, Any] = {"headless": headless}
+        if channel:
+            launch_options["channel"] = channel
+        if slow_mo > 0:
+            launch_options["slow_mo"] = slow_mo
+        browser = playwright.chromium.launch(**launch_options)
+
         context_options: dict[str, Any] = {}
         if ignore_https_errors:
             context_options["ignore_https_errors"] = True
         if basic_auth:
             context_options["http_credentials"] = basic_auth
+        if storage_state is not None:
+            context_options["storage_state"] = storage_state
+        if viewport is not None:
+            context_options["viewport"] = dict(viewport)
 
         context = browser.new_context(**context_options)
-        page = context.new_page()
         try:
+            if cookies:
+                context.add_cookies([dict(cookie) for cookie in cookies])
+            if context_setup is not None:
+                context_setup(context)
+
+            page = context.new_page()
             if gtm_preview is not None:
                 configure_gtm_preview_override(page, gtm_preview)
             if tags_override is not None:
-                configure_tags_launch_override(page, url, tags_override)
+                configure_tags_launch_override(page, route_url or "", tags_override)
             if setup is not None:
                 setup(page)
-            result = callback(page)
-            if wait_ms > 0:
-                page.wait_for_timeout(wait_ms)
-            return result
+            return callback(page)
         finally:
             context.close()
             browser.close()
+
+
+def capture_storage_state(
+    *,
+    headless: bool = True,
+    channel: str | None = None,
+    slow_mo: int = 0,
+    ignore_https_errors: bool = False,
+    basic_auth: dict[str, str] | None = None,
+    cookies: list[Mapping[str, Any]] | None = None,
+    viewport: Mapping[str, int] | None = None,
+    context_setup: Callable[[Any], None] | None = None,
+    setup: Callable[[Page], None] | None = None,
+    callback: Callable[[Page], Any],
+) -> dict[str, Any]:
+    """Open a temporary context, run a callback, and return Playwright storage state."""
+    state: dict[str, Any] | None = None
+
+    def _callback(page: Page) -> None:
+        nonlocal state
+        callback(page)
+        state = page.context.storage_state()
+
+    run_page_session(
+        headless=headless,
+        channel=channel,
+        slow_mo=slow_mo,
+        ignore_https_errors=ignore_https_errors,
+        basic_auth=basic_auth,
+        cookies=cookies,
+        viewport=viewport,
+        context_setup=context_setup,
+        setup=setup,
+        callback=_callback,
+    )
+    return state or {"cookies": [], "origins": []}
+
+
+def run_page_with_bootstrapped_state(
+    url: str,
+    *,
+    bootstrap: Callable[[Page], Any],
+    wait_ms: int = 0,
+    headless: bool = True,
+    channel: str | None = None,
+    slow_mo: int = 0,
+    ignore_https_errors: bool = False,
+    basic_auth: dict[str, str] | None = None,
+    viewport: Mapping[str, int] | None = None,
+    gtm_preview: GtmPreviewOverride | None = None,
+    tags_override: TagsLaunchOverride | None = None,
+    context_setup: Callable[[Any], None] | None = None,
+    setup: Callable[[Page], None] | None = None,
+    callback: Callable[[Page], Any],
+) -> Any:
+    """Create storage state via ``bootstrap`` and reuse it for a second page run."""
+    storage_state = capture_storage_state(
+        headless=headless,
+        channel=channel,
+        slow_mo=slow_mo,
+        ignore_https_errors=ignore_https_errors,
+        basic_auth=basic_auth,
+        viewport=viewport,
+        context_setup=context_setup,
+        callback=bootstrap,
+    )
+    return run_page(
+        url,
+        wait_ms=wait_ms,
+        headless=headless,
+        channel=channel,
+        slow_mo=slow_mo,
+        ignore_https_errors=ignore_https_errors,
+        basic_auth=basic_auth,
+        storage_state=storage_state,
+        viewport=viewport,
+        gtm_preview=gtm_preview,
+        tags_override=tags_override,
+        context_setup=context_setup,
+        setup=setup,
+        callback=callback,
+    )
 
 
 def run_with_basic_auth_page(
@@ -545,3 +695,152 @@ def capture_selector_state(page: Page, selectors: list[str]) -> dict[str, Any]:
         "title": page.title(),
         "checks": checks,
     }
+
+
+def wait_for_any_selector(
+    page: Page,
+    selectors: list[str],
+    *,
+    timeout_ms: int,
+    poll_ms: int = 500,
+    settle_ms: int = 0,
+) -> str | None:
+    """Poll until any selector matches and optionally wait for a settle period."""
+    if not selectors:
+        raise ValueError("selectors must not be empty")
+    if timeout_ms < 0:
+        raise ValueError("timeout_ms must be >= 0")
+    if poll_ms <= 0:
+        raise ValueError("poll_ms must be > 0")
+    if settle_ms < 0:
+        raise ValueError("settle_ms must be >= 0")
+
+    deadline = time.monotonic() + (timeout_ms / 1000)
+    while True:
+        for selector in selectors:
+            if page.query_selector(selector) is not None:
+                if settle_ms > 0:
+                    page.wait_for_timeout(settle_ms)
+                return selector
+        if time.monotonic() >= deadline:
+            return None
+        page.wait_for_timeout(poll_ms)
+
+
+def click_selector_if_visible(
+    page: Page,
+    selector: str,
+    *,
+    force: bool = False,
+    settle_ms: int = 0,
+) -> bool:
+    """Click a selector only when it exists and is visible."""
+    element = page.query_selector(selector)
+    if element is None:
+        return False
+    is_visible = getattr(element, "is_visible", None)
+    if callable(is_visible) and not is_visible():
+        return False
+    page.click(selector, force=force)
+    if settle_ms > 0:
+        page.wait_for_timeout(settle_ms)
+    return True
+
+
+def scroll_selector_region_to_end(
+    page: Page,
+    selector: str,
+    *,
+    settle_ms: int = 0,
+) -> bool:
+    """Scroll a container element to its end and report whether it existed."""
+    found = bool(
+        page.evaluate(
+            """(selector) => {
+              const el = document.querySelector(selector);
+              if (!el) return false;
+              el.scrollTop = el.scrollHeight;
+              return true;
+            }""",
+            selector,
+        )
+    )
+    if found and settle_ms > 0:
+        page.wait_for_timeout(settle_ms)
+    return found
+
+
+def enable_selector(
+    page: Page,
+    selector: str,
+    *,
+    settle_ms: int = 0,
+) -> bool:
+    """Clear disabled state from a selector and report whether it existed."""
+    found = bool(
+        page.evaluate(
+            """(selector) => {
+              const el = document.querySelector(selector);
+              if (!el) return false;
+              el.disabled = false;
+              el.removeAttribute('disabled');
+              el.removeAttribute('aria-disabled');
+              return true;
+            }""",
+            selector,
+        )
+    )
+    if found and settle_ms > 0:
+        page.wait_for_timeout(settle_ms)
+    return found
+
+
+def set_checkbox_checked(
+    page: Page,
+    selector: str,
+    *,
+    force: bool = True,
+    settle_ms: int = 0,
+) -> bool:
+    """Enable and check a checkbox-like selector when it exists."""
+    if not enable_selector(page, selector):
+        return False
+    page.click(selector, force=force)
+    if settle_ms > 0:
+        page.wait_for_timeout(settle_ms)
+    return True
+
+
+def scroll_selector_into_view(
+    page: Page,
+    selector: str,
+    *,
+    block: Literal["start", "center", "end", "nearest"] = "center",
+    settle_ms: int = 0,
+) -> bool:
+    """Scroll a selector into view and return whether the element existed."""
+    found = bool(
+        page.evaluate(
+            """({ selector, block }) => {
+              const el = document.querySelector(selector);
+              if (!el) return false;
+              el.scrollIntoView({ block });
+              return true;
+            }""",
+            {"selector": selector, "block": block},
+        )
+    )
+    if found and settle_ms > 0:
+        page.wait_for_timeout(settle_ms)
+    return found
+
+
+def capture_satellite_info(page: Page) -> dict[str, Any]:
+    """Return stable `_satellite` presence/build metadata from the current page."""
+    return page.evaluate(
+        "() => { try { return {"
+        "  hasSatellite: typeof _satellite !== 'undefined',"
+        "  buildDate: typeof _satellite !== 'undefined' && _satellite.buildInfo"
+        "    ? _satellite.buildInfo.buildDate : null"
+        "}; } catch(e) { return {hasSatellite: false}; } }"
+    )

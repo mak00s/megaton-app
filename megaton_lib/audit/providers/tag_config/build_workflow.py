@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 
 from ...config import AdobeTagsConfig
 from .adobe_tags import build_library, export_property, refresh_library_resources
-from .sync import apply_custom_code_tree
+from .sync import apply_exported_changes_tree
 
 
 def collect_changed_resources(
@@ -19,13 +19,13 @@ def collect_changed_resources(
     *,
     dry_run: bool,
 ) -> list[dict]:
-    """Apply custom code tree and return changed rule/data-element origins."""
+    """Apply exported sidecars and return changed rule/data-element origins."""
     changed: list[dict] = []
     changed_count = 0
     applied_count = 0
     root_path = Path(root)
 
-    for result in apply_custom_code_tree(config, root_path, dry_run=dry_run):
+    for result in apply_exported_changes_tree(config, root_path, dry_run=dry_run):
         path = result["path"]
         component_id = result["component_id"]
 
