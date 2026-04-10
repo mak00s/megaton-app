@@ -2,6 +2,13 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-04-11 (v0.8.1)
+
+- Fixed CI compatibility for `tests/test_ga4_helpers.py`:
+  - `TestToDatetimeCol.test_converts_date_column` no longer assumes the source column keeps pandas `object` dtype
+  - accepts pandas string-backed dtypes while still verifying that `to_datetime_col()` returns a converted copy
+  - restores GitHub Actions compatibility on Python 3.12 / newer pandas combinations
+
 ## 2026-04-10 (v0.8.0)
 
 Summary since `v0.7.0`:
