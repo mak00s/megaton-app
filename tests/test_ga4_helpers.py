@@ -339,7 +339,7 @@ class TestToDatetimeCol:
         df = pd.DataFrame({"date": ["2026-02-04", "2026-02-05"], "uu": [10, 20]})
         result = to_datetime_col(df)
         assert pd.api.types.is_datetime64_any_dtype(result["date"])
-        assert df["date"].dtype == object
+        assert not pd.api.types.is_datetime64_any_dtype(df["date"])
 
     def test_no_date_column(self):
         df = pd.DataFrame({"page": ["/a"], "uu": [10]})
