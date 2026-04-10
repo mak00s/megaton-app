@@ -26,7 +26,7 @@ GA4 / Search Console / Adobe Analytics / BigQuery のデータを取得・加工
 
 ### 必要なもの
 
-- Python 3.10+
+- Python 3.11+
 - GCP サービスアカウント JSON（GA4 / GSC / BQ の API アクセス権限付き）
 - Adobe Analytics 利用時は `credentials/` の Adobe OAuth JSON か `ADOBE_CLIENT_ID` / `ADOBE_CLIENT_SECRET` / `ADOBE_ORG_ID`
 
@@ -67,6 +67,24 @@ analysis repo の validation script は、browser 起動や AA beacon 収集を�
 - follow-up verifier は `run_aa_api_followup_verifier()` を使う
 
 詳細な API 一覧は [REFERENCE.md](REFERENCE.md) を参照。
+
+### AA follow-up task を管理する
+
+AA 反映待ちの follow-up を shared JSON で管理したい場合は `scripts/check_pending_verifications.py` を使う。
+
+```bash
+# 期限超過だけ表示
+python scripts/check_pending_verifications.py
+
+# 保留中をすべて表示
+python scripts/check_pending_verifications.py --all
+
+# 手動で完了にする
+python scripts/check_pending_verifications.py --complete task-123 --result verified
+```
+
+validation script からは `register_pending_verification_task()` / `finalize_followup_verification()` /
+`run_aa_api_followup_verifier()` を組み合わせる。
 
 ### Streamlit UI で試す
 
@@ -200,6 +218,15 @@ python -m megaton_lib.audit.providers.analytics.dw.cli \
 - report 対象期間で直接絞ることはできない
 - 運用に入ったら template UUID を固定し、探索は bootstrap / 調査用に使う
 
+候補を 1 件に絞ったら compact summary を確認できる:
+
+```bash
+python -m megaton_lib.audit.providers.analytics.dw.cli \
+  --company-id example-commerce1 \
+  --describe-template \
+  --scheduled-request-uuid 12345678-90ab-cdef-1234-567890abcdef
+```
+
 ### AA Data Warehouse manifest を dry-run する
 
 ```bash
@@ -222,7 +249,7 @@ python scripts/audit.py site-mapping \
   --days 30 \
   --output output/audit
 
-# タグ設定を同期（GTM: コンテナ全体、差分のみ書き込み）
+# タグ設定スナップショットを出力（GTM はコンテナ全体 export + 差分集計）
 python scripts/audit.py export-tag-config \
   --project example-brand \
   --config-root configs/audit/projects \
@@ -230,6 +257,7 @@ python scripts/audit.py export-tag-config \
 ```
 
 - 共通部分（1-9）は `megaton-app` 側に実装
+- `export-tag-config` は `--output` 必須で、GTM の場合は `has_changes` も返す
 
 ### Adobe Tags export/apply を sidecar ベースで回す
 

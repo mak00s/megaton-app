@@ -2,6 +2,33 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-04-10 (v0.8.0)
+
+Summary since `v0.7.0`:
+
+- Expanded shared validation/session APIs in `megaton_lib.validation`:
+  - `AppMeasurementCapture` and `execute_appmeasurement_scenario()` for multi-step AA beacon scenarios
+  - `run_page_session()` and `run_storefront_validation_session()` for longer Playwright flows with cookie/session reuse
+  - Adobe credential/file helpers plus `run_aa_api_followup_verifier()` and `finalize_followup_verification()` for follow-up verification flows
+  - auth-profile and pending-task helpers, with shared CLI entrypoint `python scripts/check_pending_verifications.py`
+- Added Adobe Analytics operational helpers:
+  - `ClassificationsClient` plus `verify_classification.py` CLI for export/import/verification workflows
+  - `AdobeDataWarehouseClient` plus `dw.cli` helpers for scheduled-request search, describe, dry-run, and create flows
+- Expanded tag-management support:
+  - GTM / Adobe Tags shared export CLI helpers
+  - Adobe Tags sidecar sync for both custom code and data-element settings
+  - GTM audit export now reports `has_changes` from full-container diffs
+- Expanded Adobe Target Recommendations support:
+  - export prune mode for full unfiltered snapshots
+  - improved criteria/design apply behavior and sidecar compatibility
+- Added user-facing quality-of-life helpers:
+  - `read_sheet_table(..., header_row=...)` and stricter sheet-loading options
+  - report tracker dry-run write skipping
+  - `megaton_lib.docs_sites` helpers for generated Markdown table maintenance
+- Added broad regression coverage across validation, AA classifications, DW scheduling, GTM/Adobe Tags sync, sheets, and tracker flows
+
+Detailed changes by date:
+
 ### 2026-04-10
 
 - Expanded shared validation APIs in `megaton_lib.validation`:
@@ -18,6 +45,11 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
   - export now writes data-element settings sidecars
   - apply now supports both custom-code sidecars and data-element settings sidecars via `apply_exported_changes_tree()`
   - added generic component/data-element settings helpers for direct PATCH-based updates
+- Added shared pending follow-up task management:
+  - `scripts/check_pending_verifications.py` as the reusable CLI entrypoint for overdue/all/complete task flows
+  - auth-profile helpers for named validation credentials in one local JSON store
+- Expanded Adobe Target Recommendations export:
+  - `export_recs(..., prune=True)` can delete stale files after a full unfiltered export
 - Added regression tests for the new validation/session/follow-up APIs and Adobe Tags settings sync flows
 
 ### 2026-04-05
@@ -25,9 +57,9 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 - Added Adobe Analytics Data Warehouse scheduling support in `megaton_lib.audit.providers.analytics.dw`:
   - `AdobeDataWarehouseClient` for scheduled request list/get/create/update and generated report metadata
   - `build_adobe_auth()` / `build_dw_client()` runtime helpers for Adobe credential resolution
-  - template discovery helpers `find_template_requests()` and `resolve_template_request()`
+  - template discovery helpers `find_template_requests()`, `resolve_template_request()`, and `summarize_template_detail()`
   - template clone helpers `build_cloned_request_body()`, `create_request_from_template()`, and `bulk_create_requests_from_template()`
-  - CLI module `python -m megaton_lib.audit.providers.analytics.dw.cli` with `--find-template`, `--list`, `--status`, and manifest-based `--dry-run` / `--create`
+  - CLI module `python -m megaton_lib.audit.providers.analytics.dw.cli` with `--find-template`, `--describe-template`, `--list`, `--status`, and manifest-based `--dry-run` / `--create`
 - Exported `AdobeDataWarehouseClient` from `megaton_lib.audit.providers.analytics`
 - Added regression tests for DW template filtering and clone payload generation
 
@@ -43,6 +75,9 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
   - CLI no longer crashes when `--token-cache` is omitted
   - dataset lookup now requires exact dimension matching, avoiding prefix collisions such as `evar2` vs `evar29`
   - no-traffic keys in Level 2 are SKIP (not NG) and do not affect exit code
+- Expanded shared notebook/report helpers:
+  - `read_sheet_table(..., header_row=...)` for non-zero header rows in Sheets inputs
+  - report tracker dry-run write skipping for notebook jobs that should skip Sheets writes
 - Added regression tests for classifications dimension matching and CLI default token-cache behavior
 
 ### 2026-03-28 (v0.7.0)
