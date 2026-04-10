@@ -44,6 +44,11 @@ def parse_settings_object(raw: Any) -> dict[str, Any]:
     return {}
 
 
+def serialize_settings_object(settings: Mapping[str, Any] | dict[str, Any]) -> str:
+    """Serialize Reactor settings payload to a stable JSON string."""
+    return json.dumps(dict(settings), ensure_ascii=False, separators=(",", ":"))
+
+
 def _mapping_from_list(entries: Any) -> dict[str, str]:
     out: dict[str, str] = {}
     if not isinstance(entries, list):
@@ -938,6 +943,13 @@ def _export_data_elements(
                 source, encoding="utf-8",
             )
 
+        settings = parse_settings_object(attrs.get("settings"))
+        if settings:
+            (out_dir / f"{basename}.settings.json").write_text(
+                json.dumps(settings, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
         index_entries.append({"id": elem_id, "name": name})
 
     (out_dir / "index.json").write_text(
@@ -1128,6 +1140,15 @@ def _sync_data_elements(
             expected_files.add(code_filename)
             _tally(stats, _write_if_changed(out_dir / code_filename, source))
 
+        settings = parse_settings_object(attrs.get("settings"))
+        if settings:
+            settings_filename = f"{basename}.settings.json"
+            expected_files.add(settings_filename)
+            _tally(stats, _write_if_changed(
+                out_dir / settings_filename,
+                json.dumps(settings, indent=2, ensure_ascii=False),
+            ))
+
         index_entries.append({"id": elem_id, "name": name})
 
     _write_if_changed(out_dir / "index.json", json.dumps(index_entries, indent=2, ensure_ascii=False))
@@ -1197,6 +1218,69 @@ export_property = sync_property
 # ---- apply custom code ----
 
 
+def _resolve_component_endpoint(component_id: str) -> tuple[str, str]:
+    """Resolve the Reactor endpoint/resource type for a component-like ID."""
+    if component_id.startswith("RC"):
+        return f"/rule_components/{component_id}", "rule_components"
+    if component_id.startswith("DE"):
+        return f"/data_elements/{component_id}", "data_elements"
+    raise ValueError(f"Unknown component ID prefix: {component_id}")
+
+
+def get_component_settings(
+    config: AdobeTagsConfig,
+    component_id: str,
+) -> dict[str, Any]:
+    """Fetch one rule component or data element plus its parsed settings."""
+    endpoint, resource_type = _resolve_component_endpoint(component_id)
+    current = _reactor_get(config, endpoint)
+    current_data = current.get("data", {})
+    attrs = current_data.get("attributes", {})
+    return {
+        "component_id": component_id,
+        "resource_type": resource_type,
+        "name": attrs.get("name", ""),
+        "settings": parse_settings_object(attrs.get("settings")),
+    }
+
+
+def apply_component_settings(
+    config: AdobeTagsConfig,
+    component_id: str,
+    new_settings: Mapping[str, Any] | dict[str, Any],
+    *,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """Update a rule component or data element by PATCHing its full settings object."""
+    current = get_component_settings(config, component_id)
+    target_settings = dict(new_settings)
+    changed = current["settings"] != target_settings
+
+    result: dict[str, Any] = {
+        "component_id": component_id,
+        "resource_type": current["resource_type"],
+        "name": current["name"],
+        "changed": changed,
+        "update_type": "settings",
+    }
+    if not changed or dry_run:
+        return result
+
+    endpoint, resource_type = _resolve_component_endpoint(component_id)
+    patch_payload = {
+        "data": {
+            "id": component_id,
+            "type": resource_type,
+            "attributes": {
+                "settings": serialize_settings_object(target_settings),
+            },
+        },
+    }
+    _reactor_patch(config, endpoint, patch_payload)
+    result["applied"] = True
+    return result
+
+
 def apply_custom_code(
     config: AdobeTagsConfig,
     component_id: str,
@@ -1219,21 +1303,11 @@ def apply_custom_code(
     -------
     dict with ``changed``, ``component_id``, and diff info.
     """
-    # Determine resource type from ID prefix
-    if component_id.startswith("RC"):
-        endpoint = f"/rule_components/{component_id}"
-        resource_type = "rule_components"
-    elif component_id.startswith("DE"):
-        endpoint = f"/data_elements/{component_id}"
-        resource_type = "data_elements"
-    else:
-        raise ValueError(f"Unknown component ID prefix: {component_id}")
+    endpoint, resource_type = _resolve_component_endpoint(component_id)
 
     # Fetch current state
-    current = _reactor_get(config, endpoint)
-    current_data = current.get("data", {})
-    attrs = current_data.get("attributes", {})
-    settings = parse_settings_object(attrs.get("settings"))
+    current = get_component_settings(config, component_id)
+    settings = dict(current["settings"])
 
     # Find current code
     current_code = ""
@@ -1265,13 +1339,31 @@ def apply_custom_code(
             "id": component_id,
             "type": resource_type,
             "attributes": {
-                "settings": json.dumps(settings),
+                "settings": serialize_settings_object(settings),
             },
         },
     }
     _reactor_patch(config, endpoint, patch_payload)
     result["applied"] = True
     return result
+
+
+def apply_data_element_settings(
+    config: AdobeTagsConfig,
+    data_element_id: str,
+    new_settings: Mapping[str, Any] | dict[str, Any],
+    *,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """Update a data element by PATCHing its full settings object."""
+    if not data_element_id.startswith("DE"):
+        raise ValueError(f"Expected DE id, got: {data_element_id}")
+    return apply_component_settings(
+        config,
+        data_element_id,
+        new_settings,
+        dry_run=dry_run,
+    )
 
 
 # ---- utilities ----

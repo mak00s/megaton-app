@@ -56,6 +56,18 @@ python scripts/query.py --list-ga4-properties
 
 Validation / Playwright の shared-first 方針は [VALIDATION.md](VALIDATION.md) を参照。
 
+### Validation script を薄く保つ
+
+analysis repo の validation script は、browser 起動や AA beacon 収集を手書きしない方針を前提にする。
+
+- 単発の AA beacon check は `run_aa_validation()` を優先する
+- 複数 step の AA scenario は `AppMeasurementCapture` と `execute_appmeasurement_scenario()` を使う
+- 長い Playwright session は `run_page_session()` を使う
+- storefront 系の継続 session は `run_storefront_validation_session()` を使う
+- follow-up verifier は `run_aa_api_followup_verifier()` を使う
+
+詳細な API 一覧は [REFERENCE.md](REFERENCE.md) を参照。
+
 ### Streamlit UI で試す
 
 ```bash
@@ -218,6 +230,16 @@ python scripts/audit.py export-tag-config \
 ```
 
 - 共通部分（1-9）は `megaton-app` 側に実装
+
+### Adobe Tags export/apply を sidecar ベースで回す
+
+Adobe Tags の export/apply では、rule component の custom code だけでなく data element settings sidecar も扱える。
+
+- export は property tree 配下に `*.custom-code.*` と `*.settings.json` を出力する
+- apply は `apply_exported_changes_tree()` 経由で両方を反映する
+- data element の custom code だけでなく `settings` 全体を PATCH したい場合も sidecar を編集する
+
+運用上は、export した tree をそのまま Git で管理し、編集後に apply/build/verify を回す形を基本にする。
 - 案件固有（10-12）は各分析 repo 側で実装
 - 設定ファイルは `configs/audit/projects/` を参照
 

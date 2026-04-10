@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 import json
 import re
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .playwright_pages import (
     TagsLaunchOverride,
     build_tags_launch_override,
+    capture_satellite_info,
     run_page,
 )
 from .metadata import build_validation_run_metadata
@@ -21,8 +25,28 @@ def load_validation_config(config_path: Path) -> dict:
         return json.load(f)
 
 
-def parse_appmeasurement_url(url: str) -> dict[str, str]:
-    """Extract Adobe Analytics variables from a ``b/ss/`` beacon URL."""
+def _parse_form_encoded_values(payload: str | bytes | None) -> dict[str, str]:
+    """Parse a querystring-style payload into a flat string dict."""
+    if not payload:
+        return {}
+    if isinstance(payload, bytes):
+        try:
+            payload = payload.decode("utf-8")
+        except UnicodeDecodeError:
+            return {}
+
+    payload = payload.lstrip("?")
+    if "=" not in payload:
+        return {}
+
+    params: dict[str, str] = {}
+    for key, values in parse_qs(payload, keep_blank_values=True).items():
+        params[key] = values[0] if values else ""
+    return params
+
+
+def parse_appmeasurement_url(url: str, post_data: str | bytes | None = None) -> dict[str, str]:
+    """Extract Adobe Analytics variables from a ``b/ss/`` beacon request."""
     parsed = urlparse(url)
     params: dict[str, str] = {}
 
@@ -34,10 +58,205 @@ def parse_appmeasurement_url(url: str) -> dict[str, str]:
     except ValueError:
         pass
 
-    for key, values in parse_qs(parsed.query, keep_blank_values=True).items():
-        params[key] = values[0] if values else ""
+    params.update(_parse_form_encoded_values(parsed.query))
+    params.update(_parse_form_encoded_values(post_data))
 
     return params
+
+
+@dataclass
+class AppMeasurementCapture:
+    """Mutable collector for parsed AppMeasurement `b/ss` beacons."""
+
+    beacons: list[Any] = field(default_factory=list)
+    parser: Callable[[Any], Any | None] | None = None
+
+    def attach(self, page: Any) -> Callable[[Any], None]:
+        """Attach request capture to a Playwright page."""
+        return attach_appmeasurement_capture(page, self.beacons, parser=self.parser)
+
+    def checkpoint(self) -> int:
+        """Return a checkpoint index for later incremental slicing."""
+        return len(self.beacons)
+
+    def since(self, start_index: int) -> list[Any]:
+        """Return beacons captured after `start_index`."""
+        return slice_appmeasurement_beacons(self.beacons, start_index)
+
+    def collect_after(
+        self,
+        action: Callable[[], Any],
+        *,
+        page: Any | None = None,
+        wait_ms: int = 0,
+    ) -> tuple[Any, list[Any]]:
+        """Run one action and return both its result and new beacons since the start."""
+        checkpoint = self.checkpoint()
+        result = action()
+        if page is not None and wait_ms > 0:
+            page.wait_for_timeout(wait_ms)
+        return result, self.since(checkpoint)
+
+    def snapshot(self) -> list[Any]:
+        """Return a shallow copy of all captured beacons."""
+        return list(self.beacons)
+
+    def clear(self) -> None:
+        """Discard all captured beacons."""
+        self.beacons.clear()
+
+    def wait_until_ready(
+        self,
+        page: Any,
+        *,
+        timeout_ms: int = 30_000,
+        poll_ms: int = 1_000,
+        settle_ms: int = 2_000,
+    ) -> dict[str, int | str]:
+        """Wait until a beacon fires or AppMeasurement runtime is available."""
+        return wait_for_appmeasurement_ready(
+            page,
+            self.beacons,
+            timeout_ms=timeout_ms,
+            poll_ms=poll_ms,
+            settle_ms=settle_ms,
+        )
+
+
+def execute_appmeasurement_scenario(
+    page: Any,
+    appmeasurement: AppMeasurementCapture,
+    steps: list[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Execute declarative AppMeasurement steps and collect incremental beacons."""
+    out: list[dict[str, Any]] = []
+    for index, step in enumerate(steps, start=1):
+        action = str(step.get("action", "")).strip()
+        if not action:
+            raise ValueError("scenario step action is required")
+        name = str(step.get("name", "")).strip() or f"step{index}"
+        wait_ms = int(step.get("waitMs", 0) or 0)
+
+        if action == "goto":
+            url = str(step.get("url", "")).strip()
+            if not url:
+                raise ValueError(f"{name}: goto step requires url")
+
+            def _runner() -> Any:
+                return page.goto(
+                    url,
+                    wait_until=str(step.get("waitUntil", "domcontentloaded")),
+                    timeout=int(step.get("timeout", 60000)),
+                )
+
+        elif action == "click":
+            selector = str(step.get("selector", "")).strip()
+            if not selector:
+                raise ValueError(f"{name}: click step requires selector")
+
+            def _runner() -> Any:
+                return page.click(selector, force=bool(step.get("force", False)))
+
+        elif action == "goBack":
+            def _runner() -> Any:
+                return page.go_back(
+                    wait_until=str(step.get("waitUntil", "domcontentloaded")),
+                    timeout=int(step.get("timeout", 60000)),
+                )
+
+        elif action == "wait":
+            def _runner() -> Any:
+                return None
+
+        elif action == "callback":
+            callback = step.get("callback")
+            if not callable(callback):
+                raise ValueError(f"{name}: callback step requires callable callback")
+
+            def _runner() -> Any:
+                return callback()
+
+        else:
+            raise ValueError(f"{name}: unsupported scenario action '{action}'")
+
+        result, beacons = appmeasurement.collect_after(
+            _runner,
+            page=page if wait_ms > 0 else None,
+            wait_ms=wait_ms,
+        )
+        out.append(
+            {
+                "name": name,
+                "action": action,
+                "result": result,
+                "beacons": beacons,
+            }
+        )
+    return out
+
+
+def extract_appmeasurement_request(request: Any) -> dict[str, str] | None:
+    """Return parsed AppMeasurement params for a Playwright request, if any."""
+    req_url = str(getattr(request, "url", "") or "")
+    if "b/ss/" not in req_url:
+        return None
+    return parse_appmeasurement_url(req_url, getattr(request, "post_data", None))
+
+
+def attach_appmeasurement_capture(
+    page: Any,
+    sink: list[Any],
+    *,
+    parser: Callable[[Any], Any | None] | None = None,
+) -> Callable[[Any], None]:
+    """Attach a request listener that appends parsed ``b/ss`` beacons into ``sink``."""
+    parser_fn = parser or extract_appmeasurement_request
+
+    def on_request(request: Any) -> None:
+        parsed = parser_fn(request)
+        if parsed is not None:
+            sink.append(parsed)
+
+    page.on("request", on_request)
+    return on_request
+
+
+def slice_appmeasurement_beacons(
+    beacons: list[Any],
+    start_index: int,
+) -> list[Any]:
+    """Return a shallow copy of beacons captured after ``start_index``."""
+    return list(beacons[start_index:])
+
+
+def wait_for_appmeasurement_ready(
+    page: Any,
+    beacons: list[dict[str, str]],
+    *,
+    timeout_ms: int = 30_000,
+    poll_ms: int = 1_000,
+    settle_ms: int = 2_000,
+) -> dict[str, int | str]:
+    """Wait until a beacon fires or `_satellite`/`s` are available."""
+    elapsed_ms = 0
+    while elapsed_ms < timeout_ms:
+        if beacons:
+            if settle_ms > 0:
+                page.wait_for_timeout(settle_ms)
+            return {"status": "beacon", "elapsedMs": elapsed_ms}
+
+        sat_ok = page.evaluate(
+            "() => typeof _satellite !== 'undefined' && typeof s !== 'undefined'"
+        )
+        if sat_ok:
+            if settle_ms > 0:
+                page.wait_for_timeout(settle_ms)
+            return {"status": "satellite", "elapsedMs": elapsed_ms}
+
+        page.wait_for_timeout(poll_ms)
+        elapsed_ms += poll_ms
+
+    return {"status": "timeout", "elapsedMs": timeout_ms}
 
 
 def parse_edge_body(body: str | bytes | None) -> dict | None:
@@ -253,9 +472,12 @@ def run_aa_validation(config: dict) -> dict:
     tags_override_config = _build_tags_override_config(config)
     dump_dd = config.get("dumpDigitalData", False)
     wait_for_fpid = config.get("waitForFPID", False)
+    page_setup = config.get("pageSetup")
+    bootstrap_page = config.get("bootstrapPage") or config.get("beforeSteps")
+    capture_runtime = config.get("captureRuntime") or config.get("runtimeSnapshot")
 
     edge_requests: list[dict] = []
-    bss_beacons: list[dict] = []
+    appmeasurement = AppMeasurementCapture()
     page_errors: list[str] = []
     console_errors: list[str] = []
     failed_requests: list[str] = []
@@ -279,9 +501,11 @@ def run_aa_validation(config: dict) -> dict:
                     "method": request.method,
                     "body": body,
                 })
-            elif "b/ss/" in req_url:
-                params = parse_appmeasurement_url(req_url)
-                bss_beacons.append({
+            else:
+                params = extract_appmeasurement_request(request)
+                if params is None:
+                    return
+                appmeasurement.beacons.append({
                     "url": req_url,
                     "params": params,
                 })
@@ -320,6 +544,8 @@ def run_aa_validation(config: dict) -> dict:
         page.on("console", on_console)
         page.on("requestfailed", on_request_failed)
         page.on("response", on_response)
+        if callable(page_setup):
+            page_setup(page)
 
         auth_label = " (with BASIC auth)" if basic_auth else ""
         embed_label = " (launch override)" if tags_override else ""
@@ -327,6 +553,8 @@ def run_aa_validation(config: dict) -> dict:
         print()
 
         try:
+            if callable(bootstrap_page):
+                bootstrap_page(page)
             execute_playwright_steps(page, steps)
         except Exception as exc:
             step_errors.append(str(exc))
@@ -377,18 +605,14 @@ def run_aa_validation(config: dict) -> dict:
 
         final_url = page.url
         digital_data = dump_digital_data(page) if dump_dd else None
-        sat_info = page.evaluate(
-            "() => { try { return {"
-            "  hasSatellite: typeof _satellite !== 'undefined',"
-            "  buildDate: typeof _satellite !== 'undefined' && _satellite.buildInfo"
-            "    ? _satellite.buildInfo.buildDate : null"
-            "}; } catch(e) { return {hasSatellite: false}; } }"
-        )
-        return final_url, digital_data, sat_info
+        sat_info = capture_satellite_info(page)
+        runtime = capture_runtime(page) if callable(capture_runtime) else None
+        return final_url, digital_data, sat_info, runtime
 
-    final_url, digital_data, sat_info = run_page(
+    final_url, digital_data, sat_info, runtime = run_page(
         entry_url or config.get("url", ""),
         headless=config.get("headless", True),
+        ignore_https_errors=bool(config.get("ignoreHttpsErrors", False)),
         basic_auth=(
             {
                 "username": basic_auth["username"],
@@ -397,11 +621,14 @@ def run_aa_validation(config: dict) -> dict:
             if basic_auth
             else None
         ),
+        storage_state=config.get("storageState"),
+        viewport=config.get("viewport"),
         tags_override=tags_override,
         callback=_run,
     )
 
     issues: list[str] = []
+    bss_beacons = appmeasurement.beacons
     results: dict = {
         "url": final_url,
         "edge": {"count": len(edge_requests), "requests": []},
@@ -423,6 +650,8 @@ def run_aa_validation(config: dict) -> dict:
     )
     if digital_data is not None:
         results["digitalData"] = digital_data
+    if runtime is not None:
+        results["runtime"] = runtime
 
     for i, req in enumerate(edge_requests):
         summary: dict = {"index": i, "method": req["method"], "url": req["url"]}
@@ -455,6 +684,10 @@ def run_aa_validation(config: dict) -> dict:
             "rsid": beacon["params"].get("rsid", ""),
             "pageName": beacon["params"].get("pageName", ""),
             "events": beacon["params"].get("events", ""),
+            "pageUrl": beacon["params"].get("g", ""),
+            "prop1": beacon["params"].get("c1", ""),
+            "eVar1": beacon["params"].get("v1", ""),
+            "linkName": beacon["params"].get("pev2", ""),
         }
         results["bss"]["beacons"].append(beacon_summary)
 

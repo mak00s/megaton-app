@@ -238,7 +238,7 @@ def tags_apply_main(
     project_root:
         Project root for resolving relative output paths.
     """
-    parser = argparse.ArgumentParser(description="Apply Adobe Tags custom code changes")
+    parser = argparse.ArgumentParser(description="Apply Adobe Tags exported changes")
     parser.add_argument("--apply", action="store_true", help="Apply changes (default: dry-run)")
     parser.add_argument("--skip-build", action="store_true", help="Skip revise + build + verify")
     parser.add_argument("--property-id", default="", help="Explicit property id")
@@ -285,16 +285,16 @@ def tags_apply_main(
 
         # Fallback: apply-only
         from .adobe_tags import export_property  # noqa: WPS433
-        from .sync import apply_custom_code_tree  # noqa: WPS433
+        from .sync import apply_exported_changes_tree  # noqa: WPS433
 
         mode = "APPLY" if args.apply else "DRY-RUN"
-        print(f"[{mode}] Applying Adobe Tags custom code changes")
+        print(f"[{mode}] Applying Adobe Tags exported changes")
         print(f"  property: {pid}")
         print(f"  output_root: {output}")
 
         changed_count = 0
         applied_count = 0
-        for result in apply_custom_code_tree(tags_config, output, dry_run=not args.apply):
+        for result in apply_exported_changes_tree(tags_config, output, dry_run=not args.apply):
             if result.get("changed"):
                 changed_count += 1
                 status = "APPLIED" if result.get("applied") else "CHANGED"

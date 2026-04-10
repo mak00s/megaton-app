@@ -13,9 +13,12 @@ from megaton_lib.validation.storefront_runtime import (
     build_storefront_checkpoint,
     capture_storefront_checkpoint,
     is_login_form_page,
+    load_storefront_session_cookies,
     next_aa_reflection_time,
     perform_storefront_login,
     record_checkout_stage,
+    run_storefront_validation_session,
+    save_storefront_session_cookies,
     wait_until_login_completed,
     write_progress_json,
 )
@@ -209,6 +212,68 @@ def test_write_progress_json_writes_atomically(tmp_path: Path) -> None:
     assert progress_path.exists()
     assert not progress_tmp_path.exists()
     assert '"phase": "running"' in progress_path.read_text(encoding="utf-8")
+
+
+def test_load_storefront_session_cookies_reads_cookie_list(tmp_path: Path) -> None:
+    session_file = tmp_path / "session.json"
+    session_file.write_text('[{"name":"sid","value":"123"}]', encoding="utf-8")
+
+    cookies = load_storefront_session_cookies(session_file)
+
+    assert cookies == [{"name": "sid", "value": "123"}]
+
+
+def test_save_storefront_session_cookies_persists_context_cookies(tmp_path: Path) -> None:
+    session_file = tmp_path / "nested" / "session.json"
+    page = _FakePage("https://example.com/cart")
+
+    save_storefront_session_cookies(page, session_file)
+
+    assert '"name": "CART_COUNT"' in session_file.read_text(encoding="utf-8")
+
+
+def test_run_storefront_validation_session_uses_cookie_preload_and_shared_setup(monkeypatch, tmp_path: Path) -> None:
+    import megaton_lib.validation.storefront_runtime as mod
+
+    session_file = tmp_path / "session.json"
+    session_file.write_text('[{"name":"sid","value":"123"}]', encoding="utf-8")
+    seen: list[object] = []
+
+    class DummyPage:
+        def __init__(self) -> None:
+            self.routed = []
+
+        def route(self, pattern, _handler) -> None:
+            self.routed.append(pattern)
+
+        def on(self, event, _handler) -> None:
+            seen.append(("on", event))
+
+    def fake_run_page_session(**kwargs):
+        seen.append(kwargs["cookies"])
+        page = DummyPage()
+        kwargs["setup"](page)
+        return kwargs["callback"](page)
+
+    monkeypatch.setattr(mod, "run_page_session", fake_run_page_session)
+
+    result = run_storefront_validation_session(
+        headless=False,
+        channel="chrome",
+        slow_mo=200,
+        session_file=session_file,
+        domain="dev-store.example.test",
+        basic_auth={"username": "u", "password": "p"},
+        beacons=None,
+        setup=lambda page: seen.append(("custom_setup", isinstance(page, DummyPage))),
+        callback=lambda page: ("ok", page.routed),
+    )
+
+    assert result == ("ok", ["**://dev-store.example.test/**"])
+    assert seen == [
+        [{"name": "sid", "value": "123"}],
+        ("custom_setup", True),
+    ]
 
 
 def test_storefront_checkout_state_as_result() -> None:

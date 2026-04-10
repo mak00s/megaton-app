@@ -2,6 +2,24 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+### 2026-04-10
+
+- Expanded shared validation APIs in `megaton_lib.validation`:
+  - `AppMeasurementCapture` plus `execute_appmeasurement_scenario()` for reusable multi-step AA beacon scenarios
+  - `run_page_session()` as the higher-level browser/context/page session primitive for long Playwright flows
+  - `run_storefront_validation_session()` plus storefront session cookie load/save helpers for storefront validation scripts
+  - `aa_api.py` with `resolve_adobe_credentials_path()`, `build_adobe_analytics_client()`, and `run_aa_api_followup_verifier()`
+  - `finalize_followup_verification()` for shared follow-up metadata/save/task-complete flows
+- Expanded shared AA runner behavior:
+  - AppMeasurement `b/ss` parsing now supports POST body payloads in addition to query strings
+  - `run_aa_validation()` now supports named hooks such as `bootstrapPage`, `captureRuntime`, `storageState`, `viewport`, and `ignoreHttpsErrors`
+  - AA beacon summaries now include `pageUrl`, `prop1`, `eVar1`, and `linkName`
+- Expanded Adobe Tags export/apply support in `megaton_lib.audit.providers.tag_config`:
+  - export now writes data-element settings sidecars
+  - apply now supports both custom-code sidecars and data-element settings sidecars via `apply_exported_changes_tree()`
+  - added generic component/data-element settings helpers for direct PATCH-based updates
+- Added regression tests for the new validation/session/follow-up APIs and Adobe Tags settings sync flows
+
 ### 2026-04-05
 
 - Added Adobe Analytics Data Warehouse scheduling support in `megaton_lib.audit.providers.analytics.dw`:

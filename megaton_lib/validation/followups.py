@@ -8,6 +8,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .metadata import build_validation_run_metadata, write_validation_json
+
 
 JST = timezone(timedelta(hours=9))
 DEFAULT_PENDING_COMMENT = "AA verification follow-up tasks. due_at is the expected next AA batch reflection time."
@@ -235,6 +237,36 @@ def mark_verification_task_completed_by_file(
     return None
 
 
+def finalize_followup_verification(
+    verification: dict[str, Any],
+    *,
+    json_path: str | Path,
+    pending_file: str | Path,
+    verification_type: str,
+    result: str,
+    project: str,
+    scenario: str,
+    extra: dict[str, Any] | None = None,
+    metadata_key: str = "aa_followup_metadata",
+) -> dict[str, Any] | None:
+    """Attach follow-up metadata, persist JSON, and complete the pending task."""
+    path = Path(json_path)
+    verification[metadata_key] = build_validation_run_metadata(
+        execution_mode=str(verification.get("executionMode", "live")),
+        project=project,
+        scenario=scenario,
+        config_path=path,
+        extra=extra,
+    )
+    write_validation_json(path, verification)
+    return mark_verification_task_completed_by_file(
+        pending_file,
+        str(path),
+        verification_type=verification_type,
+        result=result,
+    )
+
+
 def format_pending_verification_task(task: dict[str, Any]) -> str:
     """Format a task for CLI display."""
     overdue_min = int(task.get("_overdue_minutes", 0) or 0)
@@ -382,6 +414,7 @@ __all__ = [
     "JST",
     "append_pending_verification_task",
     "build_pending_verification_task",
+    "finalize_followup_verification",
     "format_pending_verification_task",
     "get_overdue_verification_tasks",
     "get_pending_verification_tasks",

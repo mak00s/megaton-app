@@ -7,12 +7,16 @@ import pytest
 from megaton_lib.audit.providers.tag_config.adobe_tags import (
     _reactor_get,
     _reactor_post,
+    _sync_data_elements,
     _export_items,
+    apply_component_settings,
+    apply_data_element_settings,
     build_library,
     deploy_library,
     export_property,
     extract_mapping_from_settings,
     find_dirty_origin_rules,
+    get_component_settings,
     list_library_resources,
     list_rule_revisions,
     parse_settings_object,
@@ -102,6 +106,132 @@ def test_reactor_post_error_raises(tags_env, monkeypatch):
     )
     with pytest.raises(RuntimeError, match="POST failed"):
         _reactor_post(config, "/libraries/LB1/builds", {"data": {}})
+
+
+def test_apply_data_element_settings_patches_settings(tags_env, monkeypatch):
+    config = _make_config()
+    patch_calls = []
+
+    def mock_request(method, url, **kw):
+        if method == "GET":
+            return _Resp(200, {
+                "data": {
+                    "id": "DE123",
+                    "attributes": {"settings": '{"source":"window.old","storageDuration":"none"}'},
+                },
+            })
+        if method == "PATCH":
+            patch_calls.append({"url": url, "json": kw.get("json")})
+            return _Resp(200, {"data": {"id": "DE123"}})
+        raise AssertionError(method)
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        mock_request,
+    )
+
+    result = apply_data_element_settings(
+        config,
+        "DE123",
+        {"source": "window.new", "storageDuration": "pageview"},
+        dry_run=False,
+    )
+
+    assert result["changed"] is True
+    assert result["applied"] is True
+    assert patch_calls[0]["url"].endswith("/data_elements/DE123")
+    assert patch_calls[0]["json"]["data"]["attributes"]["settings"] == (
+        '{"source":"window.new","storageDuration":"pageview"}'
+    )
+
+
+def test_get_component_settings_reads_rule_component(tags_env, monkeypatch):
+    config = _make_config()
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        lambda method, url, **kw: _Resp(200, {
+            "data": {
+                "id": "RC123",
+                "attributes": {
+                    "name": "Set Variables",
+                    "settings": '{"customSetup":{"source":"console.log(1)"}}',
+                },
+            },
+        }),
+    )
+
+    result = get_component_settings(config, "RC123")
+
+    assert result == {
+        "component_id": "RC123",
+        "resource_type": "rule_components",
+        "name": "Set Variables",
+        "settings": {"customSetup": {"source": "console.log(1)"}},
+    }
+
+
+def test_apply_component_settings_patches_rule_component(tags_env, monkeypatch):
+    config = _make_config()
+    patch_calls = []
+
+    def mock_request(method, url, **kw):
+        if method == "GET":
+            return _Resp(200, {
+                "data": {
+                    "id": "RC123",
+                    "attributes": {
+                        "name": "Set Variables",
+                        "settings": '{"customSetup":{"source":"old"}}',
+                    },
+                },
+            })
+        if method == "PATCH":
+            patch_calls.append({"url": url, "json": kw.get("json")})
+            return _Resp(200, {"data": {"id": "RC123"}})
+        raise AssertionError(method)
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        mock_request,
+    )
+
+    result = apply_component_settings(
+        config,
+        "RC123",
+        {"customSetup": {"source": "new"}},
+        dry_run=False,
+    )
+
+    assert result["changed"] is True
+    assert result["applied"] is True
+    assert result["resource_type"] == "rule_components"
+    assert patch_calls[0]["url"].endswith("/rule_components/RC123")
+    assert patch_calls[0]["json"]["data"]["attributes"]["settings"] == (
+        '{"customSetup":{"source":"new"}}'
+    )
+
+
+def test_sync_data_elements_writes_settings_sidecar(tags_env, monkeypatch, tmp_path):
+    config = _make_config()
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.list_data_elements",
+        lambda *args, **kwargs: [{
+            "id": "DE123",
+            "attributes": {
+                "name": "DE Name",
+                "settings": '{"source":"window.ctx","storageDuration":"pageview"}',
+            },
+        }],
+    )
+
+    stats = _sync_data_elements(config, tmp_path)
+
+    assert stats["added"] == 3
+    assert json.loads((tmp_path / "de123_de-name.settings.json").read_text(encoding="utf-8")) == {
+        "source": "window.ctx",
+        "storageDuration": "pageview",
+    }
 
 
 # ---- build_library tests ----

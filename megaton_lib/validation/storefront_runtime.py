@@ -6,7 +6,7 @@ import base64
 import json
 import re
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -18,6 +18,7 @@ else:
 
 from .adobe_analytics import dump_digital_data
 from .followups import JST, append_pending_verification_task, next_aa_reflection_time
+from .playwright_pages import run_page_session
 ADOBE_BEACON_HOSTS = ("edge.adobedc.net", "s-adobe.wacoal.jp")
 DEFAULT_CAPTCHA_SELECTORS = (
     ".g-recaptcha",
@@ -535,6 +536,72 @@ def setup_storefront_validation_page(
     page.on("response", on_response)
 
 
+def load_storefront_session_cookies(
+    session_file: str | Path | None,
+) -> list[dict[str, Any]]:
+    """Load persisted storefront session cookies from disk when present."""
+    if session_file is None:
+        return []
+    path = Path(session_file)
+    if not path.exists():
+        return []
+    with path.open(encoding="utf-8") as f:
+        payload = json.load(f)
+    if not isinstance(payload, list):
+        raise ValueError(f"session cookie file must contain a list: {path}")
+    return [dict(item) for item in payload if isinstance(item, dict)]
+
+
+def save_storefront_session_cookies(
+    page: Page,
+    session_file: str | Path,
+) -> None:
+    """Persist current context cookies for later storefront validation runs."""
+    path = Path(session_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(page.context.cookies(), f, indent=2, ensure_ascii=False)
+
+
+def run_storefront_validation_session(
+    *,
+    headless: bool = True,
+    channel: str | None = None,
+    slow_mo: int = 0,
+    session_file: str | Path | None = None,
+    domain: str | None = None,
+    basic_auth: Mapping[str, str] | None = None,
+    embed_override: str | None = None,
+    beacons: CapturedBeacons | None = None,
+    beacon_hosts: Sequence[str] = ADOBE_BEACON_HOSTS,
+    setup: Callable[[Page], None] | None = None,
+    callback: Callable[[Page], Any],
+) -> Any:
+    """Run a storefront validation session with cookie preload and shared setup."""
+    session_cookies = load_storefront_session_cookies(session_file)
+
+    def _setup(page: Page) -> None:
+        if setup is not None:
+            setup(page)
+        setup_storefront_validation_page(
+            page,
+            domain=domain,
+            basic_auth=basic_auth,
+            embed_override=embed_override,
+            beacons=beacons,
+            beacon_hosts=beacon_hosts,
+        )
+
+    return run_page_session(
+        headless=headless,
+        channel=channel,
+        slow_mo=slow_mo,
+        cookies=session_cookies,
+        setup=_setup,
+        callback=callback,
+    )
+
+
 __all__ = [
     "ADOBE_BEACON_HOSTS",
     "CapturedBeacons",
@@ -549,9 +616,12 @@ __all__ = [
     "dump_digital_data",
     "is_login_form_page",
     "load_json_credentials",
+    "load_storefront_session_cookies",
     "next_aa_reflection_time",
     "perform_storefront_login",
     "record_checkout_stage",
+    "run_storefront_validation_session",
+    "save_storefront_session_cookies",
     "setup_storefront_validation_page",
     "wait_until_login_completed",
     "wait_for_condition_with_heartbeat",
