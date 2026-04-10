@@ -71,6 +71,27 @@ validation script 側で profile 名だけ切り替えたいときに使う。
 - storefront login/session cookie 再利用まで含む場合は `run_storefront_validation_session()`
 - AA API の follow-up verifier は `run_aa_api_followup_verifier()`
 
+## Follow-up Task Flow
+
+AA の反映待ちがある validation では、shared JSON に pending task を登録して follow-up を管理する。
+
+基本パターン:
+
+1. 初回 validation で `register_pending_verification_task()` を呼ぶ
+2. 反映確認の JSON を保存する場合は `build_validation_run_metadata()` / `write_validation_json()` を使う
+3. 後追い verifier では `run_aa_api_followup_verifier()` または `finalize_followup_verification()` を使って完了処理までまとめる
+
+CLI から pending task を見るときは:
+
+```bash
+python scripts/check_pending_verifications.py
+python scripts/check_pending_verifications.py --all
+python scripts/check_pending_verifications.py --complete task-123 --result verified
+```
+
+pending store の既定パスは `validation/pending_aa_verifications.json`。
+期限は既定で「次の AA batch reflection time」に丸められる。
+
 ## GTM Preview Rule
 
 - GTM workspace preview は `GtmPreviewOverride` を使う
@@ -111,3 +132,4 @@ python scripts/check_validation_usage.py /path/to/repo
 - `AppMeasurementCapture`
 - `execute_appmeasurement_scenario(...)`
 - `run_aa_api_followup_verifier(...)`
+- `finalize_followup_verification(...)`

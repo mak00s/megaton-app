@@ -10,6 +10,7 @@ AI agents can drive the entire workflow through a simple JSON file, with no MCP 
 - **Streamlit UI** — Browse GA4/GSC/AA/BQ data with filtering, table/chart tabs, and CSV export
 - **CLI** — Run queries from JSON, async jobs, batch execution, and result pipelines
 - **Audit CLI** — Reusable audits for GTM/Adobe Tags + GA4/AA (`scripts/audit.py`)
+- **Validation Helpers** — Shared Playwright / AA validation runners, auth profiles, and follow-up task helpers
 - **Adobe Helpers** — Shared OAuth, AA segment listing, classifications export/import/verify, and Data Warehouse scheduling helpers
 - **Notebook** — Develop analyses interactively, then run them as scheduled jobs
 
@@ -39,6 +40,7 @@ Unlike MCP-based integrations, this file-based approach requires no server setup
 ## Setup
 
 ```bash
+python --version  # Python 3.11+
 pip install -r requirements.txt
 # Place Google service-account JSON file(s) in credentials/
 # Optional: place Adobe OAuth JSON file(s) in credentials/ too
@@ -60,6 +62,9 @@ python -m megaton_lib.audit.providers.analytics.verify_classification --company-
 # AA Data Warehouse template search
 python -m megaton_lib.audit.providers.analytics.dw.cli --company-id wacoal1 --find-template --rsid wacoal-all --name-contains tmpl_step_ --updated-after 2026-01-01T00:00:00Z
 
+# AA follow-up task listing
+python scripts/check_pending_verifications.py --all
+
 # Audit CLI (shared 1-9 features)
 python scripts/audit.py site-mapping --project example --config-root configs/audit/projects --output output/audit
 
@@ -72,8 +77,8 @@ python -m pytest -q
 | Document | Contents |
 |----------|----------|
 | [docs/USAGE.md](docs/USAGE.md) | Setup, quick start, recipes, and how-to for Notebook / CLI / Streamlit |
-| [docs/REFERENCE.md](docs/REFERENCE.md) | JSON schema, CLI options, classifications/validation helpers, megaton API, and auth |
-| [docs/VALIDATION.md](docs/VALIDATION.md) | Shared-first validation policy, result schema, thin entrypoint template, and detection rule |
+| [docs/REFERENCE.md](docs/REFERENCE.md) | JSON schema, CLI options, audit/validation/AA DW helpers, Target helpers, and auth |
+| [docs/VALIDATION.md](docs/VALIDATION.md) | Shared-first validation policy, result schema, thin entrypoint template, follow-up task flow, and detection rule |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | Change history |
 
 ## Site Alias Config (Public Repo Safe)

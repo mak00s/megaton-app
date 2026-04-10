@@ -11,6 +11,7 @@ For setup and how-to, see [USAGE.md](USAGE.md).
 | Option | Description | Default |
 |--------|------------|---------|
 | `--params` | Schema-validated JSON input | `input/params.json` |
+| `--inline` | Inline JSON params string (takes precedence over `--params`) | - |
 | `--submit` | Submit as async job | OFF |
 | `--status <job_id>` | Show job status | - |
 | `--cancel <job_id>` | Cancel queued/running job | - |
@@ -23,7 +24,7 @@ For setup and how-to, see [USAGE.md](USAGE.md).
 | `--columns` | Column selection (comma-separated) | - |
 | `--group-by` | Group columns (comma-separated) | - |
 | `--aggregate` | Aggregation (`sum:clicks,mean:ctr`) | - |
-| `--batch <dir>` | Batch execute all JSON in directory | - |
+| `--batch <path>` | Batch execute all JSON in a directory, or one JSON file | - |
 | `--list-jobs` | List jobs | OFF |
 | `--job-limit` | Max jobs to list | 20 |
 | `--list-ga4-properties` | List GA4 properties | OFF |
@@ -41,8 +42,9 @@ For setup and how-to, see [USAGE.md](USAGE.md).
 
 **Constraints:**
 - `--params`: validates `schema_version: "1.0"` and source-key consistency
+- `--inline`: validates the same schema as `--params` and is used first when both are present
 - `site` alias resolution (`configs/sites*.json`) is applied consistently in CLI `--params`, `--batch`, and Streamlit `input/params.json` handoff
-- `--params` sync execution: pipeline must be in params.json (CLI args not allowed)
+- direct query execution (`--params` / `--inline`): pipeline must be in the JSON payload (CLI args not allowed)
 - `--head` and `--summary`: require `--result`
 - `--group-by` and `--aggregate`: must be used together
 - `--summary`: exclusive with pipeline options
@@ -132,7 +134,7 @@ Project-specific logic (`10-12`) should stay in each analysis repository.
 | Command | Description |
 |---|---|
 | `site-mapping` | Tag mapping vs GA4/AA observed values |
-| `export-tag-config` | Sync tag config to local directory (GTM: full container, Adobe Tags: full property). Reports `has_changes`. |
+| `export-tag-config` | Export tag config snapshot to a local directory. GTM exports the full container and reports `has_changes`; Adobe Tags exports the current mapping snapshot. |
 
 ### Common options
 
@@ -142,6 +144,10 @@ Project-specific logic (`10-12`) should stay in each analysis repository.
 | `--config-root` | Config directory (default: `configs/audit/projects`) |
 | `--output` | Output directory |
 | `--json` | JSON output |
+
+Notes:
+- `export-tag-config` requires `--output`
+- `site-mapping` can print a console summary or emit JSON/CSV artifacts under `--output`
 
 ### `site-mapping` options
 
@@ -274,6 +280,40 @@ Failure:
 
 全メソッドは `write_enabled=False` 時にスキップし、run summary に `mode="skipped_write"` として記録する。
 
+### Pending Verification CLI
+
+Module entrypoint:
+
+```bash
+python scripts/check_pending_verifications.py ...
+```
+
+Use this when validation flows register Adobe Analytics follow-up checks and you need to inspect or complete the shared pending-task store.
+
+| Option | Description |
+|---|---|
+| `--file` | Pending task JSON path (default: `validation/pending_aa_verifications.json`) |
+| `--all` | Show all pending tasks instead of overdue-only |
+| `--complete <TASK_ID>` | Mark one task as completed |
+| `--result` | Completion result label (default: `verified`) |
+| `--notes` | Optional completion notes |
+| `--add` | Add one pending task interactively or from flags |
+| `--id` / `--description` / `--verification-file` | Core fields used with `--add` |
+| `--verification-type` / `--aa-verifier` | Extra metadata for follow-up routing |
+| `--expected key=value` | Repeatable expected-value metadata for `--add` |
+| `--delay-minutes` | Fixed delay instead of next AA batch time |
+| `--quiet`, `-q` | Suppress the “no overdue tasks” message |
+
+Examples:
+
+```bash
+python scripts/check_pending_verifications.py --all
+```
+
+```bash
+python scripts/check_pending_verifications.py --complete task-123 --result verified
+```
+
 ### Job Management
 
 #### Job States
@@ -296,7 +336,7 @@ Failure:
 
 ### Batch Execution
 
-`--batch <dir>` runs all JSON files in the directory in filename order.
+`--batch <path>` runs all JSON files in the directory in filename order, or one JSON file directly.
 Each config runs independently; failures don't stop the rest.
 
 ```bash
@@ -676,6 +716,19 @@ Notes:
 | `update_cells(mg, sheet_url, sheet_name, values)` | Update multiple A1 cells |
 | `save_sheet_from_template(mg, sheet_name, df, ...)` | Write with template-based sheet creation |
 
+Notes:
+- `read_sheet_table(..., header_row=...)` can start from a non-zero header row when source sheets include title/comment rows
+- `read_sheet_df(..., strict=True)` is available when callers need header/shape validation instead of permissive fallback loading
+
+### Docs Table Helpers (`megaton_lib.docs_sites`)
+
+| Function | Description |
+|----------|-------------|
+| `format_md_value(value)` | Normalize Python values into Markdown table cell text |
+| `render_markdown_table(headers, rows)` | Render a Markdown table string from headers and rows |
+| `replace_generated_section(text, name, content)` | Replace one named generated block between `BEGIN/END GENERATED` markers |
+| `update_generated_markdown(path, sections)` | Update multiple generated Markdown sections in one file |
+
 ### Traffic Helpers (`megaton_lib.traffic`)
 
 | Function | Description |
@@ -916,6 +969,22 @@ profile = resolve_auth_profile(
 )
 ```
 
+### Adobe Target Recommendations Helpers (`megaton_lib.audit.providers.target`)
+
+| Function | Description |
+|----------|-------------|
+| `AdobeTargetClient(...)` | Authenticated Target REST client with retry / re-auth helpers |
+| `export_recs(client, output_root, ..., prune=False)` | Export recommendations resources with optional per-resource filters |
+| `apply_recs(client, source_root, ..., dry_run=True)` | Diff local exported resources against remote state and apply changes |
+| `export_feeds(client, output_root, ...)` | Export feed definitions with sensitive-field redaction |
+| `detect_getoffer_scope(delivery_payload)` | Detect Recommendation scope hints from delivery payloads |
+| `export_getoffer_scope(client, output_root, ...)` | Export a narrowed Recommendations snapshot based on detected scope |
+
+Notes:
+- `export_recs(..., prune=True)` is only allowed for full unfiltered exports; filtered exports raise a `ValueError` because prune would delete files outside the queried subset
+- design updates are applied with `PUT`, and criteria updates use subtype `PUT` when a specific criteria endpoint is available
+- design sidecars are resolved from both flat layouts (`<id>.html`) and `code/<stem>.html` style layouts during apply
+
 ### Adobe Target Activity Helpers (`megaton_lib.audit.providers.target`)
 
 | Function | Description |
@@ -981,6 +1050,7 @@ print_verify_results(results)
 | `build_dw_client(company_id, ...)` | Build `AdobeDataWarehouseClient` from Adobe credential inputs |
 | `find_template_requests(client, ...)` | Search scheduled request summaries by `rsid`, created/updated date, status, and name/owner filters |
 | `resolve_template_request(client, ...)` | Resolve one template request detail by UUID or filtered search |
+| `summarize_template_detail(template_detail)` | Build a compact template summary for CLI/display use |
 | `build_cloned_request_body(template_detail, ...)` | Build a create/update payload from one template detail payload |
 | `create_request_from_template(client, ...)` | Create one scheduled request from a template |
 | `bulk_create_requests_from_template(client, ...)` | Create or preview multiple scheduled requests from one template |
@@ -1029,6 +1099,13 @@ python -m megaton_lib.audit.providers.analytics.dw.cli \
 
 ```bash
 python -m megaton_lib.audit.providers.analytics.dw.cli \
+  --company-id wacoal1 \
+  --describe-template \
+  --scheduled-request-uuid 12345678-90ab-cdef-1234-567890abcdef
+```
+
+```bash
+python -m megaton_lib.audit.providers.analytics.dw.cli \
   --manifest input/dw_manifest.json \
   --dry-run
 ```
@@ -1044,6 +1121,7 @@ Notes:
 - the first scheduled request must already exist in Adobe UI
 - create flows require `exportLocationUUID`, which is obtained from the template request detail payload
 - daily operations should prefer a fixed template UUID; search mode is mainly for bootstrap and investigation
+- `--describe-template` accepts either `--scheduled-request-uuid` or an `--rsid` plus search filters
 
 ---
 
