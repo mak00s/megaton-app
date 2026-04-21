@@ -144,6 +144,24 @@ def apply_data_element_settings_tree(
         if not isinstance(new_settings, dict):
             continue
 
+        # When a sibling `<name>.custom-code.js` (or other extension) exists,
+        # use its content as the authoritative `source` so the PATCH pushes
+        # what the developer last edited in the code file — not a stale
+        # `source` embedded in the settings sidecar.
+        #
+        # Without this, settings.json and custom-code.js can drift: dev edits
+        # the .js file but forgets to re-sync the .settings.json, and the
+        # apply step silently reverts the change on Launch.
+        code_base = settings_file.name.removesuffix(".settings.json")
+        for ext in (".custom-code.js", ".custom-code.html", ".custom-code.css"):
+            code_file = settings_file.parent / f"{code_base}{ext}"
+            if code_file.exists():
+                try:
+                    new_settings["source"] = code_file.read_text(encoding="utf-8")
+                except OSError:
+                    pass
+                break
+
         result = apply_data_element_settings(
             config,
             component_id,
