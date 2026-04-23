@@ -906,6 +906,7 @@ These helpers are intended for thin wrapper scripts in analysis repos.
 - preloads the first config so `.env` values are available before reading export filter env vars
 - reads `TAGS_EXPORT_RESOURCES`, `TAGS_RULE_NAME_CONTAINS`, `TAGS_RULE_ENABLED_ONLY`, `TAGS_DE_ENABLED_ONLY`
 - writes under `project_root / adobe_tags_output_root(property_id)`
+- refreshes `.apply-baseline.json` under the same output root for later stale-base checks
 
 #### `tags_apply_main(...)`
 
@@ -913,12 +914,32 @@ These helpers are intended for thin wrapper scripts in analysis repos.
 - resolves dev build settings from `TAGS_DEV_LIBRARY_ID` and `TAGS_DEV_LAUNCH_URL`
 - runs the build workflow automatically when a dev library ID is available and `--skip-build` is not set
 - falls back to apply-only mode when no library ID is configured
+- uses `.apply-baseline.json` when present to detect stale-base conflicts
+- skips `remote_only` drift automatically and aborts on `conflict` unless `--allow-stale-base` is passed
 
 #### `gtm_export_main(...)`
 
 - resolves container ID from `--container-id`, `container_public_id=...`, or `GTM_CONTAINER_PUBLIC_ID`
 - accepts `--resources` or `GTM_EXPORT_RESOURCES`
 - defaults output to `gtm/<container_id>` under the chosen project root
+
+### Adobe Tags Build Workflow Helpers (`megaton_lib.audit.providers.tag_config`)
+
+| Function | Description |
+|---|---|
+| `collect_changed_resources(config, root, dry_run, allow_stale_base=False)` | Apply exported sidecars, collect changed rule / data-element origins, and enforce stale-base conflict checks |
+| `run_build_workflow(config, ..., apply, verify_asset_url=None, markers=None, re_export_resources=None, allow_stale_base=False, verify_retries=5, build_wait_timeout=300, build_poll_interval=5)` | Apply changes, refresh library revisions, build, wait for completion, optionally verify, then re-export |
+| `verify_build_markers(asset_url, markers, max_retries=5)` | Search the built asset corpus for marker strings with retry/backoff for CDN propagation |
+
+Notes:
+
+- `run_build_workflow(...)` waits for the Adobe Tags build to reach a terminal status before returning
+- the default Step 5 re-export scope is `rules,data-elements`; override with `TAGS_REEXPORT_RESOURCES`
+- returns `0` for success, dry-run, or no-op
+- returns `2` when the build completes in a non-success terminal state
+- returns `3` when marker verification fails after a successful build
+- CLI exits `4` on stale-base conflicts unless `--allow-stale-base` is used
+- raises `ValueError` when `markers` are provided without `verify_asset_url`
 
 ### Adobe Tags Sync Helpers (`megaton_lib.audit.providers.tag_config`)
 
@@ -929,6 +950,8 @@ These helpers are intended for thin wrapper scripts in analysis repos.
 | `find_data_element_id(settings_file)` | Resolve a data-element ID from an exported `*.settings.json` sidecar |
 | `get_component_settings(config, component_id)` | Fetch one rule component or data element with parsed Reactor settings |
 | `apply_component_settings(config, component_id, new_settings, dry_run=True)` | PATCH full settings for one rule component or data element |
+| `delete_resource(config, resource_id, dry_run=True)` | Delete a rule component or data element via the Reactor API |
+| `remove_library_resources(config, library_id, resource_type, resource_ids, dry_run=True)` | Remove resource revisions from a library relationship |
 | `apply_custom_code_tree(config, root, dry_run=True)` | Apply all exported `*.custom-code.*` files under a property tree |
 | `apply_data_element_settings_tree(config, root, dry_run=True)` | Apply exported data-element `*.settings.json` sidecars via direct Reactor PATCH |
 | `apply_exported_changes_tree(config, root, dry_run=True)` | Apply both custom-code sidecars and data-element settings sidecars under a property tree |
@@ -991,7 +1014,7 @@ Notes:
 |----------|-------------|
 | `parse_ids(raw)` | Parse comma-separated activity IDs into `list[int]` |
 | `resolve_activity_ids(index_path, raw_ids="")` | Resolve activity IDs from explicit input or exported `index.json` |
-| `fetch_activity(client, tenant_id, activity_id)` | Fetch one AB activity detail JSON |
+| `fetch_activity(client, tenant_id, activity_id)` | Fetch one activity detail JSON (AB or XT/options) |
 | `export_activities(client, tenant_id, output_root, activity_ids)` | Export selected Target activities and write `index.json` |
 
 ### Adobe Analytics Classifications (`megaton_lib.audit.providers.analytics`)

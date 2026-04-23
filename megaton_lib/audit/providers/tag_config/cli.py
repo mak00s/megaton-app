@@ -61,7 +61,24 @@ def tags_export_main(
     project_root:
         Project root for resolving relative output paths.
     """
-    parser = argparse.ArgumentParser(description="Export Adobe Tags property config")
+    parser = argparse.ArgumentParser(
+        description="Export Adobe Tags property config",
+        epilog=(
+            "Defaults:\n"
+            "  - property is resolved from --property-id or TAGS_PROPERTY_ID\n"
+            "  - resources default to TAGS_EXPORT_RESOURCES or\n"
+            "    rules,data-elements,extensions,environments,libraries\n"
+            "  - filters come from TAGS_RULE_NAME_CONTAINS,\n"
+            "    TAGS_RULE_ENABLED_ONLY, and TAGS_DE_ENABLED_ONLY\n"
+            "  - export also refreshes .apply-baseline.json for later stale-base checks\n"
+            "\n"
+            "Important:\n"
+            "  Filtered exports write a subset snapshot into the canonical output root.\n"
+            "  Use full-property export for canonical sync; use filtered export only when\n"
+            "  you intentionally want a focused local subset."
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
     parser.add_argument("--property-id", default="", help="Explicit property id")
     args, _ = parser.parse_known_args()
 
@@ -105,6 +122,8 @@ def tags_export_main(
         if filters:
             print(f"  filters: {filters}")
         print(f"  output: {output}")
+        if filters:
+            print("  note: filtered export updates the canonical local snapshot for the selected subset")
 
         summary = export_property(tags_config, output, resources, filters=filters or None)
         has_changes = False
@@ -125,6 +144,9 @@ def tags_export_main(
             elif isinstance(stats, str) and stats != "unchanged":
                 print(f"  {resource}: {stats}")
                 has_changes = True
+        baseline_status = summary.get(".apply-baseline.json")
+        if baseline_status:
+            print(f"  .apply-baseline.json: {baseline_status}")
         print(f"  has_changes: {has_changes}")
 
     print("Done.")
@@ -238,9 +260,37 @@ def tags_apply_main(
     project_root:
         Project root for resolving relative output paths.
     """
-    parser = argparse.ArgumentParser(description="Apply Adobe Tags exported changes")
+    parser = argparse.ArgumentParser(
+        description="Apply Adobe Tags exported changes",
+        epilog=(
+            "Defaults:\n"
+            "  - no --apply means dry-run only\n"
+            "  - property is resolved from --property-id or TAGS_PROPERTY_ID\n"
+            "  - if TAGS_DEV_LIBRARY_ID is set and --skip-build is not used, the command runs:\n"
+            "      apply -> revise library -> build -> optional verify -> re-export\n"
+            "  - Step 5 re-export defaults to TAGS_REEXPORT_RESOURCES or rules,data-elements\n"
+            "  - TAGS_DEV_LAUNCH_URL enables marker verification when markers are supplied\n"
+            "  - .apply-baseline.json is used to detect stale-base conflicts when present\n"
+            "\n"
+            "Operational guidance:\n"
+            "  - Use dry-run first to see which resources would be patched\n"
+            "  - Use auto-build when you want the dev library to reflect the PATCHed origins\n"
+            "  - Use --skip-build only when you explicitly want apply-only behavior\n"
+            "  - Re-export before apply when the same resource may have changed in the UI"
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
     parser.add_argument("--apply", action="store_true", help="Apply changes (default: dry-run)")
-    parser.add_argument("--skip-build", action="store_true", help="Skip revise + build + verify")
+    parser.add_argument(
+        "--skip-build",
+        action="store_true",
+        help="Skip revise + build + verify even when TAGS_DEV_LIBRARY_ID is set",
+    )
+    parser.add_argument(
+        "--allow-stale-base",
+        action="store_true",
+        help="Allow apply even when local and remote both changed since the last export baseline",
+    )
     parser.add_argument("--property-id", default="", help="Explicit property id")
     # Legacy flags (hidden)
     parser.add_argument("--build", action="store_true", help=argparse.SUPPRESS)
@@ -262,6 +312,10 @@ def tags_apply_main(
 
     lib_id = (library_id or os.environ.get("TAGS_DEV_LIBRARY_ID", "")).strip()
     v_url = (verify_url or os.environ.get("TAGS_DEV_LAUNCH_URL", "")).strip() or None
+    re_export_resources_str = os.environ.get("TAGS_REEXPORT_RESOURCES", "rules,data-elements")
+    re_export_resources = [r.strip() for r in re_export_resources_str.split(",") if r.strip()]
+    if not re_export_resources:
+        re_export_resources = ["rules", "data-elements"]
     should_build = bool(lib_id) and not args.skip_build
 
     for i, pid in enumerate(pids):
@@ -271,31 +325,77 @@ def tags_apply_main(
         # Default: build workflow (apply → revise → build → verify → re-export)
         if should_build:
             from .build_workflow import run_build_workflow  # noqa: WPS433
+            from .sync import StaleBaseConflictError  # noqa: WPS433
 
-            rc = run_build_workflow(
-                tags_config,
-                root=output,
-                library_id=lib_id,
-                apply=args.apply,
-                verify_asset_url=v_url,
+            mode = "APPLY + BUILD" if args.apply else "DRY-RUN"
+            print(f"[{mode}] Adobe Tags exported changes")
+            print(f"  property: {pid}")
+            print(f"  output_root: {output}")
+            print("  workflow: apply -> revise library -> build -> verify -> re-export")
+            print(f"  library: {lib_id}")
+            print(f"  verify_url: {v_url or '(disabled)'}")
+            print(f"  re_export_resources: {re_export_resources}")
+            baseline_path = output / ".apply-baseline.json"
+            print(
+                "  stale_base_guard: "
+                + (f"enabled ({baseline_path})" if baseline_path.exists() else "disabled (no baseline manifest)")
             )
+
+            try:
+                rc = run_build_workflow(
+                    tags_config,
+                    root=output,
+                    library_id=lib_id,
+                    apply=args.apply,
+                    verify_asset_url=v_url,
+                    re_export_resources=re_export_resources,
+                    allow_stale_base=args.allow_stale_base,
+                )
+            except StaleBaseConflictError as exc:
+                print(f"\nERROR: {exc}", file=sys.stderr)
+                sys.exit(4)
             if rc != 0:
                 sys.exit(rc)
             continue
 
         # Fallback: apply-only
         from .adobe_tags import export_property  # noqa: WPS433
-        from .sync import apply_exported_changes_tree  # noqa: WPS433
+        from .sync import (  # noqa: WPS433
+            StaleBaseConflictError,
+            apply_exported_changes_tree,
+            raise_for_stale_base_conflicts,
+        )
 
         mode = "APPLY" if args.apply else "DRY-RUN"
         print(f"[{mode}] Applying Adobe Tags exported changes")
         print(f"  property: {pid}")
         print(f"  output_root: {output}")
+        print("  workflow: apply-only (no library revise/build)")
+        if not lib_id:
+            print("  reason: TAGS_DEV_LIBRARY_ID is not set")
+        elif args.skip_build:
+            print("  reason: --skip-build was specified")
+        print(f"  re_export_resources_on_refresh: {re_export_resources}")
+        baseline_path = output / ".apply-baseline.json"
+        print(
+            "  stale_base_guard: "
+            + (f"enabled ({baseline_path})" if baseline_path.exists() else "disabled (no baseline manifest)")
+        )
 
         changed_count = 0
         applied_count = 0
-        for result in apply_exported_changes_tree(tags_config, output, dry_run=not args.apply):
-            if result.get("changed"):
+        results = apply_exported_changes_tree(tags_config, output, dry_run=not args.apply)
+        stale_remote_count = 0
+        conflict_count = 0
+        for result in results:
+            stale_status = result.get("stale_status")
+            if stale_status == "conflict":
+                conflict_count += 1
+                status = "CONFLICT"
+            elif stale_status == "remote_only":
+                stale_remote_count += 1
+                status = "STALE-REMOTE"
+            elif result.get("changed"):
                 changed_count += 1
                 status = "APPLIED" if result.get("applied") else "CHANGED"
                 if result.get("applied"):
@@ -303,8 +403,18 @@ def tags_apply_main(
             else:
                 status = "OK"
             print(f"  [{status}] {result['path']} → {result['component_id']}")
+            if stale_status:
+                print(f"    {result.get('stale_detail', '')}")
 
-        print(f"\n{changed_count} changes detected, {applied_count} applied.")
+        print(
+            f"\n{changed_count} changes detected, {applied_count} applied, "
+            f"{stale_remote_count} stale-remote skipped, {conflict_count} conflict(s).",
+        )
+        try:
+            raise_for_stale_base_conflicts(results, allow_stale_base=args.allow_stale_base)
+        except StaleBaseConflictError as exc:
+            print(f"\nERROR: {exc}", file=sys.stderr)
+            sys.exit(4)
 
         if args.apply and applied_count > 0 and not lib_id:
             print(
@@ -316,5 +426,6 @@ def tags_apply_main(
         # Legacy --refresh
         if args.apply and args.refresh and not should_build:
             print("\nRefreshing export...")
-            export_property(tags_config, output)
+            print(f"  resources: {re_export_resources}")
+            export_property(tags_config, output, resources=re_export_resources)
             print("Refresh complete.")

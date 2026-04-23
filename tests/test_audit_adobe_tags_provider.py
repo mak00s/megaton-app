@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 
 import pytest
+import requests
 
 from megaton_lib.audit.providers.tag_config.adobe_tags import (
     _reactor_get,
+    _reactor_request,
     _reactor_post,
     _sync_data_elements,
     _export_items,
@@ -649,6 +651,8 @@ def test_export_property_no_longer_raises_name_error(tags_env, monkeypatch, tmp_
     assert isinstance(result["extensions"], dict)
     assert (tmp_path / "property.json").exists()
     assert (tmp_path / "extensions" / "ex1_core.json").exists()
+    assert (tmp_path / ".apply-baseline.json").exists()
+    assert result[".apply-baseline.json"] in ("added", "updated", "unchanged")
 
 
 def test_export_items_uses_id_prefixed_names_for_duplicate_titles(tmp_path):
@@ -714,6 +718,21 @@ def test_reactor_get_no_retry_without_oauth(tags_env, monkeypatch):
     )
     with pytest.raises(RuntimeError, match="404"):
         _reactor_get(config, "/properties/PR123")
+
+
+def test_reactor_request_timeout_raises_contextual_error(tags_env, monkeypatch):
+    config = _make_config()
+
+    def _raise_timeout(method, url, **kwargs):
+        raise requests.Timeout("timed out")
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        _raise_timeout,
+    )
+
+    with pytest.raises(RuntimeError, match="GET timed out"):
+        _reactor_request(config, "GET", "https://reactor.adobe.io/test")
 
 
 # ---- _should_retry_404 unit tests ----

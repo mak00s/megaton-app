@@ -13,13 +13,17 @@ import os
 from pathlib import Path
 import re
 import shutil
+import threading
+import time
 from typing import Any
 from urllib.parse import quote as _url_quote
+from urllib.parse import urlsplit
 
 import requests
 
 from megaton_lib.audit.config import AdobeTagsConfig
 from megaton_lib.audit.providers.adobe_auth import AdobeOAuthClient
+from .baseline import APPLY_BASELINE_FILENAME, render_apply_baseline_manifest
 
 
 # ---- settings helpers (unchanged) ----
@@ -182,15 +186,67 @@ def _reactor_request(
 ) -> requests.Response:
     """Send a Reactor API request with 404 token-refresh retry."""
     headers = _get_auth_headers(config)
-    kwargs: dict[str, Any] = {"headers": headers, "timeout": 30}
+    kwargs: dict[str, Any] = {"headers": headers, "timeout": (10, 30)}
     if json_body is not None:
         kwargs["json"] = json_body
 
-    resp = requests.request(method, url, **kwargs)
+    def _request_label(raw_url: str) -> str:
+        parsed = urlsplit(raw_url)
+        path = parsed.path.rstrip("/")
+        if not path:
+            return raw_url
+        parts = [part for part in path.split("/") if part]
+        return "/".join(parts[-2:]) if len(parts) >= 2 else parts[-1]
+
+    def _request_with_heartbeat(label: str) -> requests.Response:
+        request_label = _request_label(url)
+        stop = threading.Event()
+        started = time.monotonic()
+
+        def _heartbeat() -> None:
+            while not stop.wait(15):
+                elapsed = int(time.monotonic() - started)
+                print(
+                    f"  [WAIT] Adobe Tags API {method} {request_label} {label} "
+                    f"elapsed={elapsed}s",
+                    flush=True,
+                )
+
+        thread = threading.Thread(target=_heartbeat, daemon=True)
+        thread.start()
+        try:
+            return requests.request(method, url, **kwargs)
+        finally:
+            stop.set()
+            elapsed = time.monotonic() - started
+            if elapsed >= 15:
+                print(
+                    f"  [DONE] Adobe Tags API {method} {request_label} {label} "
+                    f"elapsed={elapsed:.1f}s",
+                    flush=True,
+                )
+
+    try:
+        resp = _request_with_heartbeat("initial")
+    except requests.Timeout as exc:
+        raise RuntimeError(
+            f"Adobe Tags API {method} timed out for {url} "
+            f"(connect_timeout=10s, read_timeout=30s)",
+        ) from exc
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Adobe Tags API {method} request failed for {url}: {exc}") from exc
 
     if resp.status_code == 404 and _should_retry_404(config):
         kwargs["headers"] = _get_auth_headers(config)
-        resp = requests.request(method, url, **kwargs)
+        try:
+            resp = _request_with_heartbeat("retry")
+        except requests.Timeout as exc:
+            raise RuntimeError(
+                f"Adobe Tags API {method} retry timed out for {url} "
+                f"(connect_timeout=10s, read_timeout=30s)",
+            ) from exc
+        except requests.RequestException as exc:
+            raise RuntimeError(f"Adobe Tags API {method} retry failed for {url}: {exc}") from exc
 
     return resp
 
@@ -1208,6 +1264,12 @@ def sync_property(
         else:
             summary[resource] = {"added": 0, "updated": 0, "deleted": 0, "unchanged": 0}
 
+    baseline_content = render_apply_baseline_manifest(root)
+    summary[APPLY_BASELINE_FILENAME] = _write_if_changed(
+        root / APPLY_BASELINE_FILENAME,
+        baseline_content,
+    )
+
     return summary
 
 
@@ -1278,6 +1340,89 @@ def apply_component_settings(
     }
     _reactor_patch(config, endpoint, patch_payload)
     result["applied"] = True
+    return result
+
+
+def delete_resource(
+    config: AdobeTagsConfig,
+    resource_id: str,
+    *,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """Delete a rule component or data element via the Reactor API.
+
+    Parameters
+    ----------
+    resource_id : str
+        The Reactor resource ID (e.g. ``DE...`` or ``RC...``).
+    dry_run : bool
+        If True, resolve the resource but do not delete.
+
+    Returns
+    -------
+    dict with ``resource_id``, ``resource_type``, ``name``, and ``deleted``.
+    """
+    endpoint, resource_type = _resolve_component_endpoint(resource_id)
+    current = _reactor_get(config, endpoint)
+    name = current.get("data", {}).get("attributes", {}).get("name", "")
+
+    result: dict[str, Any] = {
+        "resource_id": resource_id,
+        "resource_type": resource_type,
+        "name": name,
+        "deleted": False,
+    }
+    if dry_run:
+        return result
+
+    url = _build_url(config, endpoint)
+    resp = _reactor_request(config, "DELETE", url)
+    if resp.status_code not in {200, 204}:
+        raise RuntimeError(
+            f"Adobe Tags API DELETE failed: {resp.status_code} {resp.text}",
+        )
+    result["deleted"] = True
+    return result
+
+
+def remove_library_resources(
+    config: AdobeTagsConfig,
+    library_id: str,
+    resource_type: str,
+    resource_ids: list[str],
+    *,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """Remove resource revisions from a library relationship.
+
+    Parameters
+    ----------
+    library_id : str
+        The library ID (e.g. ``LB...``).
+    resource_type : str
+        Reactor resource type: ``"data_elements"`` or ``"rules"``.
+    resource_ids : list[str]
+        Revision IDs to remove from the library.
+    dry_run : bool
+        If True, return the plan without executing.
+
+    Returns
+    -------
+    dict with ``library_id``, ``resource_type``, ``resource_ids``, and ``removed``.
+    """
+    result: dict[str, Any] = {
+        "library_id": library_id,
+        "resource_type": resource_type,
+        "resource_ids": list(resource_ids),
+        "removed": False,
+    }
+    if not resource_ids or dry_run:
+        return result
+
+    endpoint = f"/libraries/{library_id}/relationships/{resource_type}"
+    payload = {"data": [{"id": rid, "type": resource_type} for rid in resource_ids]}
+    _reactor_delete(config, endpoint, payload)
+    result["removed"] = True
     return result
 
 
