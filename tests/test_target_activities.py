@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import json
-
 import pytest
 
 from megaton_lib.audit.config import AdobeOAuthConfig, AdobeTargetConfig
-from megaton_lib.audit.providers.target.activities import export_activities, resolve_activity_ids
+from megaton_lib.audit.providers.target.activities import export_activities, fetch_activity, resolve_activity_ids
 from megaton_lib.audit.providers.target.client import AdobeTargetClient
 
 
@@ -54,10 +53,11 @@ def target_env(monkeypatch, tmp_path):
     return tmp_path
 
 
-def _make_client(tmp_path) -> AdobeTargetClient:
+def _make_client(tmp_path, *, accept_header: str = "application/vnd.adobe.target.v1+json") -> AdobeTargetClient:
     cfg = AdobeTargetConfig(
         tenant_id='testtenant',
         oauth=AdobeOAuthConfig(token_cache_file=str(tmp_path / '.tok.json')),
+        accept_header=accept_header,
     )
     return AdobeTargetClient(cfg)
 
@@ -74,16 +74,114 @@ def test_resolve_activity_ids_from_index(tmp_path):
 
 def test_export_activities_writes_json_and_index(target_env, tmp_path):
     client = _make_client(target_env)
-    client.session = _Session([
+    v3_client = _make_client(target_env, accept_header='application/vnd.adobe.target.v3+json')
+    v3_client.session = _Session([
         _Resp(200, {'id': 111, 'name': 'Activity One'}),
         _Resp(200, {'id': 222, 'name': 'Activity Two'}),
     ])
-
-    output_root = tmp_path / 'activities'
-    index_payload = export_activities(client, 'testtenant', output_root, [111, 222])
+    from megaton_lib.audit.providers.target import activities as activities_mod
+    original = activities_mod._v3_activity_client
+    activities_mod._v3_activity_client = lambda _client: v3_client
+    try:
+        output_root = tmp_path / 'activities'
+        index_payload = export_activities(client, 'testtenant', output_root, [111, 222])
+    finally:
+        activities_mod._v3_activity_client = original
 
     assert (output_root / '111.json').exists()
     assert (output_root / '222.json').exists()
     assert index_payload['activities'][0]['name'] == 'Activity One'
     written_index = json.loads((output_root / 'index.json').read_text(encoding='utf-8'))
     assert [item['id'] for item in written_index['activities']] == [111, 222]
+
+
+def test_fetch_activity_uses_v3_and_falls_back_to_xt(target_env, tmp_path):
+    client = _make_client(target_env)
+    v3_client = _make_client(target_env, accept_header='application/vnd.adobe.target.v3+json')
+    v3_client.session = _Session([
+        _Resp(404, {"error": "not found"}),
+        _Resp(200, {'id': 812437, 'name': 'XT Activity', 'state': 'approved'}),
+    ])
+    from megaton_lib.audit.providers.target import activities as activities_mod
+    original = activities_mod._v3_activity_client
+    activities_mod._v3_activity_client = lambda _client: v3_client
+    try:
+        result = fetch_activity(client, 'testtenant', 812437)
+    finally:
+        activities_mod._v3_activity_client = original
+
+    assert result['name'] == 'XT Activity'
+    assert len(v3_client.session.calls) == 2
+    assert v3_client.session.calls[0]['headers']['Accept'] == 'application/vnd.adobe.target.v3+json'
+    assert v3_client.session.calls[0]['url'].endswith('/target/activities/ab/812437')
+    assert v3_client.session.calls[1]['url'].endswith('/target/activities/xt/812437')
+
+
+def test_fetch_activity_propagates_non_404_errors_without_xt_retry(target_env, tmp_path):
+    client = _make_client(target_env)
+    v3_client = _make_client(target_env, accept_header='application/vnd.adobe.target.v3+json')
+    v3_client.session = _Session([
+        _Resp(403, {"error": "forbidden"}),
+    ])
+    from megaton_lib.audit.providers.target import activities as activities_mod
+    original = activities_mod._v3_activity_client
+    activities_mod._v3_activity_client = lambda _client: v3_client
+    try:
+        with pytest.raises(RuntimeError, match="HTTP 403"):
+            fetch_activity(client, 'testtenant', 812437)
+    finally:
+        activities_mod._v3_activity_client = original
+
+    assert len(v3_client.session.calls) == 1
+    assert v3_client.session.calls[0]['url'].endswith('/target/activities/ab/812437')
+
+
+def test_export_activities_supports_options_xt_activity(target_env, tmp_path):
+    client = _make_client(target_env)
+    v3_client = _make_client(target_env)
+    v3_client.session = _Session([
+        _Resp(404, {"error": "not found"}),
+        _Resp(200, {'id': 812437, 'name': 'XT Activity', 'state': 'approved'}),
+    ])
+    output_root = tmp_path / 'activities'
+
+    from megaton_lib.audit.providers.target import activities as activities_mod
+
+    original = activities_mod._v3_activity_client
+    activities_mod._v3_activity_client = lambda _client: v3_client
+    try:
+        index_payload = export_activities(client, 'testtenant', output_root, [812437])
+    finally:
+        activities_mod._v3_activity_client = original
+
+    assert (output_root / '812437.json').exists()
+    written = json.loads((output_root / '812437.json').read_text(encoding='utf-8'))
+    assert written['name'] == 'XT Activity'
+    assert index_payload['activities'][0]['id'] == 812437
+
+
+def test_with_accept_header_preserves_runtime_http_settings(target_env, tmp_path):
+    cfg = AdobeTargetConfig(
+        tenant_id='testtenant',
+        oauth=AdobeOAuthConfig(token_cache_file=str(tmp_path / '.tok.json')),
+    )
+    client = AdobeTargetClient(
+        cfg,
+        max_retries=2,
+        backoff_factor=0.25,
+        jitter=0.05,
+        timeout_sec=7.0,
+    )
+    session = _Session([])
+    client.session = session
+
+    v3_client = client.with_accept_header('application/vnd.adobe.target.v3+json')
+
+    assert v3_client is not client
+    assert v3_client.config.accept_header == 'application/vnd.adobe.target.v3+json'
+    assert v3_client.max_retries == 2
+    assert v3_client.backoff_factor == 0.25
+    assert v3_client.jitter == 0.05
+    assert v3_client.timeout_sec == 7.0
+    assert v3_client.session is session
+    assert v3_client._auth is client._auth
