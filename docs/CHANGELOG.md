@@ -9,6 +9,14 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
   - apply now blocks stale-base conflicts by default while auto-skipping remote-only drift
   - auto-build Step 5 re-export now defaults to `rules,data-elements` to reduce metadata noise
   - CLI help/output now explains default workflow, re-export scope, and stale-base behavior without requiring README lookup
+  - CLI now exits `3` when post-build marker verification fails and `4` on stale-base conflicts
+
+## 2026-04-23 (v0.8.2)
+
+- Fixed Adobe Target `fetch_activity` for XT / options-backed activities:
+  - now uses Admin API v3 and falls back from `ab` to `xt` on 404, resolving the v1 `409 Cannot access activity with options in this version of API` failure
+  - non-404 errors bubble up immediately without trying the alternate activity type
+- Added `AdobeTargetClient.with_accept_header()` to spawn a sibling client that reuses auth / session / retry settings with a different `Accept` header
 
 ## 2026-04-11 (v0.8.1)
 
