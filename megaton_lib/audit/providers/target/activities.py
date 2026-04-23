@@ -40,12 +40,39 @@ def resolve_activity_ids(index_path: Path, raw_ids: str = "") -> list[int]:
     )
 
 
+def _v3_activity_client(client: AdobeTargetClient) -> AdobeTargetClient:
+    """Return a Target client configured for Admin API v3 activity endpoints."""
+    return client.with_accept_header("application/vnd.adobe.target.v3+json")
+
+
 def fetch_activity(client: AdobeTargetClient, tenant_id: str, activity_id: int) -> dict[str, Any]:
-    url = f"{client.config.base_url.rstrip('/')}/{tenant_id}/target/activities/ab/{activity_id}"
-    result = client._request("GET", url)
-    if not isinstance(result, dict):
-        raise RuntimeError(f"Unexpected non-object response for activity {activity_id}")
-    return result
+    """Fetch one activity detail JSON, supporting both AB and XT/options activities.
+
+    Activity detail endpoints require Admin API v3.  Older v1 defaults return
+    ``409 Cannot access activity with options in this version of API`` for XT /
+    options-backed activities.
+    """
+    v3_client = _v3_activity_client(client)
+    base_url = v3_client.config.base_url.rstrip("/")
+    last_error: Exception | None = None
+
+    for activity_type in ("ab", "xt"):
+        url = f"{base_url}/{tenant_id}/target/activities/{activity_type}/{activity_id}"
+        try:
+            result = v3_client._request("GET", url)
+        except RuntimeError as exc:
+            last_error = exc
+            message = str(exc)
+            if "HTTP 404" in message:
+                continue
+            raise
+        if not isinstance(result, dict):
+            raise RuntimeError(f"Unexpected non-object response for activity {activity_id}")
+        return result
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError(f"Activity not found: {activity_id}")
 
 
 def export_activities(

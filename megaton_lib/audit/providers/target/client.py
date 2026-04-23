@@ -6,7 +6,7 @@ Recommendations and Feeds APIs.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import email.utils
 import random
@@ -59,6 +59,18 @@ class AdobeTargetClient:
             self._auth = AdobeOAuthClient()
 
         self.session = requests.Session()
+
+    def with_accept_header(self, accept_header: str) -> AdobeTargetClient:
+        """Return a sibling client that reuses auth/session with a different Accept header."""
+        sibling = object.__new__(AdobeTargetClient)
+        sibling.config = replace(self.config, accept_header=accept_header)
+        sibling.max_retries = self.max_retries
+        sibling.backoff_factor = self.backoff_factor
+        sibling.jitter = self.jitter
+        sibling.timeout_sec = self.timeout_sec
+        sibling._auth = self._auth
+        sibling.session = self.session
+        return sibling
 
     @property
     def base_url(self) -> str:
