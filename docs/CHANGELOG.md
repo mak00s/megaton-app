@@ -2,6 +2,14 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-04-23
+
+- Hardened Adobe Tags export/apply safety and operator clarity:
+  - export now refreshes `.apply-baseline.json` for stale-base detection
+  - apply now blocks stale-base conflicts by default while auto-skipping remote-only drift
+  - auto-build Step 5 re-export now defaults to `rules,data-elements` to reduce metadata noise
+  - CLI help/output now explains default workflow, re-export scope, and stale-base behavior without requiring README lookup
+
 ## 2026-04-11 (v0.8.1)
 
 - Fixed CI compatibility for `tests/test_ga4_helpers.py`:

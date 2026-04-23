@@ -264,8 +264,11 @@ python scripts/audit.py export-tag-config \
 Adobe Tags の export/apply では、rule component の custom code だけでなく data element settings sidecar も扱える。
 
 - export は property tree 配下に `*.custom-code.*` と `*.settings.json` を出力する
+- export は同時に `.apply-baseline.json` も更新し、後続 apply の stale-base check に使う
 - apply は `apply_exported_changes_tree()` 経由で両方を反映する
 - data element の custom code だけでなく `settings` 全体を PATCH したい場合も sidecar を編集する
+- apply は dry-run が既定。`TAGS_DEV_LIBRARY_ID` が設定されていれば build workflow へ進み、Step 5 の自動 re-export は既定で `rules,data-elements` だけに絞る
+- apply 時に local と remote が両方 baseline から変わっていたら conflict として abort する。UI 変更が入りうる時は、apply 前に re-export して baseline を更新する
 
 運用上は、export した tree をそのまま Git で管理し、編集後に apply/build/verify を回す形を基本にする。
 - 案件固有（10-12）は各分析 repo 側で実装
