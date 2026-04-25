@@ -37,6 +37,23 @@ def test_bootstrap_account_env_explicit_account_loads_env(monkeypatch, tmp_path)
     assert os.environ["ADOBE_CLIENT_ID"] == "wws-id"
 
 
+def test_bootstrap_account_env_explicit_account_overrides_stale_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("ACCOUNT", "wws")
+    monkeypatch.setenv("TAGS_PROPERTY_ID", "PR-WWS")
+    monkeypatch.setenv("ADOBE_CLIENT_ID", "wws-id")
+    (tmp_path / ".env.csk").write_text(
+        "TAGS_PROPERTY_ID=PR-CSK\nADOBE_CLIENT_ID=csk-id\n",
+        encoding="utf-8",
+    )
+
+    account = bootstrap_account_env("csk", project_root=tmp_path)
+
+    assert account == "csk"
+    assert os.environ["ACCOUNT"] == "csk"
+    assert os.environ["TAGS_PROPERTY_ID"] == "PR-CSK"
+    assert os.environ["ADOBE_CLIENT_ID"] == "csk-id"
+
+
 def test_bootstrap_account_env_reads_pyproject_default(monkeypatch, tmp_path):
     monkeypatch.delenv("ACCOUNT", raising=False)
     monkeypatch.delenv("ADOBE_CLIENT_ID", raising=False)

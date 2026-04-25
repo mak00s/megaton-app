@@ -59,8 +59,8 @@ def tags_workspace_main(
     """Reusable library-scope Adobe Tags CLI for thin analysis repo wrappers."""
     parser = argparse.ArgumentParser(description="Adobe Tags library-scope workspace CLI")
     parser.add_argument("--account", default="", help="Analysis account, e.g. csk / wws / dms")
-    parser.add_argument("--property-id", default=os.environ.get("TAGS_PROPERTY_ID", ""), help="Adobe Tags property ID")
-    parser.add_argument("--library-id", default=os.environ.get("TAGS_DEV_LIBRARY_ID", ""), help="Adobe Tags library ID")
+    parser.add_argument("--property-id", default="", help="Adobe Tags property ID")
+    parser.add_argument("--library-id", default="", help="Adobe Tags library ID")
     parser.add_argument("--root", default="", help="Local Adobe Tags workspace root")
     parser.add_argument("--workers", type=int, default=None, help="Remote snapshot fetch parallelism")
     parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
@@ -80,11 +80,11 @@ def tags_workspace_main(
     push_p.add_argument("--apply", action="store_true")
     push_p.add_argument("--allow-stale-base", action="store_true")
     push_p.add_argument("--skip-build", action="store_true")
-    push_p.add_argument("--verify-url", default=os.environ.get("TAGS_DEV_LAUNCH_URL", ""))
+    push_p.add_argument("--verify-url", default="")
     push_p.add_argument("--marker", action="append", default=[])
     push_p.add_argument("--no-local-status-hooks", action="store_true")
     build_p = sub.add_parser("build")
-    build_p.add_argument("--verify-url", default=os.environ.get("TAGS_DEV_LAUNCH_URL", ""))
+    build_p.add_argument("--verify-url", default="")
     build_p.add_argument("--marker", action="append", default=[])
     full_export_p = sub.add_parser("full-export")
     full_export_p.add_argument("--output", required=True)
@@ -117,32 +117,50 @@ def tags_workspace_main(
     account = ""
     should_bootstrap = not (args.command == "conflict" and args.root.strip())
     if should_bootstrap:
+        env_property_hint = "" if args.account.strip() else os.environ.get("TAGS_PROPERTY_ID", "").strip()
+        env_library_hint = "" if args.account.strip() else os.environ.get("TAGS_DEV_LIBRARY_ID", "").strip()
         account = bootstrap_account_env(
             args.account,
             project_root=repo_root,
             known_accounts=known_accounts,
             account_hints=account_hints,
-            property_id=args.property_id,
-            library_id=args.library_id,
+            property_id=args.property_id or env_property_hint,
+            library_id=args.library_id or env_library_hint,
         )
     if not args.property_id.strip():
         args.property_id = os.environ.get("TAGS_PROPERTY_ID", "").strip()
     if not args.library_id.strip():
         args.library_id = os.environ.get("TAGS_DEV_LIBRARY_ID", "").strip()
+    if hasattr(args, "verify_url") and not args.verify_url.strip():
+        args.verify_url = os.environ.get("TAGS_DEV_LAUNCH_URL", "").strip()
     root = _workspace_root(project_root=repo_root, property_id=args.property_id, raw_root=args.root)
     if args.command == "conflict":
         if args.list:
             payload = list_workspace_conflicts(root)
+            conflicts = payload.get("conflicts", [])
+            if not isinstance(conflicts, list):
+                conflicts = []
+            result = {
+                "schema_version": 1,
+                "command": "conflict",
+                "mode": "list",
+                "summary": {"conflicts": len(conflicts)},
+                "details": {"conflicts": conflicts},
+                "ok": not conflicts,
+                "exit_code": 2 if conflicts else 0,
+                "severity": "conflict" if conflicts else "ok",
+            }
+            for key in ("property_id", "library_id", "generated_at"):
+                if key in payload:
+                    result[key] = payload[key]
             if args.format == "json":
-                _print_json_result(payload)
+                _print_json_result(result)
             else:
-                conflicts = payload.get("conflicts", [])
-                print(f"conflicts: {len(conflicts) if isinstance(conflicts, list) else 0}")
-                if isinstance(conflicts, list):
-                    for item in conflicts:
-                        if isinstance(item, dict):
-                            print(item.get("path", ""))
-            raise SystemExit(2 if payload.get("conflicts") else 0)
+                print(f"conflicts: {len(conflicts)}")
+                for item in conflicts:
+                    if isinstance(item, dict):
+                        print(item.get("path", ""))
+            raise SystemExit(result["exit_code"])
         if args.show:
             rendered = render_workspace_conflict(root, args.show)
             print(rendered)

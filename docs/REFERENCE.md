@@ -879,13 +879,14 @@ Notes:
 |---|---|
 | `adobe_tags_output_root(property_id)` | Return the canonical local output path for one Adobe Tags property |
 | `bootstrap_account_env(account="", project_root=".", known_accounts=("csk", "wws", "dms"), account_hints=None, property_id="", library_id="", git_remote_url="")` | Resolve an analysis account, load `.env.<account>`, and set `ACCOUNT` for thin wrappers |
-| `load_env_file(path)` | Load `KEY=VALUE` pairs from a file into `os.environ` (setdefault) |
+| `load_env_file(path, override=False)` | Load `KEY=VALUE` pairs from a file into `os.environ`; defaults to setdefault semantics |
 | `seed_adobe_oauth_env(...)` | Resolve Adobe OAuth credentials from args, env, JSON file, and payload dict. Sets resolved values into `os.environ`. |
 | `build_tags_config(...)` | Build `AdobeTagsConfig` after resolving OAuth settings via `seed_adobe_oauth_env` |
 
 Notes:
 
 - `bootstrap_account_env` resolution order: explicit account → `ACCOUNT` env var → `[tool.megaton].default_account` / `[tool.tags].default_account` → account hints → the only matching `.env.<account>` file
+- when an explicit account is passed, the selected `.env.<account>` overrides existing env values and `ACCOUNT` is set to the resolved account; inferred accounts preserve existing env values with setdefault semantics
 - `account_hints` can map accounts to `property_ids`, `library_ids`, `remote_contains`, and `path_contains` / `cwd_contains`; wrappers can build this from repo-local `config.py` constants such as `CSK_PROPERTY_ID`
 - default known accounts are `csk`, `wws`, and `dms`; pass `known_accounts=...` from wrappers if a repo needs a different allow-list
 - wrappers should call `bootstrap_account_env(args.account)` before building AA / AT / Adobe Tags clients so Makefile targets and direct `python -m ...` invocations share the same env bootstrap
@@ -929,6 +930,7 @@ These helpers are intended for thin wrapper scripts in analysis repos.
 - global flags include `--account`, `--property-id`, `--library-id`, `--root`, `--workers`, `--summary-only`, `--verbose`, and `--format json`
 - `status --since-pull` uses only local baseline files and makes no Adobe API calls
 - `conflict --list`, `conflict --show <path>`, and `conflict --resolve <path> --use local|remote|baseline [--apply]` read `.tag-conflicts.json` and do not require Adobe credentials
+- `conflict --list --format json` emits the same workspace result envelope as other JSON commands, with conflict records under `details.conflicts`
 - conflict commands bootstrap `.env.<account>` before resolving the default workspace root unless `--root` is explicitly provided
 - `push --apply` runs local `status --since-pull --summary-only` before and after the push unless `--no-local-status-hooks` is used
 - wrapper entrypoint example:

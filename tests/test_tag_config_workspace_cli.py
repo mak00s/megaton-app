@@ -17,12 +17,12 @@ def _factory(*, property_id: str, page_size: int = 100) -> AdobeTagsConfig:
     )
 
 
-def _env_file(root, account: str = "csk") -> None:
+def _env_file(root, account: str = "csk", property_id: str = "PR123", library_id: str = "LB1") -> None:
     (root / f".env.{account}").write_text(
         "\n".join(
             [
-                "TAGS_PROPERTY_ID=PR123",
-                "TAGS_DEV_LIBRARY_ID=LB1",
+                f"TAGS_PROPERTY_ID={property_id}",
+                f"TAGS_DEV_LIBRARY_ID={library_id}",
                 "TEST_API_KEY=test-key",
                 "TEST_BEARER_TOKEN=test-token",
             ],
@@ -94,6 +94,35 @@ def test_tags_workspace_main_pull_passes_workers_and_summary_flags(monkeypatch, 
     assert seen["verbose"] is False
 
 
+def test_tags_workspace_main_explicit_account_ignores_stale_env_defaults(monkeypatch, tmp_path):
+    monkeypatch.setenv("ACCOUNT", "wws")
+    monkeypatch.setenv("TAGS_PROPERTY_ID", "PR-WWS")
+    monkeypatch.setenv("TAGS_DEV_LIBRARY_ID", "LB-WWS")
+    _env_file(tmp_path, account="csk", property_id="PR-CSK", library_id="LB-CSK")
+    seen = {}
+
+    def fake_status(config, **kwargs):
+        seen["property_id"] = config.property_id
+        seen.update(kwargs)
+        return {"summary": {}, "details": {}, "exit_code": 0}
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.workspace.status_library_scope",
+        fake_status,
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        tags_workspace_main(
+            tags_config_factory=_factory,
+            project_root=tmp_path,
+            argv=["--account", "csk", "status", "--since-pull"],
+        )
+
+    assert exc.value.code == 0
+    assert seen["property_id"] == "PR-CSK"
+    assert seen["library_id"] == "LB-CSK"
+
+
 def test_tags_workspace_main_conflict_list_does_not_require_account(tmp_path, capsys):
     root = tmp_path / "tags-root"
     root.mkdir()
@@ -112,7 +141,11 @@ def test_tags_workspace_main_conflict_list_does_not_require_account(tmp_path, ca
 
     assert exc.value.code == 2
     payload = json.loads(capsys.readouterr().out)
-    assert payload["conflicts"][0]["path"] == "data-elements/de1.json"
+    assert payload["command"] == "conflict"
+    assert payload["mode"] == "list"
+    assert payload["exit_code"] == 2
+    assert payload["summary"]["conflicts"] == 1
+    assert payload["details"]["conflicts"][0]["path"] == "data-elements/de1.json"
 
 
 def test_tags_workspace_main_conflict_list_bootstraps_env_when_root_omitted(tmp_path, capsys):
@@ -134,7 +167,9 @@ def test_tags_workspace_main_conflict_list_bootstraps_env_when_root_omitted(tmp_
 
     assert exc.value.code == 2
     payload = json.loads(capsys.readouterr().out)
-    assert payload["conflicts"][0]["path"] == "data-elements/de1.json"
+    assert payload["command"] == "conflict"
+    assert payload["summary"]["conflicts"] == 1
+    assert payload["details"]["conflicts"][0]["path"] == "data-elements/de1.json"
 
 
 def test_tags_workspace_main_conflict_resolve_json(tmp_path, capsys):

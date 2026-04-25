@@ -2,7 +2,7 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-## 2026-04-25
+## 2026-04-25 (v0.9.0)
 
 - Added library-scope Adobe Tags workspace helpers for analysis repo wrappers:
   - destructive `checkout`, non-destructive `pull`, drift `status`, fast local `status --since-pull`, explicit `add`, guarded `push`, build-only, and `full-export`
@@ -10,6 +10,7 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
   - structured result JSON with schema, severity, exit code, grouped warnings, summary-only output, and stderr progress
 - Added shared account env bootstrap and a reusable `tags_workspace_main()` runner for thin `python -m tags` wrappers.
 - Added `.tag-conflicts.json` helpers and CLI support for conflict list/show/resolve, including baseline/local/remote diffs backed by saved `baseline_text`.
+- Normalized `tags conflict --list --format json` to the workspace result schema, and made explicit `--account` bootstrap override stale account env values.
 - Separated outside-scope local files from remote-removed files in workspace warnings; dry-run `push` now returns outside-scope findings as structured output, while apply mode still aborts before mutation.
 - Documented agent gotchas, workspace mode values, schema-version compatibility expectations, and CSK snapshot-worker benchmark results.
 - Exported the new workspace helpers from `megaton_lib.audit.providers.tag_config`.

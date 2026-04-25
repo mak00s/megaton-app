@@ -13,7 +13,7 @@ from ...config import AdobeOAuthConfig, AdobeTagsConfig, DEFAULT_ADOBE_SCOPES
 DEFAULT_ANALYSIS_ACCOUNTS = ("csk", "wws", "dms")
 
 
-def load_env_file(path: str | Path) -> None:
+def load_env_file(path: str | Path, *, override: bool = False) -> None:
     """Load simple ``KEY=VALUE`` pairs into ``os.environ`` if present."""
     env_path = Path(path).expanduser().resolve()
     if not env_path.exists():
@@ -26,7 +26,12 @@ def load_env_file(path: str | Path) -> None:
         if "=" not in line:
             continue
         key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        resolved_key = key.strip()
+        resolved_value = value.strip().strip('"').strip("'")
+        if override:
+            os.environ[resolved_key] = resolved_value
+        else:
+            os.environ.setdefault(resolved_key, resolved_value)
 
 
 def _default_account_from_pyproject(project_root: Path) -> str:
@@ -156,8 +161,9 @@ def bootstrap_account_env(
     5. the only matching ``.env.<account>`` file under ``project_root``
     """
     root = Path(project_root).expanduser().resolve()
+    explicit_account = account.strip()
     resolved = (
-        account.strip()
+        explicit_account
         or os.getenv(account_env_var, "").strip()
         or _default_account_from_pyproject(root)
         or _account_from_hints(
@@ -187,10 +193,13 @@ def bootstrap_account_env(
     if not env_path.exists():
         raise RuntimeError(f"Missing env file: {env_path}")
 
-    load_env_file(env_path)
+    load_env_file(env_path, override=bool(explicit_account))
     if load_base_env:
         load_env_file(root / ".env")
-    os.environ.setdefault(account_env_var, resolved)
+    if explicit_account:
+        os.environ[account_env_var] = resolved
+    else:
+        os.environ.setdefault(account_env_var, resolved)
     return resolved
 
 
