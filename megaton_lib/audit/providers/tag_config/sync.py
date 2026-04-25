@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from megaton_lib.audit.providers.tag_config.baseline import (
+    CODE_VALUE_KEYS,
     hash_normalized_text,
     hash_settings_object,
     load_apply_baseline_manifest,
@@ -30,7 +31,7 @@ def slugify_component_name(name: str) -> str:
 
 
 def _extract_code_value(settings: dict[str, Any]) -> str:
-    for key in ("source", "customCode", "code", "html", "script"):
+    for key in CODE_VALUE_KEYS:
         value = settings.get(key)
         if isinstance(value, str):
             return value
@@ -63,14 +64,14 @@ def _evaluate_custom_code_staleness(
     rel_path: str,
     new_code: str,
     baseline_resources: dict[str, Any],
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, str | None, dict[str, Any] | None]:
     entry = baseline_resources.get(rel_path)
     if not isinstance(entry, dict):
-        return None, None
+        return None, None, None
 
     base_hash = str(entry.get("source_hash", "")).strip()
     if not base_hash:
-        return None, None
+        return None, None, None
 
     current = get_component_settings(config, component_id)
     remote_code = _extract_code_value(dict(current["settings"]))
@@ -81,10 +82,10 @@ def _evaluate_custom_code_staleness(
     remote_changed = remote_hash != base_hash
 
     if remote_changed and not local_changed:
-        return "remote_only", "remote custom code changed since export; local file still matches baseline"
+        return "remote_only", "remote custom code changed since export; local file still matches baseline", current
     if local_changed and remote_changed and local_hash != remote_hash:
-        return "conflict", "local and remote custom code both changed since export"
-    return None, None
+        return "conflict", "local and remote custom code both changed since export", current
+    return None, None, current
 
 
 def _evaluate_settings_staleness(
@@ -93,14 +94,14 @@ def _evaluate_settings_staleness(
     rel_path: str,
     new_settings: dict[str, Any],
     baseline_resources: dict[str, Any],
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, str | None, dict[str, Any] | None]:
     entry = baseline_resources.get(rel_path)
     if not isinstance(entry, dict):
-        return None, None
+        return None, None, None
 
     base_hash = str(entry.get("settings_hash", "")).strip()
     if not base_hash:
-        return None, None
+        return None, None, None
 
     current = get_component_settings(config, component_id)
     remote_settings = dict(current["settings"])
@@ -111,10 +112,10 @@ def _evaluate_settings_staleness(
     remote_changed = remote_hash != base_hash
 
     if remote_changed and not local_changed:
-        return "remote_only", "remote data-element settings changed since export; local file still matches baseline"
+        return "remote_only", "remote data-element settings changed since export; local file still matches baseline", current
     if local_changed and remote_changed and local_hash != remote_hash:
-        return "conflict", "local and remote data-element settings both changed since export"
-    return None, None
+        return "conflict", "local and remote data-element settings both changed since export", current
+    return None, None, current
 
 
 def _blocked_result(
@@ -256,7 +257,7 @@ def apply_custom_code_tree(
 
         new_code = code_file.read_text(encoding="utf-8")
         rel_path = str(code_file.relative_to(base)).replace("\\", "/")
-        stale_status, stale_detail = _evaluate_custom_code_staleness(
+        stale_status, stale_detail, current = _evaluate_custom_code_staleness(
             config,
             component_id,
             rel_path,
@@ -273,7 +274,13 @@ def apply_custom_code_tree(
                 ),
             )
             continue
-        result = apply_custom_code(config, component_id, new_code, dry_run=dry_run)
+        result = apply_custom_code(
+            config,
+            component_id,
+            new_code,
+            dry_run=dry_run,
+            current=current,
+        )
         result["path"] = rel_path
         results.append(result)
 
@@ -335,7 +342,7 @@ def apply_data_element_settings_tree(
         if not isinstance(new_settings, dict):
             continue
         rel_path = str(settings_file.relative_to(base)).replace("\\", "/")
-        stale_status, stale_detail = _evaluate_settings_staleness(
+        stale_status, stale_detail, current = _evaluate_settings_staleness(
             config,
             component_id,
             rel_path,
@@ -358,6 +365,7 @@ def apply_data_element_settings_tree(
             component_id,
             new_settings,
             dry_run=dry_run,
+            current=current,
         )
         result["path"] = rel_path
         results.append(result)

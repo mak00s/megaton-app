@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import sys
 import threading
 import time
 from typing import Any
@@ -23,7 +24,7 @@ import requests
 
 from megaton_lib.audit.config import AdobeTagsConfig
 from megaton_lib.audit.providers.adobe_auth import AdobeOAuthClient
-from .baseline import APPLY_BASELINE_FILENAME, render_apply_baseline_manifest
+from .baseline import APPLY_BASELINE_FILENAME, CODE_VALUE_KEYS, render_apply_baseline_manifest
 
 
 # ---- settings helpers (unchanged) ----
@@ -209,6 +210,7 @@ def _reactor_request(
                 print(
                     f"  [WAIT] Adobe Tags API {method} {request_label} {label} "
                     f"elapsed={elapsed}s",
+                    file=sys.stderr,
                     flush=True,
                 )
 
@@ -223,6 +225,7 @@ def _reactor_request(
                 print(
                     f"  [DONE] Adobe Tags API {method} {request_label} {label} "
                     f"elapsed={elapsed:.1f}s",
+                    file=sys.stderr,
                     flush=True,
                 )
 
@@ -1297,11 +1300,20 @@ def get_component_settings(
     endpoint, resource_type = _resolve_component_endpoint(component_id)
     current = _reactor_get(config, endpoint)
     current_data = current.get("data", {})
+    body_meta = current.get("meta", {})
     attrs = current_data.get("attributes", {})
     return {
         "component_id": component_id,
         "resource_type": resource_type,
         "name": attrs.get("name", ""),
+        "updated_at": attrs.get("updated_at"),
+        "latest_revision_number": body_meta.get(
+            "latest_revision_number",
+            current_data.get("meta", {}).get(
+                "latest_revision_number",
+                attrs.get("revision_number"),
+            ),
+        ),
         "settings": parse_settings_object(attrs.get("settings")),
     }
 
@@ -1312,16 +1324,17 @@ def apply_component_settings(
     new_settings: Mapping[str, Any] | dict[str, Any],
     *,
     dry_run: bool = True,
+    current: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Update a rule component or data element by PATCHing its full settings object."""
-    current = get_component_settings(config, component_id)
+    current_state = dict(current) if isinstance(current, Mapping) else get_component_settings(config, component_id)
     target_settings = dict(new_settings)
-    changed = current["settings"] != target_settings
+    changed = current_state["settings"] != target_settings
 
     result: dict[str, Any] = {
         "component_id": component_id,
-        "resource_type": current["resource_type"],
-        "name": current["name"],
+        "resource_type": current_state["resource_type"],
+        "name": current_state["name"],
         "changed": changed,
         "update_type": "settings",
     }
@@ -1432,6 +1445,7 @@ def apply_custom_code(
     new_code: str,
     *,
     dry_run: bool = True,
+    current: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Update custom code for a rule component or data element.
 
@@ -1451,13 +1465,13 @@ def apply_custom_code(
     endpoint, resource_type = _resolve_component_endpoint(component_id)
 
     # Fetch current state
-    current = get_component_settings(config, component_id)
-    settings = dict(current["settings"])
+    current_state = dict(current) if isinstance(current, Mapping) else get_component_settings(config, component_id)
+    settings = dict(current_state["settings"])
 
     # Find current code
     current_code = ""
     code_key = ""
-    for key in ("source", "customCode", "code", "html", "script"):
+    for key in CODE_VALUE_KEYS:
         candidate = settings.get(key)
         if isinstance(candidate, str):
             current_code = candidate
@@ -1499,6 +1513,7 @@ def apply_data_element_settings(
     new_settings: Mapping[str, Any] | dict[str, Any],
     *,
     dry_run: bool = True,
+    current: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Update a data element by PATCHing its full settings object."""
     if not data_element_id.startswith("DE"):
@@ -1508,6 +1523,7 @@ def apply_data_element_settings(
         data_element_id,
         new_settings,
         dry_run=dry_run,
+        current=current,
     )
 
 

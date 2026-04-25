@@ -13,6 +13,7 @@ AI agents can drive the entire workflow through a simple JSON file, with no MCP 
 - **Validation Helpers** — Shared Playwright / AA validation runners, auth profiles, and follow-up task helpers
 - **Adobe Helpers** — Shared OAuth, AA segment listing, classifications export/import/verify, and Data Warehouse scheduling helpers
 - **Safer Adobe Tags apply flow** — Export writes `.apply-baseline.json`, apply stays dry-run by default, and stale-base conflicts are blocked before PATCH
+- **Library-scope Adobe Tags workflows** — Shared helpers for destructive `checkout`, non-destructive `pull`, fast local `status --since-pull`, explicit `add`, guarded `push`, build-only, and `full-export`
 - **Notebook** — Develop analyses interactively, then run them as scheduled jobs
 
 ![Streamlit UI](docs/images/megaton-app.png)

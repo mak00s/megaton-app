@@ -69,8 +69,8 @@ def test_apply_custom_code_tree_calls_apply(monkeypatch, tmp_path: Path):
 
     calls = []
 
-    def fake_apply(config, component_id, new_code, *, dry_run=True):
-        calls.append({'component_id': component_id, 'new_code': new_code, 'dry_run': dry_run})
+    def fake_apply(config, component_id, new_code, *, dry_run=True, current=None):
+        calls.append({'component_id': component_id, 'new_code': new_code, 'dry_run': dry_run, 'current': current})
         return {'component_id': component_id, 'changed': True, 'applied': not dry_run}
 
     monkeypatch.setattr('megaton_lib.audit.providers.tag_config.sync.apply_custom_code', fake_apply)
@@ -78,7 +78,7 @@ def test_apply_custom_code_tree_calls_apply(monkeypatch, tmp_path: Path):
     config = AdobeTagsConfig(property_id='PR123')
     results = apply_custom_code_tree(config, root, dry_run=True)
 
-    assert calls == [{'component_id': 'RC123', 'new_code': 'console.log(1)', 'dry_run': True}]
+    assert calls == [{'component_id': 'RC123', 'new_code': 'console.log(1)', 'dry_run': True, 'current': None}]
     assert results[0]['path'] == 'rules/my-rule/rcabc_test.custom-code.js'
 
 
@@ -102,8 +102,8 @@ def test_apply_data_element_settings_tree_calls_apply(monkeypatch, tmp_path: Pat
 
     calls = []
 
-    def fake_apply(config, component_id, new_settings, *, dry_run=True):
-        calls.append({'component_id': component_id, 'new_settings': new_settings, 'dry_run': dry_run})
+    def fake_apply(config, component_id, new_settings, *, dry_run=True, current=None):
+        calls.append({'component_id': component_id, 'new_settings': new_settings, 'dry_run': dry_run, 'current': current})
         return {'component_id': component_id, 'changed': True, 'applied': not dry_run}
 
     monkeypatch.setattr('megaton_lib.audit.providers.tag_config.sync.apply_data_element_settings', fake_apply)
@@ -115,6 +115,7 @@ def test_apply_data_element_settings_tree_calls_apply(monkeypatch, tmp_path: Pat
         'component_id': 'DE123',
         'new_settings': {'storageDuration': 'pageview', 'source': 'window.ctx'},
         'dry_run': False,
+        'current': None,
     }]
     assert results[0]['path'] == 'data-elements/deabc_test.settings.json'
 
