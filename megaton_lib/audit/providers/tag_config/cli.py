@@ -7,13 +7,14 @@ own ``tags_config_factory`` for repo-specific credential resolution.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
 from typing import Any, Callable
 
 from ...config import AdobeTagsConfig
-from .bootstrap import adobe_tags_output_root, build_tags_config
+from .bootstrap import adobe_tags_output_root, bootstrap_account_env, build_tags_config
 
 
 def _default_config_factory(*, property_id: str, page_size: int = 100) -> AdobeTagsConfig:
@@ -34,6 +35,203 @@ def _resolve_property_ids(
     if env_id:
         return [env_id]
     return []
+
+
+def _workspace_root(*, project_root: Path, property_id: str, raw_root: str = "") -> Path:
+    if raw_root.strip():
+        path = Path(raw_root.strip())
+        return path if path.is_absolute() else project_root / path
+    return project_root / adobe_tags_output_root(property_id)
+
+
+def _print_json_result(result: dict[str, Any]) -> None:
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+def tags_workspace_main(
+    *,
+    tags_config_factory: Callable[..., AdobeTagsConfig] | None = None,
+    project_root: str | Path | None = None,
+    account_hints: dict[str, dict[str, Any]] | None = None,
+    known_accounts: tuple[str, ...] = ("csk", "wws", "dms"),
+    argv: list[str] | None = None,
+) -> None:
+    """Reusable library-scope Adobe Tags CLI for thin analysis repo wrappers."""
+    parser = argparse.ArgumentParser(description="Adobe Tags library-scope workspace CLI")
+    parser.add_argument("--account", default="", help="Analysis account, e.g. csk / wws / dms")
+    parser.add_argument("--property-id", default=os.environ.get("TAGS_PROPERTY_ID", ""), help="Adobe Tags property ID")
+    parser.add_argument("--library-id", default=os.environ.get("TAGS_DEV_LIBRARY_ID", ""), help="Adobe Tags library ID")
+    parser.add_argument("--root", default="", help="Local Adobe Tags workspace root")
+    parser.add_argument("--workers", type=int, default=None, help="Remote snapshot fetch parallelism")
+    parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    parser.add_argument("--summary-only", action="store_true", help="Print counts only for text summaries")
+    parser.add_argument("--verbose", action="store_true", help="Print full warning lists")
+
+    sub = parser.add_subparsers(dest="command", required=True)
+    checkout_p = sub.add_parser("checkout")
+    checkout_p.add_argument("--force", action="store_true")
+    sub.add_parser("pull")
+    status_p = sub.add_parser("status")
+    status_p.add_argument("--since-pull", action="store_true")
+    add_p = sub.add_parser("add")
+    add_p.add_argument("--from-path", action="append", default=[])
+    add_p.add_argument("--apply", action="store_true")
+    push_p = sub.add_parser("push")
+    push_p.add_argument("--apply", action="store_true")
+    push_p.add_argument("--allow-stale-base", action="store_true")
+    push_p.add_argument("--skip-build", action="store_true")
+    push_p.add_argument("--verify-url", default=os.environ.get("TAGS_DEV_LAUNCH_URL", ""))
+    push_p.add_argument("--marker", action="append", default=[])
+    push_p.add_argument("--no-local-status-hooks", action="store_true")
+    build_p = sub.add_parser("build")
+    build_p.add_argument("--verify-url", default=os.environ.get("TAGS_DEV_LAUNCH_URL", ""))
+    build_p.add_argument("--marker", action="append", default=[])
+    full_export_p = sub.add_parser("full-export")
+    full_export_p.add_argument("--output", required=True)
+    full_export_p.add_argument("--resources", default="")
+    conflict_p = sub.add_parser("conflict")
+    conflict_action = conflict_p.add_mutually_exclusive_group(required=True)
+    conflict_action.add_argument("--list", action="store_true")
+    conflict_action.add_argument("--show", default="")
+    conflict_action.add_argument("--resolve", default="")
+    conflict_p.add_argument("--use", choices=("local", "remote", "baseline"), default="")
+    conflict_p.add_argument("--apply", action="store_true")
+
+    args = parser.parse_args(argv)
+    repo_root = Path(project_root or Path.cwd())
+
+    from .workspace import (  # noqa: WPS433
+        add_to_library_scope,
+        build_library_scope,
+        checkout_library_scope,
+        full_export_property,
+        list_workspace_conflicts,
+        pull_library_scope,
+        push_library_scope,
+        render_workspace_conflict,
+        resolve_workspace_conflict,
+        status_library_scope,
+        workspace_result_exit_code,
+    )
+
+    account = ""
+    should_bootstrap = not (args.command == "conflict" and args.root.strip())
+    if should_bootstrap:
+        account = bootstrap_account_env(
+            args.account,
+            project_root=repo_root,
+            known_accounts=known_accounts,
+            account_hints=account_hints,
+            property_id=args.property_id,
+            library_id=args.library_id,
+        )
+    if not args.property_id.strip():
+        args.property_id = os.environ.get("TAGS_PROPERTY_ID", "").strip()
+    if not args.library_id.strip():
+        args.library_id = os.environ.get("TAGS_DEV_LIBRARY_ID", "").strip()
+    root = _workspace_root(project_root=repo_root, property_id=args.property_id, raw_root=args.root)
+    if args.command == "conflict":
+        if args.list:
+            payload = list_workspace_conflicts(root)
+            if args.format == "json":
+                _print_json_result(payload)
+            else:
+                conflicts = payload.get("conflicts", [])
+                print(f"conflicts: {len(conflicts) if isinstance(conflicts, list) else 0}")
+                if isinstance(conflicts, list):
+                    for item in conflicts:
+                        if isinstance(item, dict):
+                            print(item.get("path", ""))
+            raise SystemExit(2 if payload.get("conflicts") else 0)
+        if args.show:
+            rendered = render_workspace_conflict(root, args.show)
+            print(rendered)
+            raise SystemExit(0)
+        if not args.use:
+            print("ERROR: conflict --resolve requires --use local|remote|baseline", file=sys.stderr)
+            raise SystemExit(1)
+        result = resolve_workspace_conflict(root, args.resolve, use=args.use, apply=args.apply)
+        if args.format == "json":
+            _print_json_result(result)
+        raise SystemExit(workspace_result_exit_code(result))
+
+    if not args.property_id.strip():
+        print("ERROR: --property-id or TAGS_PROPERTY_ID is required", file=sys.stderr)
+        raise SystemExit(1)
+    if args.command != "full-export" and not args.library_id.strip():
+        print("ERROR: --library-id or TAGS_DEV_LIBRARY_ID is required", file=sys.stderr)
+        raise SystemExit(1)
+
+    factory = tags_config_factory or _default_config_factory
+    page_size = int(os.environ.get("TAGS_PAGE_SIZE", "100"))
+    config = factory(property_id=args.property_id, page_size=page_size)
+    _ = account  # resolved for env side effects and wrapper diagnostics
+
+    if args.command == "checkout":
+        result = checkout_library_scope(
+            config,
+            root=root,
+            library_id=args.library_id,
+            force=args.force,
+            snapshot_workers=args.workers,
+        )
+    elif args.command == "pull":
+        result = pull_library_scope(
+            config,
+            root=root,
+            library_id=args.library_id,
+            snapshot_workers=args.workers,
+            summary_only=args.summary_only,
+            verbose=args.verbose,
+        )
+    elif args.command == "status":
+        result = status_library_scope(
+            config,
+            root=root,
+            library_id=args.library_id,
+            since_pull=args.since_pull,
+            summary_only=args.summary_only,
+            verbose=args.verbose,
+            snapshot_workers=args.workers,
+        )
+    elif args.command == "add":
+        result = add_to_library_scope(
+            config,
+            root=root,
+            library_id=args.library_id,
+            from_paths=args.from_path,
+            apply=args.apply,
+        )
+    elif args.command == "push":
+        if args.apply and not args.no_local_status_hooks:
+            status_library_scope(config, root=root, library_id=args.library_id, since_pull=True, summary_only=True)
+        result = push_library_scope(
+            config,
+            root=root,
+            library_id=args.library_id,
+            apply=args.apply,
+            verify_asset_url=args.verify_url or None,
+            allow_stale_base=args.allow_stale_base,
+            skip_build=args.skip_build,
+            markers=args.marker,
+            snapshot_workers=args.workers,
+        )
+        if args.apply and not args.no_local_status_hooks:
+            status_library_scope(config, root=root, library_id=args.library_id, since_pull=True, summary_only=True)
+    elif args.command == "build":
+        result = build_library_scope(
+            config,
+            library_id=args.library_id,
+            verify_asset_url=args.verify_url or None,
+            markers=args.marker,
+        )
+    else:
+        resources = [item.strip() for item in args.resources.split(",") if item.strip()] if args.resources else None
+        result = full_export_property(config, output_root=args.output, resources=resources)
+
+    if args.format == "json":
+        _print_json_result(result)
+    raise SystemExit(workspace_result_exit_code(result))
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +515,7 @@ def tags_apply_main(
     if not re_export_resources:
         re_export_resources = ["rules", "data-elements"]
     should_build = bool(lib_id) and not args.skip_build
+    from .sync import StaleBaseConflictError  # noqa: WPS433
 
     for i, pid in enumerate(pids):
         tags_config = first_config if i == 0 else factory(property_id=pid, page_size=page_size)
@@ -325,7 +524,6 @@ def tags_apply_main(
         # Default: build workflow (apply → revise → build → verify → re-export)
         if should_build:
             from .build_workflow import run_build_workflow  # noqa: WPS433
-            from .sync import StaleBaseConflictError  # noqa: WPS433
 
             mode = "APPLY + BUILD" if args.apply else "DRY-RUN"
             print(f"[{mode}] Adobe Tags exported changes")
@@ -361,7 +559,6 @@ def tags_apply_main(
         # Fallback: apply-only
         from .adobe_tags import export_property  # noqa: WPS433
         from .sync import (  # noqa: WPS433
-            StaleBaseConflictError,
             apply_exported_changes_tree,
             raise_for_stale_base_conflicts,
         )

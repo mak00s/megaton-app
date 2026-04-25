@@ -878,12 +878,17 @@ Notes:
 | Function | Description |
 |---|---|
 | `adobe_tags_output_root(property_id)` | Return the canonical local output path for one Adobe Tags property |
+| `bootstrap_account_env(account="", project_root=".", known_accounts=("csk", "wws", "dms"), account_hints=None, property_id="", library_id="", git_remote_url="")` | Resolve an analysis account, load `.env.<account>`, and set `ACCOUNT` for thin wrappers |
 | `load_env_file(path)` | Load `KEY=VALUE` pairs from a file into `os.environ` (setdefault) |
 | `seed_adobe_oauth_env(...)` | Resolve Adobe OAuth credentials from args, env, JSON file, and payload dict. Sets resolved values into `os.environ`. |
 | `build_tags_config(...)` | Build `AdobeTagsConfig` after resolving OAuth settings via `seed_adobe_oauth_env` |
 
 Notes:
 
+- `bootstrap_account_env` resolution order: explicit account → `ACCOUNT` env var → `[tool.megaton].default_account` / `[tool.tags].default_account` → account hints → the only matching `.env.<account>` file
+- `account_hints` can map accounts to `property_ids`, `library_ids`, `remote_contains`, and `path_contains` / `cwd_contains`; wrappers can build this from repo-local `config.py` constants such as `CSK_PROPERTY_ID`
+- default known accounts are `csk`, `wws`, and `dms`; pass `known_accounts=...` from wrappers if a repo needs a different allow-list
+- wrappers should call `bootstrap_account_env(args.account)` before building AA / AT / Adobe Tags clients so Makefile targets and direct `python -m ...` invocations share the same env bootstrap
 - `seed_adobe_oauth_env` resolution order: explicit args → env vars → `creds_file` JSON → `payload` dict
 - `creds_file` accepts a path to a JSON file with `client_id`, `client_secret`, `org_id` keys (loaded via `load_adobe_oauth_credentials`)
 - `build_tags_config` passes `creds_file` through to `seed_adobe_oauth_env`
@@ -898,6 +903,7 @@ These helpers are intended for thin wrapper scripts in analysis repos.
 |---|---|
 | `tags_export_main(...)` | Reusable Adobe Tags export CLI with env-driven resource/filter resolution |
 | `tags_apply_main(...)` | Reusable Adobe Tags apply/build CLI with dry-run default |
+| `tags_workspace_main(...)` | Reusable library-scope Adobe Tags CLI for thin analysis repo `python -m tags` wrappers |
 | `gtm_export_main(...)` | Reusable GTM container export CLI |
 
 #### `tags_export_main(...)`
@@ -916,6 +922,24 @@ These helpers are intended for thin wrapper scripts in analysis repos.
 - falls back to apply-only mode when no library ID is configured
 - uses `.apply-baseline.json` when present to detect stale-base conflicts
 - skips `remote_only` drift automatically and aborts on `conflict` unless `--allow-stale-base` is passed
+
+#### `tags_workspace_main(...)`
+
+- supports `checkout`, `pull`, `status`, `add`, `push`, `build`, `full-export`, and `conflict`
+- global flags include `--account`, `--property-id`, `--library-id`, `--root`, `--workers`, `--summary-only`, `--verbose`, and `--format json`
+- `status --since-pull` uses only local baseline files and makes no Adobe API calls
+- `conflict --list`, `conflict --show <path>`, and `conflict --resolve <path> --use local|remote|baseline [--apply]` read `.tag-conflicts.json` and do not require Adobe credentials
+- conflict commands bootstrap `.env.<account>` before resolving the default workspace root unless `--root` is explicitly provided
+- `push --apply` runs local `status --since-pull --summary-only` before and after the push unless `--no-local-status-hooks` is used
+- wrapper entrypoint example:
+
+```python
+from megaton_lib.audit.providers.tag_config import tags_workspace_main
+from .config import ACCOUNT_HINTS
+
+if __name__ == "__main__":
+    tags_workspace_main(account_hints=ACCOUNT_HINTS)
+```
 
 #### `gtm_export_main(...)`
 
@@ -955,6 +979,51 @@ Notes:
 | `apply_custom_code_tree(config, root, dry_run=True)` | Apply all exported `*.custom-code.*` files under a property tree |
 | `apply_data_element_settings_tree(config, root, dry_run=True)` | Apply exported data-element `*.settings.json` sidecars via direct Reactor PATCH |
 | `apply_exported_changes_tree(config, root, dry_run=True)` | Apply both custom-code sidecars and data-element settings sidecars under a property tree |
+
+### Adobe Tags Library-Scope Workspace Helpers (`megaton_lib.audit.providers.tag_config.workspace`)
+
+These helpers are intended for analysis-repo wrappers that want a safer day-to-day
+Adobe Tags workflow than raw full-property export/apply.
+
+| Function | Description |
+|---|---|
+| `checkout_library_scope(config, root, library_id, force=False, snapshot_workers=None)` | Destructively overwrite local managed files from the current remote library scope; if managed local files already exist, callers should require `force=True` |
+| `pull_library_scope(config, root, library_id, snapshot_workers=None, summary_only=False, verbose=False)` | Non-destructively sync remote-only library-scope changes into local files |
+| `status_library_scope(config, root, library_id, since_pull=False, summary_only=False, verbose=False, snapshot_workers=None)` | Report library-scope drift without mutating local files; `since_pull=True` uses only local baseline files and makes no Adobe API calls |
+| `add_to_library_scope(config, root, library_id, from_paths, apply)` | Resolve local exported new resources from paths and explicitly add them to the library |
+| `push_library_scope(config, root, library_id, apply, verify_asset_url=None, allow_stale_base=False, skip_build=False, markers=None, snapshot_workers=None)` | Guarded PATCH + library refresh + optional build flow for existing in-library resources |
+| `build_library_scope(config, library_id, verify_asset_url=None, markers=None)` | Build-only helper for one Adobe Tags library |
+| `full_export_property(config, output_root, resources=None)` | Export a full property mirror to a non-canonical output path |
+| `list_workspace_conflicts(root)` | Read `.tag-conflicts.json` for wrapper `tags conflict --list --format json` commands |
+| `render_workspace_conflict(root, path)` | Render saved conflict diffs for wrapper `tags conflict --show <path>` commands |
+| `resolve_workspace_conflict(root, path, use, apply=False)` | Resolve one saved conflict by keeping local text or writing saved remote/baseline text; dry-run by default |
+| `workspace_result_exit_code(result)` | Return the stable process exit code for a workspace result dict |
+
+Notes:
+
+- these helpers assume the analysis repo treats **library membership** as the working scope
+- remote snapshot fetches use a bounded thread pool; default parallelism is 10 and can be adjusted with `TAGS_SNAPSHOT_WORKERS` or wrapper flags such as `--workers N` mapped to `snapshot_workers`
+- CSK benchmark saturated around 20 workers for a roughly 170-resource library scope; keep the generic default at 10 and set `TAGS_SNAPSHOT_WORKERS=20` only in CSK-specific env/examples
+- `checkout` is destructive and should require repo-local `--force` whenever managed local files already exist
+- `pull` uses 3-way compare semantics:
+  - remote-only drift is applied
+  - local-only edits are kept
+  - local+remote edits are left as conflicts
+  - local files whose parent resources are outside the current library scope are reported with the user-facing label `outside_library_scope_files`, not as remote-removed files
+- `status` should surface library-scope drift in both file counts and resource/type counts so migration-state repos are understandable
+- `status` supports a fast local `since_pull` mode for repeated verification after local cleanup; use normal remote status when remote drift matters
+- baseline manifests store `baseline_text` for managed resources so conflict artifacts can render true baseline/local/remote diffs
+- remote `pull` / `status` writes `.tag-conflicts.json` when conflicts are found; wrappers can expose `tags conflict --list`, `tags conflict --show <path>`, and `tags conflict --resolve <path> --use local|remote|baseline --apply` from that artifact
+- wrappers can implement `--format json` by emitting the returned result dict to stdout; workspace progress and summaries are written to stderr so JSON stdout stays clean
+- `summary_only=True` prints counts without warnings/next hints, and non-verbose outside-scope warnings are grouped by resource type
+- workspace result JSON includes stable top-level keys such as `schema_version`, `command`, `ok`, `exit_code`, `severity`, `summary`, `details`, `next`, and `elapsed`; `mode` is included when a command has a meaningful variant
+- workspace exit code contract: `0` ok, `1` wrapper/runtime error, `2` conflicts, `3` stale remote or remote-removed-with-local-edits, `4` outside-library-scope resources/files
+- `mode` is command-specific: `status` uses `remote` or `since_pull`; `push` uses `dry_run`, `skip_build`, or `apply`; conflict resolve uses `resolve`; commands without a distinct variant omit `mode`
+- `schema_version=1` is additive-compatible: consumers should ignore unknown fields. If a future change removes or renames existing fields, bump to `schema_version=2`; wrappers should support v1 until their minimum `megaton_lib` version requires v2
+- `add` and `push` are intended to be compare-and-abort workflows
+- `push` should not auto-add non-member origins; analysis repos should keep that explicit via `add`
+- dry-run `push` reports outside-scope local resources as result JSON with exit code `4`; apply mode still aborts before mutation
+- each helper prints step progress plus `Summary / Warnings / Next`
 
 #### Validation Auth Profiles
 

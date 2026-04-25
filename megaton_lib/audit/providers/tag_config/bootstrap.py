@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import configparser
 import os
 from pathlib import Path
+import tomllib
 from typing import Any, Mapping
 
 from ...config import AdobeOAuthConfig, AdobeTagsConfig, DEFAULT_ADOBE_SCOPES
+
+DEFAULT_ANALYSIS_ACCOUNTS = ("csk", "wws", "dms")
 
 
 def load_env_file(path: str | Path) -> None:
@@ -23,6 +27,171 @@ def load_env_file(path: str | Path) -> None:
             continue
         key, _, value = line.partition("=")
         os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def _default_account_from_pyproject(project_root: Path) -> str:
+    path = project_root / "pyproject.toml"
+    if not path.exists():
+        return ""
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError:
+        return ""
+
+    tool = data.get("tool", {})
+    if not isinstance(tool, dict):
+        return ""
+    for table_name in ("megaton", "tags"):
+        table = tool.get(table_name, {})
+        if isinstance(table, dict):
+            account = str(table.get("default_account", "")).strip()
+            if account:
+                return account
+    return ""
+
+
+def _single_env_account(project_root: Path, known_accounts: tuple[str, ...]) -> str:
+    found: list[str] = []
+    for path in sorted(project_root.glob(".env.*")):
+        account = path.name.removeprefix(".env.")
+        if not known_accounts or account in known_accounts:
+            found.append(account)
+    return found[0] if len(found) == 1 else ""
+
+
+def _as_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple, set)):
+        return [str(item) for item in value if str(item).strip()]
+    return [str(value)]
+
+
+def _git_origin_url(project_root: Path) -> str:
+    for path in (project_root, *project_root.parents):
+        git_config = path / ".git" / "config"
+        if not git_config.exists():
+            continue
+        parser = configparser.ConfigParser()
+        parser.read(git_config, encoding="utf-8")
+        section = 'remote "origin"'
+        if parser.has_option(section, "url"):
+            return parser.get(section, "url").strip()
+    return ""
+
+
+def _account_from_hints(
+    *,
+    project_root: Path,
+    known_accounts: tuple[str, ...],
+    account_hints: Mapping[str, Mapping[str, Any]] | None,
+    property_id: str,
+    library_id: str,
+    git_remote_url: str,
+) -> str:
+    if not account_hints:
+        return ""
+
+    remote_url = (git_remote_url or _git_origin_url(project_root)).lower()
+    root_text = str(project_root).lower()
+    property_value = property_id.strip()
+    library_value = library_id.strip()
+    matches: list[str] = []
+
+    for account, raw_hints in account_hints.items():
+        resolved_account = str(account).strip()
+        if not resolved_account or (known_accounts and resolved_account not in known_accounts):
+            continue
+        hints = dict(raw_hints or {})
+        matched = False
+
+        property_ids = {item.strip() for item in _as_list(hints.get("property_ids")) if item.strip()}
+        if property_value and property_value in property_ids:
+            matched = True
+
+        library_ids = {item.strip() for item in _as_list(hints.get("library_ids")) if item.strip()}
+        if library_value and library_value in library_ids:
+            matched = True
+
+        for needle in _as_list(hints.get("remote_contains")):
+            if needle.strip().lower() and needle.strip().lower() in remote_url:
+                matched = True
+                break
+
+        for needle in _as_list(hints.get("path_contains")) + _as_list(hints.get("cwd_contains")):
+            if needle.strip().lower() and needle.strip().lower() in root_text:
+                matched = True
+                break
+
+        if matched:
+            matches.append(resolved_account)
+
+    unique_matches = sorted(set(matches))
+    if len(unique_matches) > 1:
+        raise RuntimeError(f"Account hints are ambiguous: {', '.join(unique_matches)}")
+    return unique_matches[0] if unique_matches else ""
+
+
+def bootstrap_account_env(
+    account: str = "",
+    *,
+    project_root: str | Path = ".",
+    known_accounts: tuple[str, ...] = DEFAULT_ANALYSIS_ACCOUNTS,
+    account_env_var: str = "ACCOUNT",
+    load_base_env: bool = True,
+    account_hints: Mapping[str, Mapping[str, Any]] | None = None,
+    property_id: str = "",
+    library_id: str = "",
+    git_remote_url: str = "",
+) -> str:
+    """Resolve an analysis account and load its repo-local env file.
+
+    Resolution order:
+    1. explicit ``account`` argument
+    2. ``ACCOUNT`` environment variable
+    3. ``[tool.megaton].default_account`` or ``[tool.tags].default_account``
+    4. optional ``account_hints`` matched against property/library/remote/path values
+    5. the only matching ``.env.<account>`` file under ``project_root``
+    """
+    root = Path(project_root).expanduser().resolve()
+    resolved = (
+        account.strip()
+        or os.getenv(account_env_var, "").strip()
+        or _default_account_from_pyproject(root)
+        or _account_from_hints(
+            project_root=root,
+            known_accounts=known_accounts,
+            account_hints=account_hints,
+            property_id=property_id,
+            library_id=library_id,
+            git_remote_url=git_remote_url,
+        )
+        or _single_env_account(root, known_accounts)
+    )
+
+    if not resolved:
+        raise RuntimeError(
+            f"{account_env_var} is required. Pass --account, set {account_env_var}, "
+            "define [tool.megaton].default_account in pyproject.toml, "
+            "or provide account_hints.",
+        )
+    if known_accounts and resolved not in known_accounts:
+        raise RuntimeError(
+            f"Unknown {account_env_var}={resolved}. "
+            f"Expected one of: {', '.join(sorted(known_accounts))}",
+        )
+
+    env_path = root / f".env.{resolved}"
+    if not env_path.exists():
+        raise RuntimeError(f"Missing env file: {env_path}")
+
+    load_env_file(env_path)
+    if load_base_env:
+        load_env_file(root / ".env")
+    os.environ.setdefault(account_env_var, resolved)
+    return resolved
 
 
 def merge_adobe_scopes(

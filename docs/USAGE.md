@@ -258,6 +258,8 @@ python scripts/audit.py export-tag-config \
 
 - 共通部分（1-9）は `megaton-app` 側に実装
 - `export-tag-config` は `--output` 必須で、GTM の場合は `has_changes` も返す
+- 案件固有（10-12）は各分析 repo 側で実装
+- 設定ファイルは `configs/audit/projects/` を参照
 
 ### Adobe Tags export/apply を sidecar ベースで回す
 
@@ -271,8 +273,49 @@ Adobe Tags の export/apply では、rule component の custom code だけでな
 - apply 時に local と remote が両方 baseline から変わっていたら conflict として abort する。UI 変更が入りうる時は、apply 前に re-export して baseline を更新する
 
 運用上は、export した tree をそのまま Git で管理し、編集後に apply/build/verify を回す形を基本にする。
-- 案件固有（10-12）は各分析 repo 側で実装
-- 設定ファイルは `configs/audit/projects/` を参照
+
+### Analysis repo で library-scope Adobe Tags CLI を使う
+
+analysis repo 側では、薄い `python -m tags` wrapper から
+`megaton_lib.audit.providers.tag_config.tags_workspace_main()` を呼び出す。
+基本の command model は次の通り。
+
+- `checkout`: remote library scope で local を強く上書き。managed local file があれば `--force` 必須
+- `pull`: conflict 以外だけ remote から取り込む。local-only edits と library scope 外の local file は保持し、scope 外は remote removed とは別 warning にする
+- `status`: local / remote / library のズレ確認。反復確認は `status --since-pull` 相当で local baseline だけを見る
+- `conflict --list` / `conflict --show <path>` / `conflict --resolve <path> --use local|remote|baseline --apply`: `pull` / full `status` が保存した `.tag-conflicts.json` から conflict 一覧、baseline/local/remote diff、解決を行う
+- `add --from-path ...`: local export 済みの新規 Rule / DE を library に追加
+- `push --apply`: local の既存変更を PATCH -> library refresh -> build
+- `build`: build only
+- `full-export`: full property mirror を別出力先に取る
+
+analysis repo の `tags/__main__.py` は共通 runner に委譲できる。
+
+```python
+from megaton_lib.audit.providers.tag_config import tags_workspace_main
+from .config import ACCOUNT_HINTS
+
+tags_workspace_main(account_hints=ACCOUNT_HINTS)
+```
+
+推奨 UX:
+
+- `property-id` / `library-id` / `verify-url` は env default
+- `--account` / `ACCOUNT` / `[tool.megaton].default_account` / account hints から `csk` / `wws` / `dms` を解決し、`bootstrap_account_env()` で `.env.<account>` を読む
+- account hints は repo-local `config.py` の `CSK_PROPERTY_ID` / `DD1_PROPERTY_ID` / library ID などから wrapper 側で組み立てる
+- remote snapshot の fetch 並列数は wrapper の `--workers N` から `snapshot_workers` に渡すか、`TAGS_SNAPSHOT_WORKERS` で調整する。既定は 10
+- CSK の実測 sweet spot は `TAGS_SNAPSHOT_WORKERS=20`。共通既定は安全側で 10 のままにし、CSK analysis repo の `.env.example` に opt-in 例として `# TAGS_SNAPSHOT_WORKERS=20` を置く
+- Makefile は `.env` を直接 source せず、`python -m tags ...` などの wrapper と同じ bootstrap を通す
+- `tags` 引数なしは help
+- 各 command は `Summary / Warnings / Next` を出す
+- 長時間処理では step / heartbeat / elapsed を stderr に出す。`--format json` を実装する wrapper は戻り値 dict だけを stdout に出す
+- `--format json` の戻り値は `schema_version` / `command` / `ok` / `exit_code` / `severity` / `summary` / `details` を固定キーとして扱う
+- exit code は `0=ok`, `1=runtime error`, `2=conflicts`, `3=stale remote`, `4=outside library scope`
+- CSK では exit code `4` が steady state のことがあるため、shell / agent は `summary` と `details` を見て blocking 判断する
+- `status --summary-only` 相当では counts だけを出し、outside scope warning は既定で type 別に group する。full list は `--verbose`
+- `pull --summary-only` 相当も同じ counts-only 出力にする
+- `push` dry-run は scope 外 resource を abort ではなく exit code `4` の result として返し、`push --apply` は mutation 前に abort する
+- `add` と `push` は compare-and-abort を前提にし、`push` は未所属 origin を自動 add しない
 
 ### Notebook で分析する
 

@@ -1,17 +1,26 @@
 """Tag configuration providers."""
 
-from .bootstrap import adobe_tags_output_root, build_tags_config, load_env_file, merge_adobe_scopes, seed_adobe_oauth_env
-from .cli import gtm_export_main, tags_apply_main, tags_export_main
+from .bootstrap import (
+    adobe_tags_output_root,
+    bootstrap_account_env,
+    build_tags_config,
+    load_env_file,
+    merge_adobe_scopes,
+    seed_adobe_oauth_env,
+)
+from .cli import gtm_export_main, tags_apply_main, tags_export_main, tags_workspace_main
 from .build_workflow import collect_changed_resources, run_build_workflow, verify_build_markers
 from .adobe_tags import (
     apply_component_settings,
     apply_data_element_settings,
+    delete_resource,
     export_property,
     extract_mapping_from_settings,
     fetch_adobe_tags_mapping,
     get_component_settings,
     list_data_elements,
     parse_settings_object,
+    remove_library_resources,
     sync_property,
 )
 from .gtm import export_container, fetch_gtm_mapping, parse_regex_table_variable, sync_container
@@ -23,9 +32,23 @@ from .sync import (
     find_data_element_id,
     slugify_component_name,
 )
+from .workspace import (
+    add_to_library_scope,
+    build_library_scope,
+    checkout_library_scope,
+    full_export_property,
+    list_workspace_conflicts,
+    pull_library_scope,
+    render_workspace_conflict,
+    resolve_workspace_conflict,
+    status_library_scope,
+    push_library_scope,
+    workspace_result_exit_code,
+)
 
 __all__ = [
     "adobe_tags_output_root",
+    "bootstrap_account_env",
     "build_tags_config",
     "collect_changed_resources",
     "export_container",
@@ -42,8 +65,10 @@ __all__ = [
     "sync_container",
     "sync_property",
     "parse_settings_object",
+    "remove_library_resources",
     "apply_component_settings",
     "apply_data_element_settings",
+    "delete_resource",
     "apply_data_element_settings_tree",
     "apply_custom_code_tree",
     "apply_exported_changes_tree",
@@ -54,5 +79,17 @@ __all__ = [
     "run_build_workflow",
     "tags_apply_main",
     "tags_export_main",
+    "tags_workspace_main",
     "verify_build_markers",
+    "checkout_library_scope",
+    "pull_library_scope",
+    "status_library_scope",
+    "add_to_library_scope",
+    "push_library_scope",
+    "build_library_scope",
+    "full_export_property",
+    "list_workspace_conflicts",
+    "render_workspace_conflict",
+    "resolve_workspace_conflict",
+    "workspace_result_exit_code",
 ]

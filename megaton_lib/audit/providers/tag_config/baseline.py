@@ -5,11 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 
 APPLY_BASELINE_FILENAME = ".apply-baseline.json"
-_CODE_KEYS = ("source", "customCode", "code", "html", "script")
+CODE_VALUE_KEYS = ("source", "customCode", "code", "html", "script")
 
 
 def stable_json_dumps(value: Any) -> str:
@@ -23,13 +23,9 @@ def hash_normalized_text(value: str) -> str:
     return "sha256:" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
-def hash_settings_object(value: MappingLike | dict[str, Any]) -> str:
+def hash_settings_object(value: Mapping[str, Any] | dict[str, Any]) -> str:
     """Return a stable hash for a settings object."""
     return "sha256:" + hashlib.sha256(stable_json_dumps(value).encode("utf-8")).hexdigest()
-
-
-class MappingLike(dict[str, Any]):
-    """Typed alias shim for static checkers without runtime cost."""
 
 
 def _slugify_component_name(name: str) -> str:
@@ -171,6 +167,7 @@ def build_apply_baseline_manifest(root: str | Path) -> dict[str, Any]:
             "resource_type": "data_elements" if component_id.startswith("DE") else "rule_components",
             "updated_at": attrs.get("updated_at"),
             "latest_revision_number": _extract_latest_revision_number(payload),
+            "baseline_text": source,
             "source_hash": hash_normalized_text(source),
         }
 
@@ -182,6 +179,10 @@ def build_apply_baseline_manifest(root: str | Path) -> dict[str, Any]:
         settings = _read_effective_settings(settings_file)
         if not isinstance(settings, dict):
             continue
+        try:
+            baseline_text = settings_file.read_text(encoding="utf-8")
+        except OSError:
+            continue
         payload = _component_payload_for_settings_file(settings_file)
         attrs = payload.get("attributes", {})
         resources[rel_path] = {
@@ -190,6 +191,7 @@ def build_apply_baseline_manifest(root: str | Path) -> dict[str, Any]:
             "resource_type": "data_elements",
             "updated_at": attrs.get("updated_at"),
             "latest_revision_number": _extract_latest_revision_number(payload),
+            "baseline_text": baseline_text,
             "settings_hash": hash_settings_object(settings),
         }
 

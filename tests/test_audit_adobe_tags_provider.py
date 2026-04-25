@@ -169,6 +169,8 @@ def test_get_component_settings_reads_rule_component(tags_env, monkeypatch):
         "component_id": "RC123",
         "resource_type": "rule_components",
         "name": "Set Variables",
+        "updated_at": None,
+        "latest_revision_number": None,
         "settings": {"customSetup": {"source": "console.log(1)"}},
     }
 
