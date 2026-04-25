@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from megaton_lib.validation.playwright_pages import (
+    DEFAULT_STEALTH_USER_AGENT,
     GtmPreviewOverride,
     TagsLaunchOverride,
     build_gtm_preview_override,
@@ -113,6 +114,7 @@ class FakeContext:
         self.options = options
         self.closed = False
         self.added_cookies = []
+        self.init_scripts: list[str] = []
 
     def new_page(self) -> FakePage:
         self.page_obj.context = self
@@ -123,6 +125,12 @@ class FakeContext:
 
     def add_cookies(self, cookies) -> None:
         self.added_cookies.extend(cookies)
+
+    def add_init_script(self, script: str) -> None:
+        # Real Playwright's add_init_script attaches a JS snippet that
+        # runs in every frame before any page script. The fake just
+        # records what was attached so tests can inspect it.
+        self.init_scripts.append(script)
 
     def storage_state(self) -> dict:
         return {"cookies": [{"name": "session", "value": "abc"}], "origins": []}
@@ -153,9 +161,15 @@ class FakeChromium:
         headless: bool,
         channel: str | None = None,
         slow_mo: int | None = None,
+        args: list[str] | None = None,
     ) -> FakeBrowser:
         self.launch_calls.append(
-            {"headless": headless, "channel": channel, "slow_mo": slow_mo}
+            {
+                "headless": headless,
+                "channel": channel,
+                "slow_mo": slow_mo,
+                "args": list(args) if args else [],
+            }
         )
         return self.browser
 
@@ -343,7 +357,15 @@ def test_run_with_basic_auth_page_opens_and_closes(monkeypatch):
 
     assert result == {"title": "Example"}
     assert chromium.launch_calls == [
-        {"headless": True, "channel": None, "slow_mo": None}
+        {
+            "headless": True,
+            "channel": None,
+            "slow_mo": None,
+            # stealth=True default adds the AutomationControlled blink-feature
+            # disable arg; tests for the legacy headless fingerprint should
+            # opt out via stealth=False (see other tests below).
+            "args": ["--disable-blink-features=AutomationControlled"],
+        }
     ]
     assert browser.context.options["http_credentials"] == {
         "username": "user",
@@ -457,7 +479,15 @@ def test_run_page_applies_override_before_callback(monkeypatch):
     assert result == 2
     assert browser.context.options["ignore_https_errors"] is True
     assert chromium.launch_calls == [
-        {"headless": True, "channel": None, "slow_mo": None}
+        {
+            "headless": True,
+            "channel": None,
+            "slow_mo": None,
+            # stealth=True default adds the AutomationControlled blink-feature
+            # disable arg; tests for the legacy headless fingerprint should
+            # opt out via stealth=False (see other tests below).
+            "args": ["--disable-blink-features=AutomationControlled"],
+        }
     ]
     assert [pattern for pattern, _handler in page.route_calls] == [
         "**/launch-*staging*.js",
@@ -533,12 +563,73 @@ def test_run_page_session_supports_cookies_and_launch_options(monkeypatch):
 
     assert result == ("ok", [{"name": "sid", "value": "123"}])
     assert chromium.launch_calls == [
-        {"headless": False, "channel": "chrome", "slow_mo": 200}
+        {
+            "headless": False,
+            "channel": "chrome",
+            "slow_mo": 200,
+            "args": ["--disable-blink-features=AutomationControlled"],
+        }
     ]
     assert seen == [
-        ("context", {}),
+        ("context", {"user_agent": DEFAULT_STEALTH_USER_AGENT}),
         ("setup", "https://example.test/page"),
     ]
+
+
+def test_run_page_session_stealth_defaults_and_opt_out(monkeypatch):
+    page = FakePage()
+    browser = FakeBrowser(page)
+    chromium = FakeChromium(browser)
+    manager = FakePlaywrightManager(FakePlaywright(chromium))
+
+    import megaton_lib.validation.playwright_pages as mod
+
+    monkeypatch.setattr(mod, "sync_playwright", lambda: manager)
+
+    run_page_session(callback=lambda opened_page: opened_page.url)
+
+    assert chromium.launch_calls[0]["args"] == [
+        "--disable-blink-features=AutomationControlled"
+    ]
+    assert browser.context.options["user_agent"] == DEFAULT_STEALTH_USER_AGENT
+    assert browser.context.init_scripts
+
+    page2 = FakePage()
+    browser2 = FakeBrowser(page2)
+    chromium2 = FakeChromium(browser2)
+    monkeypatch.setattr(
+        mod,
+        "sync_playwright",
+        lambda: FakePlaywrightManager(FakePlaywright(chromium2)),
+    )
+
+    run_page_session(stealth=False, callback=lambda opened_page: opened_page.url)
+
+    assert chromium2.launch_calls[0]["args"] == []
+    assert "user_agent" not in browser2.context.options
+    assert browser2.context.init_scripts == []
+
+
+def test_run_page_wrapper_accepts_user_agent_and_stealth_opt_out(monkeypatch):
+    page = FakePage()
+    browser = FakeBrowser(page)
+    chromium = FakeChromium(browser)
+    manager = FakePlaywrightManager(FakePlaywright(chromium))
+
+    import megaton_lib.validation.playwright_pages as mod
+
+    monkeypatch.setattr(mod, "sync_playwright", lambda: manager)
+
+    run_page(
+        "https://example.test/page",
+        user_agent="Custom UA",
+        stealth=False,
+        callback=lambda opened_page: opened_page.url,
+    )
+
+    assert chromium.launch_calls[0]["args"] == []
+    assert browser.context.options["user_agent"] == "Custom UA"
+    assert browser.context.init_scripts == []
 
 
 def test_run_page_with_bootstrapped_state_reuses_captured_state(monkeypatch):

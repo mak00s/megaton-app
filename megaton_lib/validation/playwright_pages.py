@@ -423,6 +423,8 @@ def run_page(
     context_setup: Callable[[Any], None] | None = None,
     setup: Callable[[Page], None] | None = None,
     callback: Callable[[Page], Any],
+    user_agent: str | None = None,
+    stealth: bool = True,
 ) -> Any:
     """Open a Playwright page, apply optional overrides, and run a callback."""
     def _callback(page: Page) -> Any:
@@ -446,7 +448,23 @@ def run_page(
         context_setup=context_setup,
         setup=setup,
         callback=_callback,
+        user_agent=user_agent,
+        stealth=stealth,
     )
+
+
+# Real Chrome UA used as a default when ``stealth=True`` (the default).
+# Adobe Analytics Bot Rules / IAB known-bot list will drop hits whose
+# user-agent contains "HeadlessChrome", "PhantomJS", "Selenium", etc.
+# Validation traffic that is meant to land in AA reports MUST therefore
+# pose as a real browser. Verified against chugaihcdev on 2026-04-25:
+# Playwright default UA (HeadlessChrome) → 0 hits in AA; real Chrome UA
+# + navigator.webdriver hiding → hits land normally.
+DEFAULT_STEALTH_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/130.0.0.0 Safari/537.36"
+)
 
 
 def run_page_session(
@@ -465,8 +483,25 @@ def run_page_session(
     context_setup: Callable[[Any], None] | None = None,
     setup: Callable[[Page], None] | None = None,
     callback: Callable[[Page], Any],
+    user_agent: str | None = None,
+    stealth: bool = True,
 ) -> Any:
-    """Open a browser/context/page session, run a callback, and handle cleanup."""
+    """Open a browser/context/page session, run a callback, and handle cleanup.
+
+    Stealth defaults (``stealth=True``):
+      - Override Chrome user-agent to ``DEFAULT_STEALTH_USER_AGENT`` (real
+        Chrome on macOS) unless ``user_agent`` is set explicitly. Avoids
+        AA Bot Rules / IAB-list rejection of hits whose UA contains
+        ``HeadlessChrome``.
+      - Launch with ``--disable-blink-features=AutomationControlled`` so
+        ``navigator.webdriver`` is not auto-set by Chromium.
+      - Inject an init script that hides ``navigator.webdriver`` even if
+        the launch flag wasn't honoured.
+
+    Pass ``stealth=False`` for tests that intentionally want to surface
+    automation fingerprints (e.g. validating that bot rules DO catch
+    headless traffic).
+    """
     if tags_override is not None and not route_url:
         raise ValueError("route_url is required when tags_override is provided")
 
@@ -476,6 +511,10 @@ def run_page_session(
             launch_options["channel"] = channel
         if slow_mo > 0:
             launch_options["slow_mo"] = slow_mo
+        if stealth:
+            launch_options.setdefault("args", []).append(
+                "--disable-blink-features=AutomationControlled"
+            )
         browser = playwright.chromium.launch(**launch_options)
 
         context_options: dict[str, Any] = {}
@@ -487,9 +526,26 @@ def run_page_session(
             context_options["storage_state"] = storage_state
         if viewport is not None:
             context_options["viewport"] = dict(viewport)
+        # Resolve effective user-agent: explicit override > stealth default >
+        # Playwright's HeadlessChrome default. The Playwright default leaks
+        # 'HeadlessChrome/X.Y.Z' which AA Bot Rules drop on sight.
+        effective_ua = user_agent
+        if effective_ua is None and stealth:
+            effective_ua = DEFAULT_STEALTH_USER_AGENT
+        if effective_ua:
+            context_options["user_agent"] = effective_ua
 
         context = browser.new_context(**context_options)
         try:
+            if stealth:
+                # navigator.webdriver = true is the canonical bot-detection
+                # signal. Chromium tries to suppress it via the launch flag
+                # above, but a redundant init-script ensures it's hidden
+                # everywhere (including any frames spawned later).
+                context.add_init_script(
+                    "Object.defineProperty(navigator, 'webdriver', "
+                    "{get: () => undefined})"
+                )
             if cookies:
                 context.add_cookies([dict(cookie) for cookie in cookies])
             if context_setup is not None:
@@ -520,6 +576,8 @@ def capture_storage_state(
     context_setup: Callable[[Any], None] | None = None,
     setup: Callable[[Page], None] | None = None,
     callback: Callable[[Page], Any],
+    user_agent: str | None = None,
+    stealth: bool = True,
 ) -> dict[str, Any]:
     """Open a temporary context, run a callback, and return Playwright storage state."""
     state: dict[str, Any] | None = None
@@ -540,6 +598,8 @@ def capture_storage_state(
         context_setup=context_setup,
         setup=setup,
         callback=_callback,
+        user_agent=user_agent,
+        stealth=stealth,
     )
     return state or {"cookies": [], "origins": []}
 
@@ -560,6 +620,8 @@ def run_page_with_bootstrapped_state(
     context_setup: Callable[[Any], None] | None = None,
     setup: Callable[[Page], None] | None = None,
     callback: Callable[[Page], Any],
+    user_agent: str | None = None,
+    stealth: bool = True,
 ) -> Any:
     """Create storage state via ``bootstrap`` and reuse it for a second page run."""
     storage_state = capture_storage_state(
@@ -571,6 +633,8 @@ def run_page_with_bootstrapped_state(
         viewport=viewport,
         context_setup=context_setup,
         callback=bootstrap,
+        user_agent=user_agent,
+        stealth=stealth,
     )
     return run_page(
         url,
@@ -587,6 +651,8 @@ def run_page_with_bootstrapped_state(
         context_setup=context_setup,
         setup=setup,
         callback=callback,
+        user_agent=user_agent,
+        stealth=stealth,
     )
 
 
@@ -599,6 +665,8 @@ def run_with_basic_auth_page(
     headless: bool = True,
     setup: Callable[[Page], None] | None = None,
     callback: Callable[[Page], Any],
+    user_agent: str | None = None,
+    stealth: bool = True,
 ) -> Any:
     """Open a page with BASIC auth and run a callback against the page."""
     def _callback(page: Page) -> Any:
@@ -613,6 +681,8 @@ def run_with_basic_auth_page(
         basic_auth={"username": username, "password": password},
         setup=setup,
         callback=_callback,
+        user_agent=user_agent,
+        stealth=stealth,
     )
 
 
@@ -626,6 +696,8 @@ def run_with_launch_override(
     headless: bool = True,
     setup: Callable[[Page], None] | None = None,
     callback: Callable[[Page], Any],
+    user_agent: str | None = None,
+    stealth: bool = True,
 ) -> Any:
     """Open a page with the Adobe Tags library replaced at the network layer.
 
@@ -670,6 +742,8 @@ def run_with_launch_override(
         ),
         setup=setup,
         callback=_callback,
+        user_agent=user_agent,
+        stealth=stealth,
     )
 
 
