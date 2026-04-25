@@ -8,6 +8,55 @@ dependencies = [
     "requests",
 ]
 
+[project.optional-dependencies]
+audit = [
+    "PyYAML",
+]
+dev = [
+    "pytest",
+    "pytest-cov",
+]
+google = [
+    "google-api-python-client",
+    "google-auth",
+    "google-cloud-bigquery",
+    "gspread",
+]
+notebook = [
+    "ipywidgets",
+    "japanize-matplotlib",
+    "jupyter",
+    "jupytext",
+    "matplotlib",
+    "plotly",
+]
+ui = [
+    "plotly",
+    "streamlit",
+    "streamlit-autorefresh",
+]
+validation = [
+    "playwright",
+]
+local = [
+    "PyYAML",
+    "google-api-python-client",
+    "google-auth",
+    "google-cloud-bigquery",
+    "gspread",
+    "ipywidgets",
+    "japanize-matplotlib",
+    "jupyter",
+    "jupytext",
+    "matplotlib",
+    "playwright",
+    "plotly",
+    "pytest",
+    "pytest-cov",
+    "streamlit",
+    "streamlit-autorefresh",
+]
+
 [tool.setuptools.packages.find]
 include = ["megaton_lib*"]
 

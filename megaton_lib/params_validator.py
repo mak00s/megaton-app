@@ -79,7 +79,7 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
     }
     source_optional = {
         "ga4": {"filter_d", "limit", "pipeline", "save", "column_types"},
-        "gsc": {"filter", "limit", "pipeline", "save", "column_types"},
+        "gsc": {"filter", "limit", "page_to_path", "pipeline", "save", "column_types"},
         "aa": {
             "site",
             "segment",
@@ -220,6 +220,16 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
                     "Use \"segment_id\" or [\"segment_id1\", \"segment_id2\"].",
                 )
             )
+
+    if "page_to_path" in normalized and not isinstance(normalized["page_to_path"], bool):
+        errors.append(
+            _err(
+                "INVALID_TYPE",
+                "page_to_path must be a boolean",
+                "$.page_to_path",
+                "Use true or false.",
+            )
+        )
 
     for key in ("segment_definition", "breakdown"):
         if key in normalized:

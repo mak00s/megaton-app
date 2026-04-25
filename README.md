@@ -41,9 +41,23 @@ Unlike MCP-based integrations, this file-based approach requires no server setup
 
 ## Setup
 
+`pip install -e .` installs the reusable `megaton_lib` package. The `scripts/`
+and `app/` directories are checkout-local entrypoints, not installed console
+commands.
+
 ```bash
 python --version  # Python 3.11+
+
+# Full checkout setup for Streamlit, scripts, notebooks, validation, and tests
 pip install -r requirements.txt
+
+# Library-only setup for repos that import megaton_lib
+pip install -e .
+
+# Optional narrower installs are also available, for example:
+pip install -e ".[ui]"
+pip install -e ".[notebook,google]"
+
 # Place Google service-account JSON file(s) in credentials/
 # Optional: place Adobe OAuth JSON file(s) in credentials/ too
 # Fallback: ADOBE_CLIENT_ID / ADOBE_CLIENT_SECRET / ADOBE_ORG_ID
@@ -97,8 +111,12 @@ python -m pytest -q
 megaton-app/
 ├── megaton_lib/        # Shared library (reusable via pip install -e)
 │   ├── megaton_client.py   # GA4/GSC/BQ/AA query execution (core)
+│   ├── query_runner.py     # Params-style shared query execution
+│   ├── bigquery_utils.py   # Native BigQuery job/table helpers
 │   ├── ga4_helpers.py      # GA4 report helpers
 │   ├── gsc_utils.py        # GSC aggregation helpers
+│   ├── sheets.py           # Megaton-instance Sheets helpers
+│   ├── gspread_lowlevel.py # Direct gspread / batchUpdate helpers
 │   ├── validation/         # JSON contract and Playwright capture helpers
 │   └── audit/              # Reusable audit framework
 │       ├── config.py           # Project config model & loader
@@ -107,8 +125,8 @@ megaton-app/
 │           ├── analytics/      # AA query/classifications/DW + GA4 audit providers
 │           ├── tag_config/     # Adobe Tags & GTM providers (+ sync helpers)
 │           └── target/         # Adobe Target Recs/Activities API helpers
-├── scripts/            # CLI tools (query.py, run_notebook.py, audit.py)
-├── app/                # Streamlit UI
+├── scripts/            # Checkout-local CLI tools (query.py, run_notebook.py, audit.py)
+├── app/                # Checkout-local Streamlit UI
 ├── credentials/        # Service account JSON (.gitignore)
 ├── input/              # AI Agent <-> UI parameter handoff
 ├── output/             # Query results and job artifacts

@@ -12,6 +12,52 @@ from typing import Optional
 
 import pandas as pd
 
+from .gspread_lowlevel import (
+    DEFAULT_SHEETS_SCOPES,
+    add_sheet_request,
+    append_dimension_request,
+    append_gspread_rows,
+    append_rows,
+    auto_resize_dimensions_request,
+    batch_update_gspread_spreadsheet,
+    batch_update_spreadsheet,
+    delete_gspread_sheet_if_exists,
+    delete_sheet_if_exists,
+    delete_sheet_request,
+    ensure_gspread_min_dimensions,
+    ensure_gspread_sheet_exists,
+    ensure_min_dimensions,
+    ensure_sheet_exists,
+    fetch_gspread_sheet_properties,
+    fetch_sheet_properties,
+    get_gspread_sheet_id,
+    get_or_create_gspread_worksheet,
+    get_or_create_worksheet,
+    get_sheet_id,
+    open_gspread_spreadsheet,
+    open_spreadsheet,
+    overwrite_gspread_worksheet,
+    overwrite_worksheet,
+    set_frozen_columns,
+    set_frozen_rows,
+    set_gspread_frozen_columns,
+    set_gspread_frozen_rows,
+    update_grid_properties_request,
+    update_sheet_properties_request,
+)
+
+__all__ = [
+    "read_sheet_table",
+    "load_pattern_map",
+    "upsert_or_skip",
+    "replace_sheet_by_group_keys",
+    "update_cells",
+    "save_sheet_table",
+    "duplicate_sheet_into",
+    "save_sheet_from_template",
+    "write_sheet_blocks",
+]
+
 
 def read_sheet_table(
     mg,
@@ -181,8 +227,17 @@ def save_sheet_table(
     auto_width: bool = True,
     freeze_header: bool = True,
     start_row: int | None = None,
+    min_rows: int | None = None,
+    min_cols: int | None = None,
+    hide_gridlines: bool | None = None,
+    tab_color: str | dict | None = None,
 ) -> bool:
-    """Open a workbook and overwrite a worksheet with a DataFrame."""
+    """Open a workbook and overwrite a worksheet with a DataFrame.
+
+    Optional visual/grid formatting delegates to the public ``mg.sheet.*``
+    helpers provided by megaton. Direct-gspread helpers remain available for
+    low-level batchUpdate use cases.
+    """
     if df is None or not isinstance(df, pd.DataFrame):
         raise TypeError("df must be a pandas DataFrame")
     if not mg.open.sheet(sheet_url):
@@ -206,6 +261,54 @@ def save_sheet_table(
             freeze_header=freeze_header,
             auto_width=auto_width,
         )
+
+    if any(value is not None for value in (min_rows, min_cols, hide_gridlines, tab_color)):
+        missing = []
+        sheets = getattr(mg, "sheets", None)
+        if sheets is None:
+            missing.append("mg.sheets")
+        elif not hasattr(sheets, "select"):
+            missing.append("mg.sheets.select")
+
+        sheet = getattr(mg, "sheet", None)
+        if sheet is None:
+            missing.append("mg.sheet")
+        elif min_rows is not None or min_cols is not None:
+            if not hasattr(sheet, "resize"):
+                missing.append("mg.sheet.resize")
+
+        if sheet is not None and hide_gridlines is not None:
+            gridlines = getattr(sheet, "gridlines", None)
+            if gridlines is None:
+                missing.append("mg.sheet.gridlines")
+            elif hide_gridlines is True and not hasattr(gridlines, "hide"):
+                missing.append("mg.sheet.gridlines.hide")
+            elif hide_gridlines is False and not hasattr(gridlines, "show"):
+                missing.append("mg.sheet.gridlines.show")
+
+        if sheet is not None and tab_color is not None:
+            tab = getattr(sheet, "tab", None)
+            if tab is None:
+                missing.append("mg.sheet.tab")
+            elif not hasattr(tab, "color"):
+                missing.append("mg.sheet.tab.color")
+
+        if missing:
+            raise RuntimeError(
+                "megaton sheet formatting helpers are unavailable: "
+                + ", ".join(missing)
+            )
+
+        # mg.sheet.* acts on the current worksheet, so select explicitly after writing.
+        mg.sheets.select(sheet_name)
+        if min_rows is not None or min_cols is not None:
+            mg.sheet.resize(rows=min_rows, cols=min_cols)
+        if hide_gridlines is True:
+            mg.sheet.gridlines.hide()
+        elif hide_gridlines is False:
+            mg.sheet.gridlines.show()
+        if tab_color is not None:
+            mg.sheet.tab.color(tab_color)
     return True
 
 
