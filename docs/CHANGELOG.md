@@ -2,6 +2,16 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## Unreleased
+
+- Added `analysis_tags_workspace_main()` for analysis repos that need the standard Adobe Tags workspace CLI plus repo-local credentials and per-account token caches.
+- Added `build_repo_tags_config_factory()`, `account_token_cache_file()`, and `resolve_first_existing_path()` to reduce duplicated `tags/__main__.py` and credential factory code across CSK / WWS / DMS analysis repos.
+- Added package extras for UI, notebook, Google, validation, audit, dev, and full checkout-local installs; documented that `scripts/` and `app/` remain checkout-local entrypoints while `pip install -e .` installs `megaton_lib`.
+- Made `megaton_lib.query_runner` the shared source execution path behind `scripts/query.py`, and documented the BigQuery / Sheets helper boundaries to avoid parallel APIs drifting.
+- Updated `save_sheet_table()` to use megaton's public `mg.sheet.*` formatting helpers for optional row/column sizing, gridline visibility, and tab color.
+- Moved direct-gspread and Sheets batchUpdate helpers into `megaton_lib.gspread_lowlevel`, with short canonical helper names and compatibility re-exports from `megaton_lib.sheets`.
+- Replaced query-runner monkey-patching with explicit query executor injection, added GSC `page_to_path` params support, and fixed BigQuery `ensure_table()` `created` metadata.
+
 ## 2026-04-25 (v0.9.0)
 
 - Added library-scope Adobe Tags workspace helpers for analysis repo wrappers:

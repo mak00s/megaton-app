@@ -1,19 +1,6 @@
 # Requires Python 3.11+
-
-# Megaton (GA4/GSC/BigQuery/Sheets)
-megaton>=1.0.0
-
-# Jupyter
-jupyter
-ipywidgets
-jupytext
-
-# Data processing and visualization
-pandas
-matplotlib
-japanize-matplotlib
-plotly
-requests
-
-streamlit
-streamlit-autorefresh
+#
+# Checkout-local development/runtime dependencies.
+# The package itself only installs megaton_lib; scripts/ and app/ are run from
+# this repository checkout.
+-e .[local]

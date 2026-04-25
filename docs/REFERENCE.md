@@ -6,6 +6,12 @@ For setup and how-to, see [USAGE.md](USAGE.md).
 
 ## CLI (`scripts/query.py`)
 
+`scripts/query.py` delegates params-style source execution to
+`megaton_lib.query_runner`. Keep source branching, GSC filter parsing, AA
+segment/breakdown handling, and result header construction in
+`megaton_lib.query_runner` so CLI, notebooks, and agent wrappers share one
+contract.
+
 ### Options
 
 | Option | Description | Default |
@@ -389,6 +395,7 @@ python scripts/query.py --batch configs/weekly/ --json
 | `breakdown` | object/array | - | Adobe Reports API breakdown filter object(s) |
 | `filter_d` | string | - | GA4 filter (`field==value` format) |
 | `filter` | string | - | GSC filter (`dim:op:expr` format) |
+| `page_to_path` | boolean | GSC | Convert GSC page URLs to paths before returning rows |
 | `limit` | number | - | Row limit (max 100,000) |
 | `column_types` | object | - | Table display hints (`date`, `int`, `float`, `currency`, `percent`, `text`) |
 | `pipeline` | object | - | Post-fetch pipeline (see below) |
@@ -544,6 +551,9 @@ Note: delta computation is not a built-in one-shot CLI feature. Export rows (`--
 ```
 
 GSC operators: `contains`, `notContains`, `equals`, `notEquals`, `includingRegex`, `excludingRegex`
+
+Set `"page_to_path": true` for GSC params when callers need page URLs converted
+to paths during fetch. The default remains `false`.
 
 ### Pipeline Field
 
@@ -707,6 +717,12 @@ Notes:
 
 ### Sheets Helpers (`megaton_lib.sheets`)
 
+Megaton-instance helpers use a `megaton` object (`mg`) and are the default for
+notebook/report flows. Direct-gspread helpers use a `gspread.Spreadsheet`
+object and are intended for jobs that deliberately bypass `megaton`.
+
+#### Megaton-instance helpers
+
 | Function | Description |
 |----------|-------------|
 | `read_sheet_table(mg, sheet_url, sheet_name, header_row=0)` | Read a worksheet into DataFrame (trimmed headers, empty rows dropped) |
@@ -714,11 +730,36 @@ Notes:
 | `upsert_or_skip(mg, name, df, keys, ...)` | Skip empty input, otherwise upsert to worksheet |
 | `replace_sheet_by_group_keys(mg, sheet_url, sheet_name, ...)` | Replace matching group rows (e.g. month+clinic) and overwrite |
 | `update_cells(mg, sheet_url, sheet_name, values)` | Update multiple A1 cells |
+| `save_sheet_table(mg, sheet_url, sheet_name, df, min_rows=None, min_cols=None, hide_gridlines=None, tab_color=None, ...)` | Save a DataFrame and optionally format the selected sheet via `mg.sheet.*` |
 | `save_sheet_from_template(mg, sheet_name, df, ...)` | Write with template-based sheet creation |
+
+#### Direct-gspread helpers
+
+These low-level helpers live in `megaton_lib.gspread_lowlevel`. They are
+available from `megaton_lib.sheets` only as compatibility re-exports. New code
+should import them from `megaton_lib.gspread_lowlevel`.
+
+| Function | Description |
+|----------|-------------|
+| `open_spreadsheet(spreadsheet_id, credentials_path, scopes=None)` | Open a spreadsheet with a service-account JSON |
+| `overwrite_worksheet(spreadsheet, sheet_name, df, ...)` | Clear and overwrite one worksheet from a DataFrame |
+| `append_rows(spreadsheet, sheet_name, rows, ...)` | Append raw row values |
+| `ensure_sheet_exists(spreadsheet, sheet_name, ...)` | Create a worksheet when missing |
+| `get_sheet_id(spreadsheet, sheet_name)` | Resolve worksheet title to numeric `sheetId` |
+| `set_frozen_rows(spreadsheet, sheet_name, count)` | Set frozen row count via batchUpdate |
+| `ensure_min_dimensions(spreadsheet, sheet_name, ...)` | Append rows/columns to reach minimum dimensions |
 
 Notes:
 - `read_sheet_table(..., header_row=...)` can start from a non-zero header row when source sheets include title/comment rows
 - `read_sheet_df(..., strict=True)` is available when callers need header/shape validation instead of permissive fallback loading
+- sheet formatting in `save_sheet_table()` uses megaton's public API:
+  `mg.sheet.resize()`, `mg.sheet.gridlines.hide()/show()`, and
+  `mg.sheet.tab.color()`
+- `min_rows` and `min_cols` expand the sheet to at least those dimensions;
+  they do not shrink existing sheets
+- legacy `*_gspread_*` names such as `open_gspread_spreadsheet()` and
+  `overwrite_gspread_worksheet()` remain as compatibility aliases; prefer
+  the short names above for new low-level batchUpdate code
 
 ### Docs Table Helpers (`megaton_lib.docs_sites`)
 
@@ -879,9 +920,12 @@ Notes:
 |---|---|
 | `adobe_tags_output_root(property_id)` | Return the canonical local output path for one Adobe Tags property |
 | `bootstrap_account_env(account="", project_root=".", known_accounts=("csk", "wws", "dms"), account_hints=None, property_id="", library_id="", git_remote_url="")` | Resolve an analysis account, load `.env.<account>`, and set `ACCOUNT` for thin wrappers |
+| `account_token_cache_file(account="", project_root=".", token_cache_dir="credentials")` | Return an account-namespaced Adobe OAuth token cache path such as `.adobe_token_cache.csk.json` |
+| `resolve_first_existing_path(explicit="", project_root=".", candidates=())` | Resolve an explicit path or the first existing candidate, preserving relative-to-project-root semantics |
 | `load_env_file(path, override=False)` | Load `KEY=VALUE` pairs from a file into `os.environ`; defaults to setdefault semantics |
 | `seed_adobe_oauth_env(...)` | Resolve Adobe OAuth credentials from args, env, JSON file, and payload dict. Sets resolved values into `os.environ`. |
 | `build_tags_config(...)` | Build `AdobeTagsConfig` after resolving OAuth settings via `seed_adobe_oauth_env` |
+| `build_repo_tags_config_factory(...)` | Build a repo-local `tags_config_factory` that loads `ENV_FILE`, resolves credential candidates, and uses per-account token caches |
 
 Notes:
 
@@ -893,6 +937,8 @@ Notes:
 - `seed_adobe_oauth_env` resolution order: explicit args → env vars → `creds_file` JSON → `payload` dict
 - `creds_file` accepts a path to a JSON file with `client_id`, `client_secret`, `org_id` keys (loaded via `load_adobe_oauth_credentials`)
 - `build_tags_config` passes `creds_file` through to `seed_adobe_oauth_env`
+- `build_repo_tags_config_factory` is the preferred factory for analysis repos that keep credentials under repo-local `key/` or shared `credentials/` directories
+- account token caches are namespaced by `ACCOUNT` to avoid OAuth churn when switching between CSK / WWS / DMS
 - `adobe_tags_output_root(property_id)` defaults to `adobe-tags/<property_id>` under the chosen project root
 - `load_env_file` silently skips if the file does not exist
 
@@ -905,6 +951,7 @@ These helpers are intended for thin wrapper scripts in analysis repos.
 | `tags_export_main(...)` | Reusable Adobe Tags export CLI with env-driven resource/filter resolution |
 | `tags_apply_main(...)` | Reusable Adobe Tags apply/build CLI with dry-run default |
 | `tags_workspace_main(...)` | Reusable library-scope Adobe Tags CLI for thin analysis repo `python -m tags` wrappers |
+| `analysis_tags_workspace_main(...)` | Convenience wrapper for analysis repos: standard workspace CLI plus repo credential candidates and account token cache setup |
 | `gtm_export_main(...)` | Reusable GTM container export CLI |
 
 #### `tags_export_main(...)`
@@ -936,11 +983,23 @@ These helpers are intended for thin wrapper scripts in analysis repos.
 - wrapper entrypoint example:
 
 ```python
-from megaton_lib.audit.providers.tag_config import tags_workspace_main
-from .config import ACCOUNT_HINTS
+from pathlib import Path
+
+import config
+from megaton_lib.audit.providers.tag_config import analysis_tags_workspace_main
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 if __name__ == "__main__":
-    tags_workspace_main(account_hints=ACCOUNT_HINTS)
+    analysis_tags_workspace_main(
+        project_root=PROJECT_ROOT,
+        account_hints=config.ACCOUNT_HINTS,
+        known_accounts=("wws",),
+        credentials_candidates=[PROJECT_ROOT / "key/adobe_credentials.json"],
+        token_cache_dir=PROJECT_ROOT / "key",
+        account_default="wws",
+        org_id=config.ADOBE_ORG_ID,
+    )
 ```
 
 #### `gtm_export_main(...)`
@@ -1408,6 +1467,17 @@ mg.sheet.clear()
 Sheet management: `mg.sheets.list()`, `mg.sheets.create("name")`, `mg.sheets.delete("name")`
 
 ### BigQuery
+
+For params-style GA4/GSC/AA/BQ execution, use `megaton_lib.query_runner` or
+`scripts/query.py`. For legacy/high-level BigQuery reads and UI/CLI save
+compatibility, use `megaton_lib.megaton_client.query_bq()` and `save_to_bq()`.
+For native-client jobs that already own a `google.cloud.bigquery.Client`, use
+`megaton_lib.bigquery_utils`.
+
+`bigquery_utils.count_rows(where_sql=...)` inserts `where_sql` as trusted SQL
+text; keep user values in bind parameters via `params`. `ensure_table()`
+returns `created: true` only when a table was newly created, not when an
+existing table was verified.
 
 ```python
 bq = mg.launch_bigquery("my-gcp-project")

@@ -8,7 +8,9 @@ import os
 import pytest
 
 from megaton_lib.audit.providers.tag_config.bootstrap import (
+    account_token_cache_file,
     bootstrap_account_env,
+    build_repo_tags_config_factory,
     build_tags_config,
     seed_adobe_oauth_env,
 )
@@ -228,3 +230,36 @@ def test_build_tags_config_with_creds_file(monkeypatch, tmp_path):
         token_cache_file=tmp_path / ".cache.json",
     )
     assert config.property_id == "PR123"
+
+
+def test_account_token_cache_file_namespaces_by_account(tmp_path):
+    path = account_token_cache_file(
+        "csk/team",
+        project_root=tmp_path,
+        token_cache_dir="key",
+    )
+
+    assert path == tmp_path / "key" / ".adobe_token_cache.csk_team.json"
+
+
+def test_build_repo_tags_config_factory_uses_candidates_and_account_cache(monkeypatch, tmp_path):
+    monkeypatch.delenv("ADOBE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("ADOBE_CLIENT_SECRET", raising=False)
+    monkeypatch.setenv("ACCOUNT", "wws")
+    creds_dir = tmp_path / "key"
+    creds_dir.mkdir()
+    creds = {"client_id": "file-id", "client_secret": "file-secret", "org_id": "file-org"}
+    (creds_dir / "adobe_credentials.json").write_text(json.dumps(creds), encoding="utf-8")
+
+    factory = build_repo_tags_config_factory(
+        project_root=tmp_path,
+        credentials_candidates=["missing.json", "key/adobe_credentials.json"],
+        token_cache_dir="key",
+    )
+    config = factory(property_id="PR-WWS")
+
+    assert config.property_id == "PR-WWS"
+    assert config.oauth.token_cache_file == str(
+        (tmp_path / "key" / ".adobe_token_cache.wws.json").resolve(),
+    )
+    assert os.environ["ADOBE_CLIENT_ID"] == "file-id"

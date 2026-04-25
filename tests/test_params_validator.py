@@ -30,6 +30,19 @@ class TestParamsValidator(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(normalized["limit"], 1000)
 
+    def test_valid_gsc_with_page_to_path(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "gsc",
+            "site_url": "https://example.com/",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimensions": ["page"],
+            "page_to_path": True,
+        }
+        normalized, errors = validate_params(data)
+        self.assertEqual(errors, [])
+        self.assertIs(normalized["page_to_path"], True)
+
     def test_valid_bigquery(self):
         data = {
             "schema_version": "1.0",
@@ -87,6 +100,25 @@ class TestParamsValidator(unittest.TestCase):
         normalized, errors = validate_params(data)
         self.assertIsNone(normalized)
         self.assertTrue(any(err["error_code"] == "INVALID_TYPE" and err["path"] == "$.segment" for err in errors))
+
+    def test_invalid_gsc_page_to_path_type(self):
+        data = {
+            "schema_version": "1.0",
+            "source": "gsc",
+            "site_url": "https://example.com/",
+            "date_range": {"start": "2026-02-01", "end": "2026-02-03"},
+            "dimensions": ["page"],
+            "page_to_path": "yes",
+        }
+        normalized, errors = validate_params(data)
+        self.assertIsNone(normalized)
+        self.assertTrue(
+            any(
+                err["error_code"] == "INVALID_TYPE"
+                and err["path"] == "$.page_to_path"
+                for err in errors
+            )
+        )
 
     def test_invalid_aa_segment_definition_type(self):
         data = {

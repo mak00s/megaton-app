@@ -14,7 +14,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ...config import AdobeTagsConfig
-from .bootstrap import adobe_tags_output_root, bootstrap_account_env, build_tags_config
+from .bootstrap import (
+    adobe_tags_output_root,
+    bootstrap_account_env,
+    build_repo_tags_config_factory,
+    build_tags_config,
+)
 
 
 def _default_config_factory(*, property_id: str, page_size: int = 100) -> AdobeTagsConfig:
@@ -250,6 +255,40 @@ def tags_workspace_main(
     if args.format == "json":
         _print_json_result(result)
     raise SystemExit(workspace_result_exit_code(result))
+
+
+def analysis_tags_workspace_main(
+    *,
+    project_root: str | Path | None = None,
+    account_hints: dict[str, dict[str, Any]] | None = None,
+    known_accounts: tuple[str, ...] = ("csk", "wws", "dms"),
+    credentials_candidates: list[str | Path] | tuple[str | Path, ...] = (),
+    token_cache_dir: str | Path = "credentials",
+    account_default: str = "",
+    org_id: str = "",
+    argv: list[str] | None = None,
+) -> None:
+    """Run the standard analysis-repo Adobe Tags workspace CLI.
+
+    This is a convenience wrapper around ``tags_workspace_main`` for repos that
+    use repo-local env files, credential candidates, and per-account OAuth
+    token caches.
+    """
+    root = Path(project_root or Path.cwd())
+    factory = build_repo_tags_config_factory(
+        project_root=root,
+        credentials_candidates=credentials_candidates,
+        token_cache_dir=token_cache_dir,
+        account_default=account_default,
+        org_id=org_id,
+    )
+    tags_workspace_main(
+        tags_config_factory=factory,
+        project_root=root,
+        account_hints=account_hints,
+        known_accounts=known_accounts,
+        argv=argv,
+    )
 
 
 # ---------------------------------------------------------------------------

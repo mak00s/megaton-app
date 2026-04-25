@@ -32,8 +32,20 @@ GA4 / Search Console / Adobe Analytics / BigQuery のデータを取得・加工
 
 ### インストール
 
+`pip install -e .` で install されるのは共有ライブラリ `megaton_lib`。
+`scripts/` と `app/` は console script として install されず、この repo の checkout から実行する。
+
 ```bash
+# Streamlit / scripts / notebooks / validation / tests を含むローカル開発用
 pip install -r requirements.txt
+
+# analysis repo などから megaton_lib だけを使う場合
+pip install -e .
+
+# 必要な依存だけを選ぶ場合
+pip install -e ".[ui]"
+pip install -e ".[notebook,google]"
+pip install -e ".[validation]"
 
 # credentials/ にサービスアカウント JSON を配置
 # 複数ファイル可（property_id / site_url で自動ルーティング）
@@ -277,7 +289,7 @@ Adobe Tags の export/apply では、rule component の custom code だけでな
 ### Analysis repo で library-scope Adobe Tags CLI を使う
 
 analysis repo 側では、薄い `python -m tags` wrapper から
-`megaton_lib.audit.providers.tag_config.tags_workspace_main()` を呼び出す。
+`megaton_lib.audit.providers.tag_config.analysis_tags_workspace_main()` を呼び出す。
 基本の command model は次の通り。
 
 - `checkout`: remote library scope で local を強く上書き。managed local file があれば `--force` 必須
@@ -289,13 +301,25 @@ analysis repo 側では、薄い `python -m tags` wrapper から
 - `build`: build only
 - `full-export`: full property mirror を別出力先に取る
 
-analysis repo の `tags/__main__.py` は共通 runner に委譲できる。
+analysis repo の `tags/__main__.py` は共通 runner に委譲できる。repo 固有の credentials path や account 別 token cache は `analysis_tags_workspace_main()` に渡す。
 
 ```python
-from megaton_lib.audit.providers.tag_config import tags_workspace_main
-from .config import ACCOUNT_HINTS
+from pathlib import Path
 
-tags_workspace_main(account_hints=ACCOUNT_HINTS)
+import config
+from megaton_lib.audit.providers.tag_config import analysis_tags_workspace_main
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+analysis_tags_workspace_main(
+    project_root=PROJECT_ROOT,
+    account_hints=config.ACCOUNT_HINTS,
+    known_accounts=("wws",),
+    credentials_candidates=[PROJECT_ROOT / "key/adobe_credentials.json"],
+    token_cache_dir=PROJECT_ROOT / "key",
+    account_default="wws",
+    org_id=config.ADOBE_ORG_ID,
+)
 ```
 
 推奨 UX:
@@ -499,6 +523,10 @@ df = query_bq(
     creds_hint="shibuya",
 )
 ```
+
+`google.cloud.bigquery.Client` を自前で持つ ETL / bootstrap job では
+`megaton_lib.bigquery_utils` を使う。`query_bq()` は params/CLI/UI 互換の
+高レベル経路、`bigquery_utils` は native client を受け取る低レベル helper。
 
 ### CLI で結果をフィルタ・集計する
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import configparser
+from collections.abc import Callable, Sequence
 import os
 from pathlib import Path
 import tomllib
@@ -32,6 +33,60 @@ def load_env_file(path: str | Path, *, override: bool = False) -> None:
             os.environ[resolved_key] = resolved_value
         else:
             os.environ.setdefault(resolved_key, resolved_value)
+
+
+def account_token_cache_file(
+    account: str = "",
+    *,
+    project_root: str | Path = ".",
+    token_cache_dir: str | Path = "credentials",
+    filename_template: str = ".adobe_token_cache.{account}.json",
+    account_env_var: str = "ACCOUNT",
+    fallback_account: str = "default",
+) -> Path:
+    """Return an account-namespaced Adobe OAuth token cache path.
+
+    ``token_cache_dir`` may be absolute or relative to ``project_root``.
+    """
+    root = Path(project_root).expanduser().resolve()
+    cache_dir = Path(token_cache_dir).expanduser()
+    if not cache_dir.is_absolute():
+        cache_dir = root / cache_dir
+
+    resolved_account = (
+        account.strip()
+        or os.getenv(account_env_var, "").strip()
+        or fallback_account.strip()
+        or "default"
+    )
+    safe_account = "".join(
+        char if char.isalnum() or char in ("-", "_", ".") else "_"
+        for char in resolved_account
+    )
+    filename = filename_template.format(account=safe_account)
+    return (cache_dir / filename).resolve()
+
+
+def _resolve_candidate_path(project_root: Path, value: str | Path) -> Path:
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else project_root / path
+
+
+def resolve_first_existing_path(
+    explicit: str | Path = "",
+    *,
+    project_root: str | Path = ".",
+    candidates: Sequence[str | Path] = (),
+) -> Path | None:
+    """Resolve the first existing path from an explicit value or candidates."""
+    root = Path(project_root).expanduser().resolve()
+    if str(explicit).strip():
+        return _resolve_candidate_path(root, explicit)
+    for candidate in candidates:
+        path = _resolve_candidate_path(root, candidate)
+        if path.exists():
+            return path
+    return None
 
 
 def _default_account_from_pyproject(project_root: Path) -> str:
@@ -355,3 +410,63 @@ def build_tags_config(
         oauth=oauth,
         page_size=page_size,
     )
+
+
+def build_repo_tags_config_factory(
+    *,
+    project_root: str | Path = ".",
+    credentials_candidates: Sequence[str | Path] = (),
+    token_cache_dir: str | Path = "credentials",
+    account_default: str = "",
+    org_id: str = "",
+    adobe_config_env: str = "ANALYSIS_ADOBE_CONFIG_PATH",
+    env_file_var: str = "ENV_FILE",
+    default_env_file: str = ".env",
+    account_env_var: str = "ACCOUNT",
+    token_cache_filename_template: str = ".adobe_token_cache.{account}.json",
+    client_id_env: str = "ADOBE_CLIENT_ID",
+    client_secret_env: str = "ADOBE_CLIENT_SECRET",
+    org_id_env: str = "ADOBE_ORG_ID",
+) -> Callable[..., AdobeTagsConfig]:
+    """Build a repo-local ``AdobeTagsConfig`` factory for analysis wrappers.
+
+    The returned callable accepts ``property_id`` and ``page_size`` keyword args.
+    It loads ``ENV_FILE`` if present, resolves the first existing credentials
+    file from ``credentials_candidates``, and stores OAuth tokens in an
+    account-namespaced cache.
+    """
+    root = Path(project_root).expanduser().resolve()
+    candidates = tuple(credentials_candidates)
+
+    def factory(*, property_id: str, page_size: int = 100) -> AdobeTagsConfig:
+        env_file = os.getenv(env_file_var, default_env_file).strip()
+        if env_file:
+            load_env_file(root / env_file)
+
+        creds_file = resolve_first_existing_path(
+            os.getenv(adobe_config_env, "").strip(),
+            project_root=root,
+            candidates=candidates,
+        )
+        token_cache = account_token_cache_file(
+            os.getenv(account_env_var, "").strip() or account_default,
+            project_root=root,
+            token_cache_dir=token_cache_dir,
+            filename_template=token_cache_filename_template,
+            account_env_var=account_env_var,
+            fallback_account=account_default or "default",
+        )
+        token_cache.parent.mkdir(parents=True, exist_ok=True)
+
+        return build_tags_config(
+            property_id=property_id,
+            page_size=page_size,
+            token_cache_file=token_cache,
+            creds_file=creds_file,
+            org_id=org_id,
+            client_id_env=client_id_env,
+            client_secret_env=client_secret_env,
+            org_id_env=org_id_env,
+        )
+
+    return factory

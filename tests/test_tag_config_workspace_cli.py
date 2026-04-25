@@ -5,7 +5,7 @@ import json
 import pytest
 
 from megaton_lib.audit.config import AdobeTagsConfig
-from megaton_lib.audit.providers.tag_config.cli import tags_workspace_main
+from megaton_lib.audit.providers.tag_config.cli import analysis_tags_workspace_main, tags_workspace_main
 
 
 def _factory(*, property_id: str, page_size: int = 100) -> AdobeTagsConfig:
@@ -250,3 +250,42 @@ def test_tags_workspace_main_push_apply_runs_local_status_hooks(monkeypatch, tmp
     assert [name for name, _ in calls] == ["status", "push", "status"]
     assert calls[0][1]["since_pull"] is True
     assert calls[0][1]["summary_only"] is True
+
+
+def test_analysis_tags_workspace_main_uses_repo_factory_and_account_cache(monkeypatch, tmp_path):
+    key_dir = tmp_path / "key"
+    key_dir.mkdir()
+    (key_dir / "adobe_credentials.json").write_text(
+        json.dumps({"client_id": "file-id", "client_secret": "file-secret", "org_id": "file-org"}),
+        encoding="utf-8",
+    )
+    _env_file(tmp_path, account="wws", property_id="PR-WWS", library_id="LB-WWS")
+    seen = {}
+
+    def fake_status(config, **kwargs):
+        seen["property_id"] = config.property_id
+        seen["token_cache_file"] = config.oauth.token_cache_file
+        seen.update(kwargs)
+        return {"summary": {}, "details": {}, "exit_code": 0}
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.workspace.status_library_scope",
+        fake_status,
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        analysis_tags_workspace_main(
+            project_root=tmp_path,
+            account_hints={"wws": {"property_ids": ["PR-WWS"]}},
+            known_accounts=("wws",),
+            credentials_candidates=["key/adobe_credentials.json"],
+            token_cache_dir="key",
+            argv=["--account", "wws", "status", "--since-pull"],
+        )
+
+    assert exc.value.code == 0
+    assert seen["property_id"] == "PR-WWS"
+    assert seen["library_id"] == "LB-WWS"
+    assert seen["token_cache_file"] == str(
+        (tmp_path / "key" / ".adobe_token_cache.wws.json").resolve(),
+    )
