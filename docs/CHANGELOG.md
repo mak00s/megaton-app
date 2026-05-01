@@ -2,7 +2,7 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-## Unreleased
+## 2026-05-01 (v0.10.0)
 
 - Added `analysis_tags_workspace_main()` for analysis repos that need the standard Adobe Tags workspace CLI plus repo-local credentials and per-account token caches.
 - Added `build_repo_tags_config_factory()`, `account_token_cache_file()`, and `resolve_first_existing_path()` to reduce duplicated `tags/__main__.py` and credential factory code across CSK / WWS / DMS analysis repos.
@@ -11,6 +11,7 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 - Updated `save_sheet_table()` to use megaton's public `mg.sheet.*` formatting helpers for optional row/column sizing, gridline visibility, and tab color.
 - Moved direct-gspread and Sheets batchUpdate helpers into `megaton_lib.gspread_lowlevel`, with short canonical helper names and compatibility re-exports from `megaton_lib.sheets`.
 - Replaced query-runner monkey-patching with explicit query executor injection, added GSC `page_to_path` params support, and fixed BigQuery `ensure_table()` `created` metadata.
+- Updated shared Playwright page helpers to use stealth defaults for Adobe Analytics validation traffic, with `stealth=False` and `user_agent=...` opt-outs on the common wrappers.
 
 ## 2026-04-25 (v0.9.0)
 

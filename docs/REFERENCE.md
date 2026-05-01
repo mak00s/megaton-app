@@ -833,6 +833,16 @@ Notes:
 | `run_storefront_validation_session(...)` | Run a storefront browser session with cookie preload plus shared validation setup |
 | `finalize_followup_verification(...)` | Attach follow-up metadata, save the verification JSON, and complete the matching pending task |
 
+Notes:
+- Playwright page wrappers default to `stealth=True`: they use a real Chrome
+  user-agent, disable Chromium automation blink features, and hide
+  `navigator.webdriver` so Adobe Analytics validation traffic is not dropped
+  by common bot rules.
+- Pass `stealth=False` when validating bot detection itself or when a test
+  intentionally needs Playwright's default headless fingerprint.
+- Pass `user_agent="..."` to override the default user-agent while keeping the
+  common wrapper lifecycle.
+
 #### Adobe Tags Launch Override
 
 Use `TagsLaunchOverride` when you need to test a site against a different Adobe Tags
