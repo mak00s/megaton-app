@@ -2,6 +2,12 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-05-02 (v0.11.0)
+
+- Added `megaton_lib.gmail_client`, a shared Gmail API wrapper for readonly message lookup, attachment extraction, OAuth token refresh, and draft creation.
+- Added `megaton_lib.report_gmail_draft`, a reusable post-report Gmail draft helper and module CLI (`python -m megaton_lib.report_gmail_draft`) that reads report execution summaries, validates success, fills report templates, and creates Gmail drafts from `GMAIL_DRAFT_*` / `{PREFIX}_GMAIL_DRAFT_*` environment settings.
+- Gmail OAuth token files written by the interactive helper are now saved with owner-only permissions, and draft creation uses the minimum `gmail.compose` scope.
+
 ## 2026-05-01 (v0.10.0)
 
 - Added `analysis_tags_workspace_main()` for analysis repos that need the standard Adobe Tags workspace CLI plus repo-local credentials and per-account token caches.
