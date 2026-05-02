@@ -286,6 +286,61 @@ Failure:
 
 全メソッドは `write_enabled=False` 時にスキップし、run summary に `mode="skipped_write"` として記録する。
 
+### Gmail Draft Helpers
+
+`megaton_lib.gmail_client` は Gmail API の薄い共通 wrapper。
+
+| API | 説明 |
+|---|---|
+| `SCOPES_DRAFT` | Gmail draft 作成用 scope。`gmail.compose` のみ |
+| `authorize(client_secrets_path, token_path, scopes, expected_email=None)` | desktop OAuth を実行し、token JSON を `0600` で保存 |
+| `credentials_from_authorized_user_info(token_info, scopes)` | GitHub Actions secrets などの token JSON 文字列から認証情報を読み込み refresh |
+| `credentials_from_authorized_user_file(token_path, scopes)` | token JSON file から認証情報を読み込み refresh |
+| `parse_email_list(value)` | comma / semicolon / newline 区切りの宛先文字列を list 化 |
+| `GmailClient.create_draft(sender=, to=, subject=, body_text=, cc=None, bcc=None)` | Gmail draft を作成。Bcc は Gmail が送信するまで draft MIME に保持される |
+
+`megaton_lib.report_gmail_draft` はレポート実行 summary から Gmail draft を作る共通 helper。
+GitHub Actions の notebook 成功後 step から呼ぶ用途を想定する。
+
+Module CLI:
+
+```bash
+python -m megaton_lib.report_gmail_draft \
+  --summary-path "$MEGATON_RUN_SUMMARY_PATH" \
+  --env-prefix DEI
+```
+
+Required environment:
+
+| Env | 説明 |
+|---|---|
+| `GMAIL_DRAFT_TOKEN_JSON` or `{PREFIX}_GMAIL_DRAFT_TOKEN_JSON` | Gmail OAuth authorized-user token JSON |
+| `GMAIL_DRAFT_TOKEN_PATH` or `{PREFIX}_GMAIL_DRAFT_TOKEN_PATH` | token JSON file path。ローカル実行向け |
+| `GMAIL_DRAFT_SENDER` or `{PREFIX}_GMAIL_DRAFT_SENDER` | From address |
+| `GMAIL_DRAFT_TO` or `{PREFIX}_GMAIL_DRAFT_TO` | To addresses |
+
+Optional environment:
+
+| Env | 説明 |
+|---|---|
+| `GMAIL_DRAFT_CC` / `GMAIL_DRAFT_BCC` | CC / BCC addresses |
+| `{PREFIX}_GMAIL_DRAFT_SUBJECT` | Subject template |
+| `{PREFIX}_GMAIL_DRAFT_BODY` | Body template |
+| `{PREFIX}_GMAIL_DRAFT_REPORT_LABEL` | Default subject/body の report label |
+| `{PREFIX}_GMAIL_DRAFT_REQUIRE_BOX_URL=true` | summary に Box shared URL が無い場合は draft 作成を失敗させる |
+
+Template placeholders:
+
+| Placeholder | 説明 |
+|---|---|
+| `{report_label}` | CLI/report env から渡した report label |
+| `{period_label}` | summary `window.report_start` / `window.report_end` から作る期間表示 |
+| `{sheet_url}` | summary entries の最初の `target_url` |
+| `{run_url}` | GitHub Actions run URL |
+| `{box_links}` | Box file label と shared URL の複数行 |
+| `{box_urls}` | Box shared URL のみ |
+| `{box_files}` | Box file labels のみ |
+
 ### Pending Verification CLI
 
 Module entrypoint:

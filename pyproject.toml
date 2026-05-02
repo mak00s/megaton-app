@@ -1,6 +1,6 @@
 [project]
 name = "megaton-app"
-version = "0.10.0"
+version = "0.11.0"
 requires-python = ">=3.11"
 dependencies = [
     "megaton>=1.1.0",
@@ -19,6 +19,7 @@ dev = [
 google = [
     "google-api-python-client",
     "google-auth",
+    "google-auth-oauthlib",
     "google-cloud-bigquery",
     "gspread",
 ]
@@ -42,6 +43,7 @@ local = [
     "PyYAML",
     "google-api-python-client",
     "google-auth",
+    "google-auth-oauthlib",
     "google-cloud-bigquery",
     "gspread",
     "ipywidgets",
