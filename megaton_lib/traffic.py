@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from typing import Mapping, Sequence
 
@@ -14,6 +15,40 @@ def normalize_domain(value: str) -> str:
     v = re.sub(r"^https?://", "", v)
     v = v.split("/")[0]
     return v.replace("www.", "")
+
+
+def _source_host(value: object) -> str:
+    """Return the host-like part of a GA source value."""
+    text = str(value or "").strip().lower()
+    if not text or text in {"(not set)", "not set", "none", "nan"}:
+        return ""
+    text = re.sub(r"^[a-z][a-z0-9+.-]*://", "", text)
+    text = text.split("/", 1)[0].split("?", 1)[0].strip()
+    if "@" in text:
+        text = text.rsplit("@", 1)[1]
+    if text.startswith("["):
+        bracket_end = text.find("]")
+        if bracket_end != -1:
+            return text[1:bracket_end]
+    if text.count(":") == 1:
+        host, port = text.rsplit(":", 1)
+        if port.isdigit():
+            text = host
+    return re.sub(r"^www\.", "", text.strip("."))
+
+
+def is_non_public_dev_source(value: object) -> bool:
+    """Return True for localhost / non-public IP sources that should not be attribution."""
+    host = _source_host(value)
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return not ip.is_global
 
 
 def ensure_trailing_slash(path: str, *, preserve_suffixes: tuple[str, ...] = (".html", "/")) -> str:
@@ -75,6 +110,8 @@ def classify_channel(
     med = str(row.get("medium", "") or "").lower()
     src = str(row.get("source", "") or "").lower().replace("www.", "")
 
+    if is_non_public_dev_source(src):
+        return "Direct"
     if any(k in src for k in ai_keywords) or any(k in med for k in ai_keywords):
         return "AI"
     if med == "map" or re.search(r"(^|\.)maps?\.", src):
