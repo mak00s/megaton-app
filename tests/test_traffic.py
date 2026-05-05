@@ -4,6 +4,7 @@ from megaton_lib.traffic import (
     apply_source_normalization,
     classify_channel,
     ensure_trailing_slash,
+    is_non_public_dev_source,
     normalize_domain,
     reclassify_source_channel,
 )
@@ -32,6 +33,23 @@ def test_classify_channel_group_from_referral():
 def test_classify_channel_keeps_original_when_no_rule_matches():
     row = {"channel": "Organic Search", "medium": "organic", "source": "google"}
     assert classify_channel(row, group_domains={"example.com"}) == "Organic Search"
+
+
+def test_is_non_public_dev_source_detects_localhost_and_private_ips():
+    assert is_non_public_dev_source("localhost")
+    assert is_non_public_dev_source("http://localhost:3000/path")
+    assert is_non_public_dev_source("127.0.0.1:52168")
+    assert is_non_public_dev_source("192.168.10.20")
+    assert is_non_public_dev_source("172.16.0.1:8080")
+    assert is_non_public_dev_source("10.0.0.4")
+    assert is_non_public_dev_source("[::1]:5173")
+    assert not is_non_public_dev_source("google.com")
+    assert not is_non_public_dev_source("8.8.8.8")
+
+
+def test_classify_channel_non_public_dev_referral_as_direct():
+    row = {"channel": "Referral", "medium": "referral", "source": "127.0.0.1:52168"}
+    assert classify_channel(row) == "Direct"
 
 
 def test_ensure_trailing_slash_appends_only_when_needed():
