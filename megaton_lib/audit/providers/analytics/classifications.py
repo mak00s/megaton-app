@@ -347,12 +347,11 @@ class ClassificationsClient:
     ) -> None:
         """Upload a TSV file (or content) to an import job.
 
-        Parameters
-        ----------
-        content : str | bytes | Path
-            TSV content as string, bytes, or a file path.
-        filename : str
-            Filename sent in the multipart upload.
+        Adobe's uploadFile multipart endpoint silently rejects payloads
+        larger than ~10 MB (the API may return HTTP 500 immediately or
+        accept the upload but mark the job ``failed_validation`` later)
+        and refuses gzip-compressed bodies. Use
+        :meth:`import_classification_chunked` for production-sized files.
         """
         url = (
             f"{AA_API_BASE}/{self.company_id}"
@@ -374,7 +373,7 @@ class ClassificationsClient:
             url,
             headers=self._headers(json_content=False),
             files=files,
-            timeout=120,
+            timeout=300,
         )
         resp.raise_for_status()
 
@@ -431,6 +430,94 @@ class ClassificationsClient:
             print("  committed (processing is asynchronous)")
 
         return job_id
+
+    def import_classification_chunked(
+        self,
+        dataset_id: str,
+        content: str | bytes | Path,
+        *,
+        job_name: str = "",
+        filename: str = "classification.tsv",
+        chunk_rows: int = 100_000,
+        chunk_pause_seconds: float = 2.0,
+        verbose: bool = True,
+    ) -> list[str]:
+        """Split a TSV into chunks and create one import job per chunk.
+
+        Adobe's Importer rejects single uploads above ~10 MB / a few hundred
+        thousand rows (HTTP 500 on uploadFile or ``failed_validation`` after
+        commit). This helper splits ``content`` on row boundaries while
+        repeating the header in every chunk, so each chunk imports
+        independently.
+
+        Parameters
+        ----------
+        chunk_rows : int
+            Maximum data rows per chunk (excluding header). 100k → ~2.5MB
+            with typical Step classifications and uploads cleanly.
+        chunk_pause_seconds : float
+            Delay between consecutive uploads to stay polite to the API.
+
+        Returns
+        -------
+        list[str]
+            ``api_job_id`` of each created import job in submission order.
+        """
+        if isinstance(content, Path):
+            data = content.read_bytes()
+        elif isinstance(content, str):
+            data = content.encode("utf-8")
+        else:
+            data = bytes(content)
+
+        text = data.decode("utf-8")
+        lines = text.split("\n")
+        if not lines:
+            raise ValueError("import_classification_chunked: empty content")
+        # Tolerate trailing newline.
+        if lines[-1] == "":
+            lines = lines[:-1]
+        if len(lines) < 2:
+            raise ValueError(
+                "import_classification_chunked: needs a header and at least 1 data row"
+            )
+
+        header = lines[0]
+        data_lines = lines[1:]
+        total_chunks = (len(data_lines) + chunk_rows - 1) // chunk_rows
+        if verbose:
+            print(
+                f"  chunking: {len(data_lines):,} rows → "
+                f"{total_chunks} chunks of up to {chunk_rows:,} rows"
+            )
+
+        base_name = job_name or f"import {dataset_id}"
+        base_filename = filename.rsplit(".", 1)[0]
+        ext = "tsv"
+        if "." in filename:
+            ext = filename.rsplit(".", 1)[1] or "tsv"
+
+        job_ids: list[str] = []
+        for idx in range(total_chunks):
+            start = idx * chunk_rows
+            chunk = data_lines[start:start + chunk_rows]
+            chunk_text = header + "\n" + "\n".join(chunk) + "\n"
+            chunk_bytes = chunk_text.encode("utf-8")
+            chunk_name = f"{base_name} (chunk {idx + 1}/{total_chunks}, {len(chunk):,} rows)"
+            chunk_filename = f"{base_filename}.chunk{idx + 1:03d}.{ext}"
+            job_id = self.create_import_job(dataset_id, job_name=chunk_name)
+            self.upload_file(job_id, chunk_bytes, filename=chunk_filename)
+            self.commit_job(job_id)
+            job_ids.append(job_id)
+            if verbose:
+                print(
+                    f"    [{idx + 1}/{total_chunks}] {len(chunk):,} rows  "
+                    f"{len(chunk_bytes) / 1024 / 1024:.2f}MB  job={job_id[:8]}"
+                )
+            if idx + 1 < total_chunks and chunk_pause_seconds > 0:
+                time.sleep(chunk_pause_seconds)
+
+        return job_ids
 
     # ------------------------------------------------------------------
     # Helpers
