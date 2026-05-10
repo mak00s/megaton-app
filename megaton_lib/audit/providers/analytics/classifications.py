@@ -206,6 +206,8 @@ class ClassificationsClient:
         *,
         job_name: str = "",
         row_limit: int = 0,
+        date_filter_start: str = "",
+        keys: list[str] | None = None,
     ) -> str:
         """Create a classification export job.
 
@@ -217,11 +219,14 @@ class ClassificationsClient:
             Optional job name (auto-generated if empty).
         row_limit : int
             Maximum rows to export. 0 = unlimited.
-
-        Returns
-        -------
-        str
-            The export job ID.
+        date_filter_start : str
+            ISO-8601 timestamp ("YYYY-MM-DDTHH:MM:SSZ") for the earliest
+            import date to include. Adobe defaults to ~6 months ago when
+            omitted, which silently hides older imports. Pass a wide
+            window (e.g. "2015-01-01T00:00:00Z") to verify legacy data.
+        keys : list[str] | None
+            If given, restrict the export to these specific Key values.
+            Requires ``date_filter_start`` (the API returns 400 otherwise).
         """
         url = (
             f"{AA_API_BASE}/{self.company_id}"
@@ -233,6 +238,14 @@ class ClassificationsClient:
             "jobName": job_name or f"export {dataset_id}",
             "rowLimit": row_limit,
         }
+        if keys and not date_filter_start:
+            # Adobe rejects keys filter without dateFilterStart; default to the
+            # widest reasonable window so callers do not have to know this.
+            date_filter_start = "2015-01-01T00:00:00Z"
+        if date_filter_start:
+            body["dateFilterStart"] = date_filter_start
+        if keys:
+            body["keys"] = list(keys)
         resp = requests.post(url, headers=self._headers(), json=body, timeout=30)
         resp.raise_for_status()
         data = resp.json()
@@ -271,15 +284,22 @@ class ClassificationsClient:
         *,
         job_name: str = "",
         row_limit: int = 0,
+        date_filter_start: str = "",
+        keys: list[str] | None = None,
         verbose: bool = True,
     ) -> str:
         """Create export job, poll until done, and return TSV text.
 
         Convenience method combining :meth:`create_export_job`,
-        :meth:`poll_job`, and :meth:`download_export_file`.
+        :meth:`poll_job`, and :meth:`download_export_file`. See
+        :meth:`create_export_job` for ``date_filter_start`` and ``keys``.
         """
         job_id = self.create_export_job(
-            dataset_id, job_name=job_name, row_limit=row_limit
+            dataset_id,
+            job_name=job_name,
+            row_limit=row_limit,
+            date_filter_start=date_filter_start,
+            keys=keys,
         )
         if verbose:
             print(f"  export job: {job_id}")
@@ -446,23 +466,21 @@ class ClassificationsClient:
         column: str,
         *,
         job_name: str = "",
+        date_filter_start: str = "",
+        keys: list[str] | None = None,
         verbose: bool = True,
     ) -> dict[str, str]:
         """Export and parse a single classification column as ``{Key: value}``.
 
-        Parameters
-        ----------
-        column : str
-            Classification column name (e.g. ``"関係者"``).
-
-        Returns
-        -------
-        dict[str, str]
-            Mapping of Key to the column's value.
+        See :meth:`create_export_job` for ``date_filter_start`` and ``keys``;
+        passing them lets callers verify legacy imports or fetch a small
+        subset of keys without a full export.
         """
         tsv_text = self.export_classification(
             dataset_id,
             job_name=job_name or f"export {column}",
+            date_filter_start=date_filter_start,
+            keys=keys,
             verbose=verbose,
         )
         result: dict[str, str] = {}
@@ -482,6 +500,7 @@ class ClassificationsClient:
         column: str,
         expected: dict[str, str],
         *,
+        date_filter_start: str = "2015-01-01T00:00:00Z",
         verbose: bool = True,
     ) -> dict[str, dict]:
         """Verify that expected classification values are reflected in AA.
@@ -492,6 +511,10 @@ class ClassificationsClient:
         ----------
         expected : dict[str, str]
             Mapping of ``{Key: expected_value}``.
+        date_filter_start : str
+            ISO-8601 timestamp for the earliest import date to scan.
+            Default ``"2015-01-01T00:00:00Z"`` is wide enough to cover
+            legacy imports that the API would otherwise hide.
 
         Returns
         -------
@@ -510,9 +533,17 @@ class ClassificationsClient:
             )
 
         if verbose:
-            print(f"[info] Exporting current {column!r} values...")
+            print(
+                f"[info] Exporting {len(expected):,} keys for {column!r} "
+                f"(dateFilterStart={date_filter_start})..."
+            )
         current = self.export_column_as_dict(
-            dataset_id, column, job_name=f"verify {column}", verbose=verbose
+            dataset_id,
+            column,
+            job_name=f"verify {column}",
+            date_filter_start=date_filter_start,
+            keys=list(expected.keys()),
+            verbose=verbose
         )
         if verbose:
             print(f"[info] Exported {len(current):,} keys")
