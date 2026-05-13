@@ -853,6 +853,7 @@ Notes:
 | `describe_gtm_preview_override(override)` | Return stable metadata dict for saved GTM preview runs (omits auth token) |
 | `build_tags_launch_override(config, ...)` | Build `TagsLaunchOverride` from config mapping with dev/region overrides |
 | `describe_tags_launch_override(override)` | Return stable metadata dict for saved Tags override runs |
+| `get_tags_launch_override_report(page)` | Return runtime counters showing whether a Tags launch override actually fired |
 | `configure_tags_launch_override(page, url, override)` | Attach Playwright routes that swap Adobe Tags assets for one page/origin |
 | `run_page_session(...)` | Open a browser/context/page session with cookie preload, launch options, and optional override routing |
 | `run_page(...)` | Open a Playwright page with optional basic auth, HTTPS ignore, and Tags override support |
@@ -904,7 +905,11 @@ Use `TagsLaunchOverride` when you need to test a site against a different Adobe 
 build without changing the site code.
 
 ```python
-from megaton_lib.validation import TagsLaunchOverride, run_page
+from megaton_lib.validation import (
+    TagsLaunchOverride,
+    get_tags_launch_override_report,
+    run_page,
+)
 
 override = TagsLaunchOverride(
     launch_url="https://assets.adobedtm.com/<company>/<property>/launch-xxxx-development.js",
@@ -917,6 +922,7 @@ def validate(page):
     return {
         "url": page.url,
         "has_satellite": page.evaluate("() => typeof _satellite !== 'undefined'"),
+        "tags_override_report": get_tags_launch_override_report(page),
     }
 
 result = run_page(
@@ -929,7 +935,7 @@ result = run_page(
 Mode guide:
 
 - `auto`: enable both strategies below. Use this as the default when sites are mixed.
-- `legacy_satellite`: replace `satelliteLib-*.js` references in HTML responses.
+- `legacy_satellite`: replace `satelliteLib-*.js` references in HTML responses and intercept matching `assets.adobedtm.com/.../satelliteLib-*.js` script requests. This covers both static `<script src=...>` and dynamic script injection.
 - `launch_env`: intercept `launch-*staging*.js` / `launch-*development*.js` requests and serve `launch_url`.
 
 Important fields:
@@ -946,7 +952,9 @@ Notes:
 - `run_with_launch_override(...)` remains available for older callers, but new code should prefer `run_page(..., tags_override=TagsLaunchOverride(...))`.
 - `run_with_launch_override(...)` performs one initial `page.goto(...)` before your callback runs. Do not call `page.goto(...)` again for the same URL unless you intentionally want a second load.
 - `run_with_basic_auth_page(...)` is still useful when you only need BASIC auth and no Tags replacement.
-- `legacy_satellite` HTML rewriting is scoped to the initial `run_page(url=...)` origin. If your callback later moves to another origin, that later HTML will not be rewritten by the original route.
+- `get_tags_launch_override_report(page)` returns runtime counters such as `htmlReplacements`, `legacyRequestsReplaced`, `envRequestsReplaced`, `exactRequestsReplaced`, and `fetchErrors`. Treat all replacement counters being zero as "override did not fire".
+- If fetching `launch_url` fails, route handling returns a JavaScript 502 response and records `lastFetchError` instead of leaking the network exception through Playwright.
+- `legacy_satellite` HTML rewriting is scoped to the initial `run_page(url=...)` origin. If your callback later moves to another origin, that later HTML will not be rewritten by the original route; direct `satelliteLib-*.js` request interception still applies globally.
 
 #### GTM Preview Override
 

@@ -2,6 +2,10 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## Unreleased
+
+- Fixed `TagsLaunchOverride` so dynamically injected `satelliteLib-*.js` requests are replaced, launch-asset fetch failures are reported without leaking Playwright route exceptions, and callbacks can inspect runtime override counters with `get_tags_launch_override_report(page)`.
+
 ## 2026-05-02 (v0.11.0)
 
 - Added `megaton_lib.gmail_client`, a shared Gmail API wrapper for readonly message lookup, attachment extraction, OAuth token refresh, and draft creation.

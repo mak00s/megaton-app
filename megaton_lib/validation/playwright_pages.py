@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import re
 import time
+from weakref import WeakKeyDictionary
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import parse_qs, urlencode, urlparse, urlsplit, urlunsplit
@@ -32,6 +34,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in CI environments w
 _SATELLITE_LIB_PATTERN = re.compile(
     r'https://assets\.adobedtm\.com/[0-9a-f]+/satelliteLib-[0-9a-f]+\.js'
 )
+_TAGS_OVERRIDE_STATE: WeakKeyDictionary[Any, dict[str, Any]] = WeakKeyDictionary()
 
 
 @dataclass(frozen=True)
@@ -219,6 +222,23 @@ def describe_gtm_preview_override(
     }
 
 
+def get_tags_launch_override_report(page: Page) -> dict[str, Any]:
+    """Return runtime diagnostics for a configured Tags launch override."""
+    try:
+        state = _TAGS_OVERRIDE_STATE.get(page)
+    except TypeError:
+        state = None
+    state = state or getattr(page, "_megaton_tags_launch_override", None)
+    return dict(state or {})
+
+
+def _set_tags_launch_override_state(page: Page, state: dict[str, Any]) -> None:
+    try:
+        _TAGS_OVERRIDE_STATE[page] = state
+    except TypeError:
+        setattr(page, "_megaton_tags_launch_override", state)
+
+
 def _property_base_prefix(launch_url: str) -> str | None:
     match = re.match(
         r"(https://assets\.adobedtm\.com/[0-9a-f]+/[0-9a-f]+/)",
@@ -251,6 +271,40 @@ def _fetch_launch_asset(launch_url: str) -> bytes:
     req = Request(launch_url, headers={"Cache-Control": "no-cache"})
     with urlopen(req, timeout=30) as resp:
         return resp.read()
+
+
+def _record_override_event(state: dict[str, Any], key: str, request_url: str) -> None:
+    state[key] = int(state.get(key, 0)) + 1
+    state["lastMatchedUrl"] = request_url
+
+
+def _fulfill_with_launch_asset(
+    route: Any,
+    *,
+    state: dict[str, Any],
+    request_url: str,
+    get_launch_asset: Callable[[], bytes],
+    event_key: str,
+) -> None:
+    try:
+        body = get_launch_asset()
+    except Exception as exc:  # pragma: no cover - concrete error classes vary by runtime
+        state["fetchErrors"] = int(state.get("fetchErrors", 0)) + 1
+        state["lastFetchError"] = f"{type(exc).__name__}: {exc}"
+        state["lastMatchedUrl"] = request_url
+        message = f"TagsLaunchOverride failed to fetch {state.get('launchUrl')}: {exc}"
+        route.fulfill(
+            status=502,
+            content_type="application/javascript",
+            body=f"console.error({json.dumps(message, ensure_ascii=False)});".encode("utf-8"),
+        )
+        return
+
+    _record_override_event(state, event_key, request_url)
+    route.fulfill(
+        body=body,
+        content_type="application/javascript",
+    )
 
 
 def _response_headers(response) -> dict[str, str]:
@@ -312,6 +366,19 @@ def configure_tags_launch_override(
     """
     base_prefix = _property_base_prefix(override.launch_url)
     launch_asset_cache: bytes | None = None
+    state: dict[str, Any] = {
+        "launchUrl": override.launch_url,
+        "mode": override.mode,
+        "routesRegistered": 0,
+        "htmlDocumentsSeen": 0,
+        "htmlDocumentsPatched": 0,
+        "htmlReplacements": 0,
+        "legacyRequestsReplaced": 0,
+        "envRequestsReplaced": 0,
+        "exactRequestsReplaced": 0,
+        "fetchErrors": 0,
+    }
+    _set_tags_launch_override_state(page, state)
 
     def _get_launch_asset() -> bytes:
         nonlocal launch_asset_cache
@@ -337,8 +404,12 @@ def configure_tags_launch_override(
                 )
                 return
 
+            state["htmlDocumentsSeen"] = int(state.get("htmlDocumentsSeen", 0)) + 1
             body = response.body().decode("utf-8", errors="replace")
-            new_body = _SATELLITE_LIB_PATTERN.sub(override.launch_url, body)
+            new_body, replacements = _SATELLITE_LIB_PATTERN.subn(override.launch_url, body)
+            if replacements:
+                state["htmlDocumentsPatched"] = int(state.get("htmlDocumentsPatched", 0)) + 1
+                state["htmlReplacements"] = int(state.get("htmlReplacements", 0)) + replacements
             route.fulfill(
                 status=response.status,
                 headers=_response_headers(response),
@@ -346,18 +417,39 @@ def configure_tags_launch_override(
             )
 
         page.route(f"{page_origin}/**", _patch_html)
+        state["routesRegistered"] = int(state.get("routesRegistered", 0)) + 1
+
+        satellite_pattern = re.compile(
+            r"^https://assets\.adobedtm\.com/[0-9a-f]+/satelliteLib-[0-9a-f]+\.js(?:\?.*)?$"
+        )
+
+        def _handle_legacy_satellite(route, request):  # type: ignore[no-untyped-def]
+            _fulfill_with_launch_asset(
+                route,
+                state=state,
+                request_url=request.url,
+                get_launch_asset=_get_launch_asset,
+                event_key="legacyRequestsReplaced",
+            )
+
+        page.route(satellite_pattern, _handle_legacy_satellite)
+        state["routesRegistered"] = int(state.get("routesRegistered", 0)) + 1
 
     if override.mode in ("auto", "launch_env"):
         for env in override.env_patterns:
             pattern = f"**/launch-*{env}*.js"
 
-            def _handle_launch_env(route, _request):  # type: ignore[no-untyped-def]
-                route.fulfill(
-                    body=_get_launch_asset(),
-                    content_type="application/javascript",
+            def _handle_launch_env(route, request):  # type: ignore[no-untyped-def]
+                _fulfill_with_launch_asset(
+                    route,
+                    state=state,
+                    request_url=request.url,
+                    get_launch_asset=_get_launch_asset,
+                    event_key="envRequestsReplaced",
                 )
 
             page.route(pattern, _handle_launch_env)
+            state["routesRegistered"] = int(state.get("routesRegistered", 0)) + 1
 
     for match_url in override.exact_match_urls:
         normalized = match_url.strip()
@@ -366,13 +458,17 @@ def configure_tags_launch_override(
 
         exact_pattern = re.compile(rf"^{re.escape(normalized)}(?:\?.*)?$")
 
-        def _handle_exact_launch(route, _request):  # type: ignore[no-untyped-def]
-            route.fulfill(
-                body=_get_launch_asset(),
-                content_type="application/javascript",
+        def _handle_exact_launch(route, request):  # type: ignore[no-untyped-def]
+            _fulfill_with_launch_asset(
+                route,
+                state=state,
+                request_url=request.url,
+                get_launch_asset=_get_launch_asset,
+                event_key="exactRequestsReplaced",
             )
 
         page.route(exact_pattern, _handle_exact_launch)
+        state["routesRegistered"] = int(state.get("routesRegistered", 0)) + 1
 
     if base_prefix and override.abort_old_property_assets:
         def _handle_property_asset(route, request):  # type: ignore[no-untyped-def]
@@ -381,9 +477,12 @@ def configure_tags_launch_override(
                 return
 
             if _matches_exact_launch_request(request.url, override.exact_match_urls):
-                route.fulfill(
-                    body=_get_launch_asset(),
-                    content_type="application/javascript",
+                _fulfill_with_launch_asset(
+                    route,
+                    state=state,
+                    request_url=request.url,
+                    get_launch_asset=_get_launch_asset,
+                    event_key="exactRequestsReplaced",
                 )
                 return
 
@@ -391,9 +490,12 @@ def configure_tags_launch_override(
                 override.mode in ("auto", "launch_env")
                 and _matches_launch_env_request(request.url, override.env_patterns)
             ):
-                route.fulfill(
-                    body=_get_launch_asset(),
-                    content_type="application/javascript",
+                _fulfill_with_launch_asset(
+                    route,
+                    state=state,
+                    request_url=request.url,
+                    get_launch_asset=_get_launch_asset,
+                    event_key="envRequestsReplaced",
                 )
                 return
 
@@ -404,6 +506,7 @@ def configure_tags_launch_override(
             route.continue_()
 
         page.route(f"{base_prefix}**", _handle_property_asset)
+        state["routesRegistered"] = int(state.get("routesRegistered", 0)) + 1
 
 
 def run_page(
@@ -719,10 +822,10 @@ def run_with_launch_override(
     ``exact_match_urls`` can be used when the page embeds a production
     ``launch-*.js`` URL that should be replaced verbatim with ``launch_url``.
 
-    Note: do NOT set ``abort_old_property_assets=True`` for this mode.
-    The dev library dynamically loads its own RC/EX sub-files from the same
-    property base prefix; aborting all prefix requests would prevent those
-    sub-files (which contain the actual action code) from loading.
+    ``legacy_satellite`` also intercepts dynamically injected
+    ``satelliteLib-*.js`` requests, so sites that inject the parent property
+    script through GTM or ``document.createElement("script")`` can still be
+    validated before client-side publish.
     """
     def _callback(page: Page) -> Any:
         page.goto(url, wait_until="domcontentloaded", timeout=60000)
