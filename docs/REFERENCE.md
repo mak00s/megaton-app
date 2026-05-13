@@ -1235,13 +1235,20 @@ Notes:
 | `create_export_job(dataset_id, ...)` | Start an export job |
 | `download_export_file(job_id)` | Download the TSV for a completed export job |
 | `export_classification(dataset_id, ...)` | Export TSV with create → poll → download |
-| `create_import_job(dataset_id, ...)` | Start an import job |
+| `create_import_job(dataset_id, notification_emails=None, notification_states=None, ...)` | Start an import job, optionally requesting Adobe email notifications |
 | `upload_file(job_id, content, ...)` | Upload TSV content or a local file path |
 | `commit_job(job_id)` | Commit an import job |
-| `import_classification(dataset_id, content, ...)` | Import TSV with create → upload → commit and return the import job ID |
+| `import_classification(dataset_id, content, notification_emails=None, notification_states=None, ...)` | Import TSV with create → upload → commit and return the import job ID |
+| `import_classification_chunked(dataset_id, content, notification_emails=None, notification_states=None, ...)` | Split TSV content into row chunks and create one import job per chunk |
 | `get_classification_columns(dataset_id)` | Discover current classification column names from an export header |
 | `export_column_as_dict(dataset_id, column)` | Return `{Key: value}` mapping for one column |
 | `verify_column(rsid, dimension, column, expected)` | Compare expected values against current AA values |
+
+Import notification notes:
+
+- `notification_emails` accepts a sequence of email addresses. Empty values are ignored.
+- `notification_states` defaults to `completed`, `failed_validation`, and `failed_processing` when emails are provided.
+- `import_classification()` and `import_classification_chunked()` forward notification settings to every created import job.
 
 Example:
 

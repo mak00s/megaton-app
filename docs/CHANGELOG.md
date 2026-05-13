@@ -5,6 +5,7 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 ## Unreleased
 
 - Fixed `TagsLaunchOverride` so dynamically injected `satelliteLib-*.js` requests are replaced, launch-asset fetch failures are reported without leaking Playwright route exceptions, and callbacks can inspect runtime override counters with `get_tags_launch_override_report(page)`.
+- Added optional email notification settings for Adobe Analytics classification import jobs, including chunked imports.
 
 ## 2026-05-02 (v0.11.0)
 
