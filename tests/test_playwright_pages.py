@@ -12,6 +12,7 @@ from megaton_lib.validation.playwright_pages import (
     configure_gtm_preview_override,
     configure_tags_launch_override,
     enable_selector,
+    get_tags_launch_override_report,
     run_page,
     run_page_session,
     run_page_with_bootstrapped_state,
@@ -95,8 +96,9 @@ class FakeRequest:
 
 
 class FakeRoute:
-    def __init__(self) -> None:
+    def __init__(self, response=None) -> None:
         self.actions = []
+        self.response = response
 
     def continue_(self, **kwargs) -> None:
         self.actions.append(("continue", kwargs or None))
@@ -106,6 +108,25 @@ class FakeRoute:
 
     def fulfill(self, **kwargs) -> None:
         self.actions.append(("fulfill", kwargs))
+
+    def fetch(self):
+        return self.response
+
+
+class FakeResponse:
+    def __init__(
+        self,
+        body: bytes,
+        *,
+        status: int = 200,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self._body = body
+        self.status = status
+        self.headers = headers or {"content-type": "text/html", "content-length": "999"}
+
+    def body(self) -> bytes:
+        return self._body
 
 
 class FakeContext:
@@ -392,11 +413,132 @@ def test_configure_tags_launch_override_auto_registers_expected_routes():
         ),
     )
 
-    assert [pattern for pattern, _handler in page.route_calls] == [
-        "https://example.test/**",
+    patterns = [pattern for pattern, _handler in page.route_calls]
+    assert patterns[0] == "https://example.test/**"
+    assert patterns[1].pattern == (
+        r"^https://assets\.adobedtm\.com/[0-9a-f]+/satelliteLib-[0-9a-f]+\.js(?:\?.*)?$"
+    )
+    assert patterns[2:] == [
         "**/launch-*staging*.js",
         "**/launch-*development*.js",
     ]
+
+
+def test_tags_launch_override_replaces_dynamic_satellitelib_request(monkeypatch):
+    page = FakePage()
+
+    import megaton_lib.validation.playwright_pages as mod
+
+    monkeypatch.setattr(mod, "_fetch_launch_asset", lambda _url: b"dev launch")
+    configure_tags_launch_override(
+        page,
+        "https://example.test/page",
+        TagsLaunchOverride(
+            launch_url=(
+                "https://assets.adobedtm.com/6463582a3ff4/"
+                "f7b418109cbc/launch-809bb5e4ca24-development.js"
+            ),
+            mode="legacy_satellite",
+        ),
+    )
+
+    handler = page.route_calls[1][1]
+    route = FakeRoute()
+    handler(
+        route,
+        FakeRequest(
+            "https://assets.adobedtm.com/6463582a3ff4/"
+            "satelliteLib-1234567890abcdef1234567890abcdef12345678.js",
+        ),
+    )
+
+    assert route.actions == [
+        (
+            "fulfill",
+            {"body": b"dev launch", "content_type": "application/javascript"},
+        )
+    ]
+    report = get_tags_launch_override_report(page)
+    assert report["legacyRequestsReplaced"] == 1
+    assert report["fetchErrors"] == 0
+
+
+def test_tags_launch_override_records_html_patch_counters():
+    page = FakePage()
+    launch_url = (
+        "https://assets.adobedtm.com/6463582a3ff4/"
+        "f7b418109cbc/launch-809bb5e4ca24-development.js"
+    )
+    configure_tags_launch_override(
+        page,
+        "https://example.test/page",
+        TagsLaunchOverride(
+            launch_url=launch_url,
+            mode="legacy_satellite",
+        ),
+    )
+
+    handler = page.route_calls[0][1]
+    route = FakeRoute(
+        FakeResponse(
+            (
+                b"<html><head><script src=\"https://assets.adobedtm.com/"
+                b"6463582a3ff4/satelliteLib-1234567890abcdef1234567890abcdef12345678.js"
+                b"\"></script></head></html>"
+            )
+        )
+    )
+    handler(route, FakeRequest("https://example.test/page", resource_type="document"))
+
+    action, kwargs = route.actions[0]
+    assert action == "fulfill"
+    assert kwargs["status"] == 200
+    assert kwargs["headers"] == {"content-type": "text/html"}
+    assert launch_url.encode("utf-8") in kwargs["body"]
+    report = get_tags_launch_override_report(page)
+    assert report["htmlDocumentsSeen"] == 1
+    assert report["htmlDocumentsPatched"] == 1
+    assert report["htmlReplacements"] == 1
+
+
+def test_tags_launch_override_fetch_error_is_reported_without_raising(monkeypatch):
+    page = FakePage()
+
+    import megaton_lib.validation.playwright_pages as mod
+
+    def _raise(_url):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(mod, "_fetch_launch_asset", _raise)
+    configure_tags_launch_override(
+        page,
+        "https://example.test/page",
+        TagsLaunchOverride(
+            launch_url=(
+                "https://assets.adobedtm.com/6463582a3ff4/"
+                "f7b418109cbc/launch-809bb5e4ca24-development.js"
+            ),
+            mode="launch_env",
+        ),
+    )
+
+    handler = page.route_calls[0][1]
+    route = FakeRoute()
+    handler(
+        route,
+        FakeRequest(
+            "https://assets.adobedtm.com/6463582a3ff4/"
+            "f7b418109cbc/launch-legacy-development.js",
+        ),
+    )
+
+    action, kwargs = route.actions[0]
+    assert action == "fulfill"
+    assert kwargs["status"] == 502
+    assert b"TagsLaunchOverride failed to fetch" in kwargs["body"]
+    report = get_tags_launch_override_report(page)
+    assert report["fetchErrors"] == 1
+    assert "RuntimeError: boom" in report["lastFetchError"]
 
 
 def test_build_gtm_preview_override_parses_tagassistant_url():
@@ -763,12 +905,12 @@ def test_run_with_launch_override_keeps_legacy_wrapper_behavior(monkeypatch):
         callback=lambda opened_page: {"routes": len(opened_page.route_calls)},
     )
 
-    assert result == {"routes": 1}
+    assert result == {"routes": 2}
     assert page.goto_calls[0][0] == "https://example.test/page"
     assert browser.context.options["ignore_https_errors"] is True
-    assert [pattern for pattern, _handler in page.route_calls] == [
-        "https://example.test/**",
-    ]
+    patterns = [pattern for pattern, _handler in page.route_calls]
+    assert patterns[0] == "https://example.test/**"
+    assert patterns[1].pattern.startswith(r"^https://assets\.adobedtm\.com/")
 
 
 def test_run_page_session_requires_route_url_for_tags_override():
