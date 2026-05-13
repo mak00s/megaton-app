@@ -26,7 +26,7 @@ import csv
 import io
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Sequence
 
 import requests
 
@@ -41,6 +41,11 @@ POLL_MAX_ATTEMPTS = 60
 
 # Terminal job states
 _TERMINAL_STATES = frozenset({"completed", "failed", "error", "cancelled"})
+_DEFAULT_NOTIFICATION_STATES = (
+    "completed",
+    "failed_validation",
+    "failed_processing",
+)
 
 
 class ClassificationsClient:
@@ -310,7 +315,40 @@ class ClassificationsClient:
     # Import
     # ------------------------------------------------------------------
 
-    def create_import_job(self, dataset_id: str, *, job_name: str = "") -> str:
+    @staticmethod
+    def _notification_payload(
+        notification_emails: Sequence[str] | None,
+        notification_states: Sequence[str] | None,
+    ) -> list[dict[str, object]]:
+        emails = [
+            str(email).strip()
+            for email in (notification_emails or [])
+            if str(email).strip()
+        ]
+        if not emails:
+            return []
+        states = [
+            str(state).strip()
+            for state in (notification_states or _DEFAULT_NOTIFICATION_STATES)
+            if str(state).strip()
+        ]
+        return [
+            {
+                "method": "email",
+                "state": state,
+                "recipients": emails,
+            }
+            for state in states
+        ]
+
+    def create_import_job(
+        self,
+        dataset_id: str,
+        *,
+        job_name: str = "",
+        notification_emails: Sequence[str] | None = None,
+        notification_states: Sequence[str] | None = None,
+    ) -> str:
         """Create a classification import job.
 
         Returns
@@ -329,6 +367,9 @@ class ClassificationsClient:
             "listDelimiter": ",",
             "source": "Direct API Upload",
         }
+        notifications = self._notification_payload(notification_emails, notification_states)
+        if notifications:
+            body["notifications"] = notifications
         resp = requests.post(url, headers=self._headers(), json=body, timeout=30)
         resp.raise_for_status()
         data = resp.json()
@@ -398,6 +439,8 @@ class ClassificationsClient:
         *,
         job_name: str = "",
         filename: str = "classification.tsv",
+        notification_emails: Sequence[str] | None = None,
+        notification_states: Sequence[str] | None = None,
         verbose: bool = True,
     ) -> str:
         """Create import job, upload content, and commit.
@@ -416,7 +459,12 @@ class ClassificationsClient:
         str
             The import job ID.
         """
-        job_id = self.create_import_job(dataset_id, job_name=job_name)
+        job_id = self.create_import_job(
+            dataset_id,
+            job_name=job_name,
+            notification_emails=notification_emails,
+            notification_states=notification_states,
+        )
         if verbose:
             print(f"  import job: {job_id}")
 
@@ -440,6 +488,8 @@ class ClassificationsClient:
         filename: str = "classification.tsv",
         chunk_rows: int = 100_000,
         chunk_pause_seconds: float = 2.0,
+        notification_emails: Sequence[str] | None = None,
+        notification_states: Sequence[str] | None = None,
         verbose: bool = True,
     ) -> list[str]:
         """Split a TSV into chunks and create one import job per chunk.
@@ -505,7 +555,12 @@ class ClassificationsClient:
             chunk_bytes = chunk_text.encode("utf-8")
             chunk_name = f"{base_name} (chunk {idx + 1}/{total_chunks}, {len(chunk):,} rows)"
             chunk_filename = f"{base_filename}.chunk{idx + 1:03d}.{ext}"
-            job_id = self.create_import_job(dataset_id, job_name=chunk_name)
+            job_id = self.create_import_job(
+                dataset_id,
+                job_name=chunk_name,
+                notification_emails=notification_emails,
+                notification_states=notification_states,
+            )
             self.upload_file(job_id, chunk_bytes, filename=chunk_filename)
             self.commit_job(job_id)
             job_ids.append(job_id)
@@ -902,4 +957,3 @@ def print_verify_results(results: dict[str, dict], *, label: str = "") -> None:
             "\n[warn] 未反映のキーがあります。"
             "反映には数時間かかる場合があります。時間をおいて再実行してください。"
         )
-

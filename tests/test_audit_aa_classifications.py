@@ -50,6 +50,117 @@ def test_find_dataset_id_requires_exact_dimension_match(monkeypatch):
     assert client.find_dataset_id(rsid="wacoal-all", dimension="evar2") == "ds2"
 
 
+def test_create_import_job_includes_notification_payload(monkeypatch):
+    captured = {}
+
+    def fake_post(url, *, headers=None, json=None, timeout=None):
+        captured.update(
+            {"url": url, "headers": headers, "json": json, "timeout": timeout}
+        )
+        return _DummyResponse(200, {"api_job_id": "job-1"})
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.classifications.requests.post",
+        fake_post,
+    )
+
+    client = ClassificationsClient(auth=_DummyAuth(), company_id="wacoal1")
+    job_id = client.create_import_job(
+        "dataset-1",
+        job_name="manual import",
+        notification_emails=[" user@example.com ", "", "ops@example.com"],
+        notification_states=["completed", "failed_validation"],
+    )
+
+    assert job_id == "job-1"
+    assert captured["timeout"] == 30
+    assert captured["url"].endswith(
+        "/classifications/job/import/createApiJob/dataset-1"
+    )
+    assert captured["json"]["jobName"] == "manual import"
+    assert captured["json"]["notifications"] == [
+        {
+            "method": "email",
+            "state": "completed",
+            "recipients": ["user@example.com", "ops@example.com"],
+        },
+        {
+            "method": "email",
+            "state": "failed_validation",
+            "recipients": ["user@example.com", "ops@example.com"],
+        },
+    ]
+
+
+def test_create_import_job_omits_notifications_without_email(monkeypatch):
+    captured = {}
+
+    def fake_post(_url, *, json=None, **_kwargs):
+        captured["json"] = json
+        return _DummyResponse(200, {"api_job_id": "job-1"})
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.classifications.requests.post",
+        fake_post,
+    )
+
+    client = ClassificationsClient(auth=_DummyAuth(), company_id="wacoal1")
+    client.create_import_job("dataset-1")
+
+    assert "notifications" not in captured["json"]
+
+
+def test_import_helpers_forward_notification_options(monkeypatch):
+    calls = []
+
+    client = ClassificationsClient(auth=_DummyAuth(), company_id="wacoal1")
+
+    def fake_create_import_job(dataset_id, **kwargs):
+        calls.append(("create", dataset_id, kwargs))
+        return f"job-{len(calls)}"
+
+    monkeypatch.setattr(client, "create_import_job", fake_create_import_job)
+    monkeypatch.setattr(
+        client,
+        "upload_file",
+        lambda job_id, content, **kwargs: calls.append(("upload", job_id, kwargs)),
+    )
+    monkeypatch.setattr(
+        client,
+        "commit_job",
+        lambda job_id: calls.append(("commit", job_id)),
+    )
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.classifications.time.sleep",
+        lambda _seconds: None,
+    )
+
+    client.import_classification(
+        "dataset-1",
+        "Key\tLabel\nA\tAlpha\n",
+        notification_emails=["ops@example.com"],
+        notification_states=["completed"],
+        verbose=False,
+    )
+    client.import_classification_chunked(
+        "dataset-1",
+        "Key\tLabel\nA\tAlpha\nB\tBeta\n",
+        chunk_rows=1,
+        chunk_pause_seconds=0,
+        notification_emails=["ops@example.com"],
+        notification_states=["failed_processing"],
+        verbose=False,
+    )
+
+    create_calls = [call for call in calls if call[0] == "create"]
+    assert create_calls[0][2]["notification_emails"] == ["ops@example.com"]
+    assert create_calls[0][2]["notification_states"] == ["completed"]
+    assert create_calls[1][2]["notification_emails"] == ["ops@example.com"]
+    assert create_calls[1][2]["notification_states"] == ["failed_processing"]
+    assert create_calls[2][2]["notification_emails"] == ["ops@example.com"]
+    assert create_calls[2][2]["notification_states"] == ["failed_processing"]
+
+
 def test_cli_main_omits_empty_token_cache(monkeypatch):
     captured_auth_kwargs = {}
 
