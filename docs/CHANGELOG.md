@@ -4,8 +4,14 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
-- Fixed `TagsLaunchOverride` so dynamically injected `satelliteLib-*.js` requests are replaced, launch-asset fetch failures are reported without leaking Playwright route exceptions, and callbacks can inspect runtime override counters with `get_tags_launch_override_report(page)`.
-- Added optional email notification settings for Adobe Analytics classification import jobs, including chunked imports.
+## 2026-05-15 (v0.12.0)
+
+- Fixed `ClassificationsClient.verify_column_via_report()` resolving the classification dimension by 1-based column index (`variables/evar30.19`); Adobe Reporting API exposes each classification under an arbitrary slug (e.g. `variables/evar30.stepd-202404202603`), so the index could return data for an unrelated classification. `_resolve_classification_dim()` now queries `/dimensions?rsid=...` and matches by human-readable column name, falling back to the legacy index only when the endpoint is unreachable, and logs a `WARNING` whenever it falls back so silent regressions are visible.
+- Added `ClassificationsClient.import_classification_chunked()` for uploading large classification TSVs (Adobe's importer rejects single uploads above ~10 MB / a few hundred thousand rows). `upload_file()` no longer auto-gzips the payload because gzip-compressed bodies were silently failing validation; use the chunked helper for production-sized files.
+- Added `date_filter_start` and `keys` parameters to `ClassificationsClient.create_export_job()`, `export_classification()`, and `export_column_as_dict()`. `verify_column()` now restricts the export to the expected keys and defaults to a wide window so legacy imports are not silently hidden by Adobe's six-month default filter.
+- Added optional `notification_emails` / `notification_states` parameters to `create_import_job()`, `import_classification()`, and `import_classification_chunked()` for forwarding Adobe Analytics email notifications on import job state changes.
+- Fixed `TagsLaunchOverride` so dynamically injected `satelliteLib-*.js` requests are replaced, launch-asset fetch failures are reported as a JS 502 without leaking Playwright route exceptions, and callbacks can inspect runtime override counters with `get_tags_launch_override_report(page)`.
+- Added classification of non-public dev / staging hostnames as `direct` traffic in `megaton_lib.traffic` so internal QA traffic is not mis-attributed to referral.
 
 ## 2026-05-02 (v0.11.0)
 
