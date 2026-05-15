@@ -70,6 +70,8 @@ validation script 側で profile 名だけ切り替えたいときに使う。
 - step ごとの beacon 増分を見たい場合は `AppMeasurementCapture` + `execute_appmeasurement_scenario()`
 - 長い browser/context/page session を持つ場合は `run_page_session()`
 - storefront login/session cookie 再利用まで含む場合は `run_storefront_validation_session()`
+- storefront login で CAPTCHA が出る環境は `perform_storefront_login(..., captcha_solver=...)`
+  に solver を渡す。CAPY は `is_capy_puzzle_present()` / `solve_capy_puzzle()` を使える。
 - AA API の follow-up verifier は `run_aa_api_followup_verifier()`
 
 ## Follow-up Task Flow

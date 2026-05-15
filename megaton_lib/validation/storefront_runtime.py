@@ -25,6 +25,7 @@ DEFAULT_CAPTCHA_SELECTORS = (
     "iframe[src*='recaptcha']",
     ".h-captcha",
     "iframe[src*='hcaptcha']",
+    ".capy-captcha",
     "#captcha",
     ".captcha",
 )
@@ -191,6 +192,19 @@ def wait_until_login_completed(
     )
 
 
+def _first_visible_selector(page: Page, selectors: Sequence[str]) -> str | None:
+    for sel in selectors:
+        try:
+            elem = page.query_selector(sel)
+            if elem and elem.is_visible():
+                return sel
+        except RuntimeError:
+            raise
+        except Exception:
+            continue
+    return None
+
+
 def perform_storefront_login(
     page: Page,
     *,
@@ -202,6 +216,7 @@ def perform_storefront_login(
     wait_label: str,
     captcha_selectors: Sequence[str] = DEFAULT_CAPTCHA_SELECTORS,
     before_submit=None,
+    captcha_solver=None,
     on_stage=None,
     capture_checkpoint=None,
     submit_stage: str = "login-submit",
@@ -212,15 +227,19 @@ def perform_storefront_login(
     """Fill, submit, and wait for storefront login completion."""
     fill_credentials(page, login)
 
-    for sel in captcha_selectors:
-        try:
-            elem = page.query_selector(sel)
-            if elem and elem.is_visible():
-                raise RuntimeError("CAPTCHA detected during storefront login")
-        except RuntimeError:
-            raise
-        except Exception:
-            continue
+    visible_captcha_selector = _first_visible_selector(page, captcha_selectors)
+    if visible_captcha_selector:
+        if captcha_solver is None:
+            raise RuntimeError("CAPTCHA detected during storefront login")
+        solved = bool(captcha_solver(page))
+        if not solved:
+            raise RuntimeError("CAPTCHA solver did not solve storefront login challenge")
+        remaining_captcha_selector = _first_visible_selector(page, captcha_selectors)
+        if remaining_captcha_selector:
+            raise RuntimeError(
+                "CAPTCHA solver returned success but challenge is still visible: "
+                f"{remaining_captcha_selector}",
+            )
 
     if before_submit:
         before_submit()
