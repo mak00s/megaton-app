@@ -37,6 +37,8 @@ ui = [
     "streamlit-autorefresh",
 ]
 validation = [
+    "numpy",
+    "Pillow",
     "playwright",
 ]
 local = [

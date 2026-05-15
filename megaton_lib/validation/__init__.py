@@ -103,6 +103,7 @@ __all__ = [
     'ADOBE_BEACON_HOSTS',
     'DEFAULT_PENDING_COMMENT',
     'CapturedBeacons',
+    'CapySolveResult',
     'DEFAULT_CAPTCHA_SELECTORS',
     'JST',
     'PageEventCapture',
@@ -155,6 +156,7 @@ __all__ = [
     'slice_appmeasurement_beacons',
     'write_validation_json',
     'extract_mbox_names',
+    'is_capy_puzzle_present',
     'is_login_form_page',
     'select_headers',
     'validate_contract',
@@ -181,9 +183,29 @@ __all__ = [
     'setup_storefront_validation_page',
     'scroll_selector_into_view',
     'set_checkbox_checked',
+    'solve_capy_puzzle',
     'wait_until_login_completed',
     'wait_for_any_selector',
     'run_with_basic_auth_page',
     'run_with_launch_override',
     'write_progress_json',
 ]
+
+_CAPY_EXPORTS = {
+    "CapySolveResult",
+    "is_capy_puzzle_present",
+    "solve_capy_puzzle",
+}
+
+
+def __getattr__(name: str):
+    if name in _CAPY_EXPORTS:
+        from .capy import CapySolveResult, is_capy_puzzle_present, solve_capy_puzzle
+
+        values = {
+            "CapySolveResult": CapySolveResult,
+            "is_capy_puzzle_present": is_capy_puzzle_present,
+            "solve_capy_puzzle": solve_capy_puzzle,
+        }
+        return values[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

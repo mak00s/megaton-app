@@ -887,6 +887,9 @@ Notes:
 | `load_storefront_session_cookies(path)` | Load persisted storefront session cookies from JSON when present |
 | `save_storefront_session_cookies(page, path)` | Persist current browser-context cookies for later storefront sessions |
 | `run_storefront_validation_session(...)` | Run a storefront browser session with cookie preload plus shared validation setup |
+| `perform_storefront_login(..., captcha_solver=...)` | Fill and submit storefront login; optional solver is called when a configured CAPTCHA selector is visible and the challenge is re-checked before submit |
+| `is_capy_puzzle_present(page)` | Return whether a visible CAPY puzzle is present on the current Playwright page |
+| `solve_capy_puzzle(page, ...)` | Solve a visible CAPY drag puzzle by locating the puzzle hole in the screenshot; returns `CapySolveResult` on success and raises on failure |
 | `finalize_followup_verification(...)` | Attach follow-up metadata, save the verification JSON, and complete the matching pending task |
 
 Notes:
@@ -898,6 +901,9 @@ Notes:
   intentionally needs Playwright's default headless fingerprint.
 - Pass `user_agent="..."` to override the default user-agent while keeping the
   common wrapper lifecycle.
+- CAPY puzzle solving requires the `validation` extra dependencies (`numpy` and
+  `Pillow`). The CAPY exports are loaded lazily so other
+  `megaton_lib.validation` imports do not require those packages.
 
 #### Adobe Tags Launch Override
 

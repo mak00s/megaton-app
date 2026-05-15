@@ -341,6 +341,73 @@ def test_perform_storefront_login_raises_on_captcha() -> None:
         raise AssertionError("CAPTCHA should raise RuntimeError")
 
 
+def test_perform_storefront_login_uses_captcha_solver() -> None:
+    selectors = {DEFAULT_CAPTCHA_SELECTORS[0]: True}
+    page = _FakePage("https://example.com/order/shippingStart", selectors=selectors)
+    called: list[str] = []
+
+    def solver(_page):
+        called.append("solver")
+        page._selectors[DEFAULT_CAPTCHA_SELECTORS[0]] = False
+        return True
+
+    submitted = perform_storefront_login(
+        page,
+        login={"email": "user@example.com", "password": "secret"},
+        fill_credentials=lambda *_args, **_kwargs: called.append("fill"),
+        click_submit=lambda *_args, **_kwargs: called.append("submit") or True,
+        timeout_ms=30000,
+        timeout_exc_type=TimeoutError,
+        wait_label="checkout login to complete",
+        captcha_solver=solver,
+    )
+
+    assert submitted is True
+    assert called == ["fill", "solver", "submit"]
+
+
+def test_perform_storefront_login_raises_when_captcha_solver_returns_false() -> None:
+    selectors = {DEFAULT_CAPTCHA_SELECTORS[0]: True}
+    page = _FakePage("https://example.com/Login", selectors=selectors)
+
+    try:
+        perform_storefront_login(
+            page,
+            login={"email": "user@example.com", "password": "secret"},
+            fill_credentials=lambda *_args, **_kwargs: None,
+            click_submit=lambda *_args, **_kwargs: True,
+            timeout_ms=30000,
+            timeout_exc_type=TimeoutError,
+            wait_label="checkout login to complete",
+            captcha_solver=lambda _page: False,
+        )
+    except RuntimeError as exc:
+        assert "did not solve" in str(exc)
+    else:
+        raise AssertionError("falsy CAPTCHA solver result should raise RuntimeError")
+
+
+def test_perform_storefront_login_rechecks_captcha_after_solver() -> None:
+    selectors = {DEFAULT_CAPTCHA_SELECTORS[0]: True}
+    page = _FakePage("https://example.com/Login", selectors=selectors)
+
+    try:
+        perform_storefront_login(
+            page,
+            login={"email": "user@example.com", "password": "secret"},
+            fill_credentials=lambda *_args, **_kwargs: None,
+            click_submit=lambda *_args, **_kwargs: True,
+            timeout_ms=30000,
+            timeout_exc_type=TimeoutError,
+            wait_label="checkout login to complete",
+            captcha_solver=lambda _page: True,
+        )
+    except RuntimeError as exc:
+        assert "still visible" in str(exc)
+    else:
+        raise AssertionError("visible CAPTCHA after solver should raise RuntimeError")
+
+
 def test_attempt_cart_checkout_entry_clicks_visible_button() -> None:
     page = _FakePage(
         "https://example.com/disp/viewCartLink",

@@ -4,6 +4,8 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+- Added optional CAPY puzzle helpers for Playwright validation and a `captcha_solver` hook for `perform_storefront_login()`. CAPY image decoding now uses Pillow, and storefront login re-checks that a CAPTCHA challenge is gone before submitting.
+
 ## 2026-05-15 (v0.12.0)
 
 - Fixed `ClassificationsClient.verify_column_via_report()` resolving the classification dimension by 1-based column index (`variables/evar30.19`); Adobe Reporting API exposes each classification under an arbitrary slug (e.g. `variables/evar30.stepd-202404202603`), so the index could return data for an unrelated classification. `_resolve_classification_dim()` now queries `/dimensions?rsid=...` and matches by human-readable column name, falling back to the legacy index only when the endpoint is unreachable, and logs a `WARNING` whenever it falls back so silent regressions are visible.
