@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Sequence
@@ -32,6 +33,8 @@ import requests
 
 if TYPE_CHECKING:
     from megaton_lib.audit.providers.adobe_auth import AdobeOAuthClient
+
+LOGGER = logging.getLogger(__name__)
 
 AA_API_BASE = "https://analytics.adobe.io/api"
 
@@ -759,8 +762,20 @@ class ClassificationsClient:
                     name = str(dim.get("name", "") or dim.get("title", ""))
                     if name.strip() == column.strip():
                         return dim_id
-            except Exception:  # noqa: BLE001
-                pass
+                # /dimensions returned successfully but no entry matched.
+                LOGGER.warning(
+                    "No %s.* dimension matched column %r for rsid=%s; "
+                    "falling back to numeric index, which may resolve to an "
+                    "unrelated classification.",
+                    dim_base, column, rsid,
+                )
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.warning(
+                    "/dimensions lookup failed for rsid=%s (%s: %s); "
+                    "falling back to numeric index, which may resolve to an "
+                    "unrelated classification.",
+                    rsid, type(exc).__name__, exc,
+                )
 
         # 3. Legacy fallback: numeric 1-based index. Known to be
         #    unreliable for evar30 on wacoal-all; kept so existing code

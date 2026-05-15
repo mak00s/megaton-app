@@ -161,6 +161,180 @@ def test_import_helpers_forward_notification_options(monkeypatch):
     assert create_calls[2][2]["notification_states"] == ["failed_processing"]
 
 
+def test_create_export_job_includes_date_filter_and_keys(monkeypatch):
+    captured = {}
+
+    def fake_post(url, *, headers=None, json=None, timeout=None):
+        captured.update({"url": url, "json": json})
+        return _DummyResponse(200, {"export_job_id": "exp-1"})
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.classifications.requests.post",
+        fake_post,
+    )
+
+    client = ClassificationsClient(auth=_DummyAuth(), company_id="wacoal1")
+    job_id = client.create_export_job(
+        "dataset-1",
+        date_filter_start="2024-01-01T00:00:00Z",
+        keys=["A", "B"],
+    )
+
+    assert job_id == "exp-1"
+    assert captured["json"]["dateFilterStart"] == "2024-01-01T00:00:00Z"
+    assert captured["json"]["keys"] == ["A", "B"]
+
+
+def test_create_export_job_defaults_date_filter_when_keys_only(monkeypatch):
+    captured = {}
+
+    def fake_post(_url, *, json=None, **_kwargs):
+        captured["json"] = json
+        return _DummyResponse(200, {"export_job_id": "exp-1"})
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.classifications.requests.post",
+        fake_post,
+    )
+
+    client = ClassificationsClient(auth=_DummyAuth(), company_id="wacoal1")
+    client.create_export_job("dataset-1", keys=["A"])
+
+    # Adobe rejects keys without dateFilterStart, so the helper auto-fills
+    # a wide window rather than letting the API 400 surface to callers.
+    assert captured["json"]["dateFilterStart"] == "2015-01-01T00:00:00Z"
+    assert captured["json"]["keys"] == ["A"]
+
+
+def test_create_export_job_omits_date_filter_and_keys_by_default(monkeypatch):
+    captured = {}
+
+    def fake_post(_url, *, json=None, **_kwargs):
+        captured["json"] = json
+        return _DummyResponse(200, {"export_job_id": "exp-1"})
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.classifications.requests.post",
+        fake_post,
+    )
+
+    client = ClassificationsClient(auth=_DummyAuth(), company_id="wacoal1")
+    client.create_export_job("dataset-1")
+
+    assert "dateFilterStart" not in captured["json"]
+    assert "keys" not in captured["json"]
+
+
+def test_resolve_classification_dim_uses_dimensions_slug_when_rsid_provided(monkeypatch):
+    client = ClassificationsClient(auth=_DummyAuth(), company_id="wacoal1")
+    monkeypatch.setattr(
+        client,
+        "get_classification_columns",
+        lambda dataset_id, verbose=False: ["StepD 202404-202603", "Step 202504-202603"],
+    )
+
+    def fake_get(url, *, headers=None, timeout=None):
+        assert "/dimensions" in url
+        assert "rsid=wacoal-all" in url
+        return _DummyResponse(
+            200,
+            [
+                {"id": "variables/evar30.bbb", "name": "Step 202304-202309"},
+                {"id": "variables/evar30.stepd-202404202603", "name": "StepD 202404-202603"},
+                {"id": "variables/evar29.foo", "name": "StepD 202404-202603"},  # wrong base
+            ],
+        )
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.classifications.requests.get",
+        fake_get,
+    )
+
+    resolved = client._resolve_classification_dim(
+        "ds30", "StepD 202404-202603", "evar30", rsid="wacoal-all",
+    )
+
+    assert resolved == "variables/evar30.stepd-202404202603"
+
+
+def test_resolve_classification_dim_falls_back_when_no_name_matches(monkeypatch, caplog):
+    client = ClassificationsClient(auth=_DummyAuth(), company_id="wacoal1")
+    monkeypatch.setattr(
+        client,
+        "get_classification_columns",
+        lambda dataset_id, verbose=False: ["alpha", "beta", "gamma"],
+    )
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.classifications.requests.get",
+        lambda *args, **kwargs: _DummyResponse(
+            200,
+            [{"id": "variables/evar29.unrelated", "name": "Other"}],
+        ),
+    )
+
+    with caplog.at_level("WARNING", logger="megaton_lib.audit.providers.analytics.classifications"):
+        resolved = client._resolve_classification_dim(
+            "ds29", "beta", "evar29", rsid="wacoal-all",
+        )
+
+    # beta is index 1 (0-based) → 1-based "2"
+    assert resolved == "variables/evar29.2"
+    assert any(
+        "No variables/evar29.* dimension matched" in record.message
+        for record in caplog.records
+    )
+
+
+def test_resolve_classification_dim_warns_on_dimensions_api_error(monkeypatch, caplog):
+    client = ClassificationsClient(auth=_DummyAuth(), company_id="wacoal1")
+    monkeypatch.setattr(
+        client,
+        "get_classification_columns",
+        lambda dataset_id, verbose=False: ["alpha"],
+    )
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.classifications.requests.get",
+        boom,
+    )
+
+    with caplog.at_level("WARNING", logger="megaton_lib.audit.providers.analytics.classifications"):
+        resolved = client._resolve_classification_dim(
+            "ds29", "alpha", "evar29", rsid="wacoal-all",
+        )
+
+    assert resolved == "variables/evar29.1"
+    assert any(
+        "/dimensions lookup failed" in record.message
+        and "RuntimeError" in record.message
+        for record in caplog.records
+    )
+
+
+def test_resolve_classification_dim_skips_dimensions_call_when_rsid_omitted(monkeypatch):
+    client = ClassificationsClient(auth=_DummyAuth(), company_id="wacoal1")
+    monkeypatch.setattr(
+        client,
+        "get_classification_columns",
+        lambda dataset_id, verbose=False: ["alpha", "beta"],
+    )
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("requests.get should not be called when rsid is empty")
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.classifications.requests.get",
+        fail_if_called,
+    )
+
+    resolved = client._resolve_classification_dim("ds29", "beta", "evar29")
+
+    assert resolved == "variables/evar29.2"
+
+
 def test_cli_main_omits_empty_token_cache(monkeypatch):
     captured_auth_kwargs = {}
 
