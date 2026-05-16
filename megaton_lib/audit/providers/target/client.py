@@ -1,7 +1,7 @@
 """Adobe Target REST API client with retry and pagination.
 
-Provides ``AdobeTargetClient`` for authenticated access to the Adobe Target
-Recommendations and Feeds APIs.
+Provides ``AdobeTargetClient`` for authenticated access to Adobe Target APIs.
+Recommendations helpers call the ``/recs`` endpoints explicitly.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ class AdobeTargetClient:
 
     @property
     def base_url(self) -> str:
-        return f"{self.config.base_url.rstrip('/')}/{self.config.tenant_id}/target/recs"
+        return f"{self.config.base_url.rstrip('/')}/{self.config.tenant_id}/target"
 
     def _api_headers(self) -> dict[str, str]:
         return self._auth.get_headers(
@@ -86,26 +86,44 @@ class AdobeTargetClient:
 
     # ---- HTTP helpers ----
 
-    def get(self, endpoint: str, *, params: dict[str, Any] | None = None) -> dict[str, Any] | list[Any]:
+    def _endpoint_url(self, endpoint: str) -> str:
+        if endpoint.startswith(("http://", "https://")):
+            return endpoint
+        return f"{self.base_url}{endpoint}"
+
+    def get(
+        self,
+        endpoint: str,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | list[Any]:
         """Authenticated GET with retry."""
-        url = f"{self.base_url}{endpoint}"
+        url = self._endpoint_url(endpoint)
         return self._request("GET", url, params=params)
 
-    def patch(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def patch(
+        self,
+        endpoint: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
         """Authenticated PATCH with retry."""
-        url = f"{self.base_url}{endpoint}"
+        url = self._endpoint_url(endpoint)
         result = self._request("PATCH", url, json_body=payload)
         if isinstance(result, dict):
             return result
         return {}
 
-    def put(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def put(
+        self,
+        endpoint: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
         """Authenticated PUT with retry.
 
         Required for design ``script`` updates — the Target Recs API
         ignores ``script`` in PATCH requests.
         """
-        url = f"{self.base_url}{endpoint}"
+        url = self._endpoint_url(endpoint)
         result = self._request("PUT", url, json_body=payload)
         if isinstance(result, dict):
             return result

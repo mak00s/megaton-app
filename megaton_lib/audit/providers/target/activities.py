@@ -45,7 +45,41 @@ def _v3_activity_client(client: AdobeTargetClient) -> AdobeTargetClient:
     return client.with_accept_header("application/vnd.adobe.target.v3+json")
 
 
-def fetch_activity(client: AdobeTargetClient, tenant_id: str, activity_id: int) -> dict[str, Any]:
+def list_activities(
+    client: AdobeTargetClient,
+    *,
+    limit: int = 100,
+    max_items: int | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch Target Admin API activities."""
+    items: list[dict[str, Any]] = []
+    offset = 0
+
+    while True:
+        result = client.get(
+            "/activities",
+            params={"offset": offset, "limit": limit},
+        )
+        if not isinstance(result, dict):
+            raise RuntimeError("Unexpected non-object response for Target activities list")
+
+        batch = result.get("activities")
+        if not isinstance(batch, list):
+            raise RuntimeError("Unexpected Target activities response: missing activities list")
+
+        items.extend([dict(item) for item in batch if isinstance(item, dict)])
+        if max_items is not None and len(items) >= max_items:
+            return items[:max_items]
+
+        if len(batch) < limit:
+            break
+
+        offset += len(batch)
+
+    return items
+
+
+def fetch_activity(client: AdobeTargetClient, activity_id: int) -> dict[str, Any]:
     """Fetch one activity detail JSON, supporting both AB and XT/options activities.
 
     Activity detail endpoints require Admin API v3.  Older v1 defaults return
@@ -53,13 +87,13 @@ def fetch_activity(client: AdobeTargetClient, tenant_id: str, activity_id: int) 
     options-backed activities.
     """
     v3_client = _v3_activity_client(client)
-    base_url = v3_client.config.base_url.rstrip("/")
     last_error: Exception | None = None
 
     for activity_type in ("ab", "xt"):
-        url = f"{base_url}/{tenant_id}/target/activities/{activity_type}/{activity_id}"
         try:
-            result = v3_client._request("GET", url)
+            result = v3_client.get(
+                f"/activities/{activity_type}/{activity_id}",
+            )
         except RuntimeError as exc:
             last_error = exc
             message = str(exc)
@@ -77,7 +111,6 @@ def fetch_activity(client: AdobeTargetClient, tenant_id: str, activity_id: int) 
 
 def export_activities(
     client: AdobeTargetClient,
-    tenant_id: str,
     output_root: str | Path,
     activity_ids: list[int],
 ) -> dict[str, Any]:
@@ -86,7 +119,7 @@ def export_activities(
 
     index_items: list[dict[str, object]] = []
     for activity_id in activity_ids:
-        activity = fetch_activity(client, tenant_id, activity_id)
+        activity = fetch_activity(client, activity_id)
         (root / f"{activity_id}.json").write_text(
             json.dumps(activity, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",

@@ -32,12 +32,15 @@ class _MockClient:
         self.putted: list[tuple[str, dict]] = []
 
     def get_all(self, endpoint: str, **kw) -> list[dict]:
-        resource = endpoint.strip("/").split("/")[0]
+        parts = endpoint.strip("/").split("/")
+        resource = parts[1] if parts and parts[0] == "recs" else parts[0]
         return list(self._list.get(resource, []))
 
     def get(self, endpoint: str, **kw) -> dict:
         # Try exact detail key first (e.g. "criteria/popularity/101")
         parts = endpoint.strip("/").split("/")
+        if parts and parts[0] == "recs":
+            parts = parts[1:]
         key = "/".join(parts)
         if key in self._detail:
             return self._detail[key]
@@ -200,7 +203,7 @@ def test_apply_criteria_uses_put_via_subtype(tmp_path):
     # Criteria must use PUT (sub-type endpoints don't support PATCH)
     assert len(client.putted) == 1
     assert len(client.patched) == 0
-    assert client.putted[0][0] == "/criteria/popularity/101"
+    assert client.putted[0][0] == "/recs/criteria/popularity/101"
 
 
 def test_criteria_detail_endpoint_resolves_subtype():
@@ -209,7 +212,7 @@ def test_criteria_detail_endpoint_resolves_subtype():
         {"criteria": [{"id": 42, "name": "Test", "criteriaGroup": "POPULARITY"}]},
     )
     ep, is_sub = _criteria_detail_endpoint(client, 42)
-    assert ep == "/criteria/popularity/42"
+    assert ep == "/recs/criteria/popularity/42"
     assert is_sub is True
 
 
@@ -219,7 +222,7 @@ def test_criteria_detail_endpoint_item_subtype():
         {"criteria": [{"id": 7, "name": "Co-viewed", "criteriaGroup": "ITEM"}]},
     )
     ep, is_sub = _criteria_detail_endpoint(client, 7)
-    assert ep == "/criteria/item/7"
+    assert ep == "/recs/criteria/item/7"
     assert is_sub is True
 
 
@@ -229,7 +232,7 @@ def test_criteria_detail_endpoint_unknown_group_fallback():
         {"criteria": [{"id": 9, "name": "X", "criteriaGroup": "UNKNOWN_TYPE"}]},
     )
     ep, is_sub = _criteria_detail_endpoint(client, 9)
-    assert ep == "/criteria/9"
+    assert ep == "/recs/criteria/9"
     assert is_sub is False
 
 
@@ -250,7 +253,7 @@ def test_apply_criteria_fallback_uses_patch(tmp_path):
     # Fallback: generic endpoint uses PATCH, not PUT
     assert len(client.patched) == 1
     assert len(client.putted) == 0
-    assert client.patched[0][0] == "/criteria/55"
+    assert client.patched[0][0] == "/recs/criteria/55"
 
 
 def test_export_criteria_uses_subtype_detail(tmp_path):
@@ -296,7 +299,7 @@ def test_apply_designs_uses_put(tmp_path):
     # Must use PUT, not PATCH
     assert len(client.putted) == 1
     assert len(client.patched) == 0
-    assert client.putted[0][0] == "/designs/99"
+    assert client.putted[0][0] == "/recs/designs/99"
 
 
 def test_apply_strips_metadata_before_send(tmp_path):

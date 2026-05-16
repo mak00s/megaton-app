@@ -67,7 +67,7 @@ def _make_client(tmp_path) -> tuple[AdobeTargetConfig, AdobeTargetClient]:
 
 def test_client_base_url(target_env):
     cfg, client = _make_client(target_env)
-    assert client.base_url == "https://mc.adobe.io/testtenant/target/recs"
+    assert client.base_url == "https://mc.adobe.io/testtenant/target"
 
 
 def test_get_sends_correct_headers(target_env, monkeypatch):
@@ -81,12 +81,23 @@ def test_get_sends_correct_headers(target_env, monkeypatch):
     # Re-init session
     client.session = session
 
-    result = client.get("/criteria/123")
+    result = client.get("/recs/criteria/123")
     assert result == {"id": 1, "name": "test"}
     call = session.calls[0]
     assert call["method"] == "GET"
-    assert "/criteria/123" in call["url"]
+    assert call["url"].endswith("/target/recs/criteria/123")
     assert call["headers"]["Authorization"] == "Bearer tok"
+
+
+def test_get_can_call_target_admin_api(target_env, monkeypatch):
+    _, client = _make_client(target_env)
+
+    session = _Session([_Resp(200, {"activities": [{"id": 1}]})])
+    client.session = session
+
+    result = client.get("/activities")
+    assert result == {"activities": [{"id": 1}]}
+    assert session.calls[0]["url"].endswith("/target/activities")
 
 
 def test_get_all_pagination(target_env, monkeypatch):
@@ -98,7 +109,7 @@ def test_get_all_pagination(target_env, monkeypatch):
     ])
     client.session = session
 
-    items = client.get_all("/criteria", limit=2)
+    items = client.get_all("/recs/criteria", limit=2)
     assert len(items) == 3
     assert items[0]["id"] == 1
     assert items[2]["id"] == 3
@@ -112,7 +123,7 @@ def test_get_all_max_items(target_env, monkeypatch):
     ])
     client.session = session
 
-    items = client.get_all("/criteria", limit=100, max_items=2)
+    items = client.get_all("/recs/criteria", limit=100, max_items=2)
     assert len(items) == 2
 
 
@@ -130,7 +141,7 @@ def test_retry_on_429(target_env, monkeypatch):
         lambda _: None,
     )
 
-    result = client.get("/criteria/1")
+    result = client.get("/recs/criteria/1")
     assert result == {"id": 1}
     assert len(session.calls) == 2
 
@@ -144,7 +155,7 @@ def test_401_triggers_refresh(target_env, monkeypatch):
     ])
     client.session = session
 
-    result = client.get("/criteria/1")
+    result = client.get("/recs/criteria/1")
     assert result == {"id": 1}
     # Second call should have refreshed headers
     assert len(session.calls) == 2
@@ -156,7 +167,7 @@ def test_patch_sends_json(target_env, monkeypatch):
     session = _Session([_Resp(200, {"id": 1, "updated": True})])
     client.session = session
 
-    result = client.patch("/criteria/1", {"name": "updated"})
+    result = client.patch("/recs/criteria/1", {"name": "updated"})
     assert result["updated"] is True
     assert session.calls[0]["method"] == "PATCH"
     assert session.calls[0]["json"] == {"name": "updated"}
