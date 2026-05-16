@@ -4,7 +4,12 @@ import json
 import pytest
 
 from megaton_lib.audit.config import AdobeOAuthConfig, AdobeTargetConfig
-from megaton_lib.audit.providers.target.activities import export_activities, fetch_activity, resolve_activity_ids
+from megaton_lib.audit.providers.target.activities import (
+    export_activities,
+    fetch_activity,
+    list_activities,
+    resolve_activity_ids,
+)
 from megaton_lib.audit.providers.target.client import AdobeTargetClient
 
 
@@ -84,7 +89,7 @@ def test_export_activities_writes_json_and_index(target_env, tmp_path):
     activities_mod._v3_activity_client = lambda _client: v3_client
     try:
         output_root = tmp_path / 'activities'
-        index_payload = export_activities(client, 'testtenant', output_root, [111, 222])
+        index_payload = export_activities(client, output_root, [111, 222])
     finally:
         activities_mod._v3_activity_client = original
 
@@ -106,7 +111,7 @@ def test_fetch_activity_uses_v3_and_falls_back_to_xt(target_env, tmp_path):
     original = activities_mod._v3_activity_client
     activities_mod._v3_activity_client = lambda _client: v3_client
     try:
-        result = fetch_activity(client, 'testtenant', 812437)
+        result = fetch_activity(client, 812437)
     finally:
         activities_mod._v3_activity_client = original
 
@@ -115,6 +120,32 @@ def test_fetch_activity_uses_v3_and_falls_back_to_xt(target_env, tmp_path):
     assert v3_client.session.calls[0]['headers']['Accept'] == 'application/vnd.adobe.target.v3+json'
     assert v3_client.session.calls[0]['url'].endswith('/target/activities/ab/812437')
     assert v3_client.session.calls[1]['url'].endswith('/target/activities/xt/812437')
+
+
+def test_list_activities_uses_admin_api_pagination(target_env, tmp_path):
+    client = _make_client(target_env)
+    client.session = _Session([
+        _Resp(200, {'activities': [{'id': 111}, {'id': 222}]}),
+        _Resp(200, {'activities': [{'id': 333}]}),
+    ])
+
+    result = list_activities(client, limit=2)
+
+    assert [item['id'] for item in result] == [111, 222, 333]
+    assert len(client.session.calls) == 2
+    assert client.session.calls[0]['url'].endswith('/target/activities')
+    assert client.session.calls[0]['params'] == {'offset': 0, 'limit': 2}
+    assert client.session.calls[1]['params'] == {'offset': 2, 'limit': 2}
+
+
+def test_list_activities_rejects_unexpected_response(target_env, tmp_path):
+    client = _make_client(target_env)
+    client.session = _Session([
+        _Resp(200, {'items': []}),
+    ])
+
+    with pytest.raises(RuntimeError, match='activities list'):
+        list_activities(client, limit=2)
 
 
 def test_fetch_activity_propagates_non_404_errors_without_xt_retry(target_env, tmp_path):
@@ -128,7 +159,7 @@ def test_fetch_activity_propagates_non_404_errors_without_xt_retry(target_env, t
     activities_mod._v3_activity_client = lambda _client: v3_client
     try:
         with pytest.raises(RuntimeError, match="HTTP 403"):
-            fetch_activity(client, 'testtenant', 812437)
+            fetch_activity(client, 812437)
     finally:
         activities_mod._v3_activity_client = original
 
@@ -150,7 +181,7 @@ def test_export_activities_supports_options_xt_activity(target_env, tmp_path):
     original = activities_mod._v3_activity_client
     activities_mod._v3_activity_client = lambda _client: v3_client
     try:
-        index_payload = export_activities(client, 'testtenant', output_root, [812437])
+        index_payload = export_activities(client, output_root, [812437])
     finally:
         activities_mod._v3_activity_client = original
 

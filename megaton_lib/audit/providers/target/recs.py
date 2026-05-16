@@ -13,6 +13,7 @@ import re
 import shutil
 from typing import Any
 
+from megaton_lib.audit.providers.target.constants import RECS_PREFIX
 from megaton_lib.audit.providers.target.client import AdobeTargetClient
 
 RESOURCE_TYPES = ("criteria", "designs", "collections", "exclusions", "promotions")
@@ -118,7 +119,7 @@ def _export_resource(
     prune: bool = False,
 ) -> int:
     """Export a single resource type."""
-    items = client.get_all(f"/{resource}", max_items=max_items or 10000)
+    items = client.get_all(f"{RECS_PREFIX}/{resource}", max_items=max_items or 10000)
 
     # Apply filters
     if name_regex:
@@ -186,18 +187,18 @@ def _criteria_detail_endpoint(
     the generic endpoint (PATCH required).
     """
     try:
-        slim = client.get(f"/criteria/{item_id}")
+        slim = client.get(f"{RECS_PREFIX}/criteria/{item_id}")
     except RuntimeError:
-        return f"/criteria/{item_id}", False
+        return f"{RECS_PREFIX}/criteria/{item_id}", False
 
     if not isinstance(slim, dict):
-        return f"/criteria/{item_id}", False
+        return f"{RECS_PREFIX}/criteria/{item_id}", False
 
     group = slim.get("criteriaGroup", "")
     subtype = _CRITERIA_GROUP_TO_SUBTYPE.get(group)
     if subtype:
-        return f"/criteria/{subtype}/{item_id}", True
-    return f"/criteria/{item_id}", False
+        return f"{RECS_PREFIX}/criteria/{subtype}/{item_id}", True
+    return f"{RECS_PREFIX}/criteria/{item_id}", False
 
 
 def _fetch_detail(
@@ -210,13 +211,13 @@ def _fetch_detail(
     try:
         if resource == "designs":
             detail = client.get(
-                f"/{resource}/{item_id}", params={"includeScript": "true"},
+                f"{RECS_PREFIX}/{resource}/{item_id}", params={"includeScript": "true"},
             )
         elif resource == "criteria":
             endpoint, _ = _criteria_detail_endpoint(client, item_id)
             detail = client.get(endpoint)
         else:
-            detail = client.get(f"/{resource}/{item_id}")
+            detail = client.get(f"{RECS_PREFIX}/{resource}/{item_id}")
     except RuntimeError:
         return fallback
 
@@ -338,7 +339,7 @@ def apply_recs(
                 if resource == "criteria":
                     _ep, _is_subtype = _criteria_detail_endpoint(client, item_id)
                 else:
-                    _ep = f"/{resource}/{item_id}"
+                    _ep = f"{RECS_PREFIX}/{resource}/{item_id}"
                     _is_subtype = False
                 remote = client.get(_ep)
             except RuntimeError:
@@ -374,9 +375,9 @@ def apply_recs(
                     # Designs require PUT (PATCH ignores script).
                     # Criteria sub-type endpoints require PUT (PATCH returns 405).
                     # If sub-type resolution failed, _ep is the generic
-                    # ``/criteria/{id}`` which only supports PATCH.
+                    # ``/recs/criteria/{id}`` which only supports PATCH.
                     if resource == "designs":
-                        client.put(f"/{resource}/{item_id}", payload)
+                        client.put(f"{RECS_PREFIX}/{resource}/{item_id}", payload)
                     elif resource == "criteria" and _is_subtype:
                         client.put(_ep, payload)
                     else:

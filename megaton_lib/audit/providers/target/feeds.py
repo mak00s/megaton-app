@@ -11,6 +11,7 @@ import re
 from typing import Any
 
 from megaton_lib.audit.providers.target.client import AdobeTargetClient
+from megaton_lib.audit.providers.target.constants import RECS_PREFIX
 
 # Sensitive keys whose values are redacted during export
 _SENSITIVE_KEYS = re.compile(
@@ -41,7 +42,7 @@ def export_feeds(
     root.mkdir(parents=True, exist_ok=True)
 
     # Fetch all feeds
-    all_feeds = client.get_all("/feeds")
+    all_feeds = client.get_all(f"{RECS_PREFIX}/feeds")
 
     # Filter by name (exact match)
     name_set = set(feed_names)
@@ -54,7 +55,7 @@ def export_feeds(
 
         # Fetch detail
         try:
-            detail = client.get(f"/feeds/{feed_id}")
+            detail = client.get(f"{RECS_PREFIX}/feeds/{feed_id}")
         except RuntimeError:
             detail = feed
 
