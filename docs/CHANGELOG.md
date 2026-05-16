@@ -4,6 +4,8 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+## 2026-05-16 (v0.13.0)
+
 - Added optional CAPY puzzle helpers for Playwright validation and a `captcha_solver` hook for `perform_storefront_login()`. CAPY image decoding now uses Pillow, and storefront login re-checks that a CAPTCHA challenge is gone before submitting.
 - Refactored `AdobeTargetClient` so `base_url` no longer includes the `/recs` suffix: Recommendations helpers now pass `/recs/...` endpoints explicitly, and Admin API endpoints such as `/activities` are reachable through the same client. Added `list_activities()` for paginated Target Admin API activity listing. **Breaking:** `export_activities()` and `fetch_activity()` no longer take a `tenant_id` argument (the client config already carries the tenant), and code calling `AdobeTargetClient.get()` / `patch()` / `put()` directly must now prefix Recommendations endpoints with `/recs/`.
 
