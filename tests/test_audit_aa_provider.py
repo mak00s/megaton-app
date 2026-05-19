@@ -195,6 +195,51 @@ def test_get_report_supports_inline_segment_and_breakdown(aa_env, monkeypatch):
     assert metric_container["metrics"][0]["filters"] == ["0"]
 
 
+def test_get_report_warns_on_column_errors(aa_env, monkeypatch):
+    cfg = _config(aa_env)
+    responses = [
+        _DummyResponse(
+            206,
+            {
+                "columns": {
+                    "columnIds": [],
+                    "columnErrors": [
+                        {
+                            "columnId": "0",
+                            "errorCode": "unauthorized_dimension_global",
+                            "errorDescription": (
+                                "User does not have access to the global dimension "
+                                "for this request"
+                            ),
+                        },
+                    ],
+                },
+                "rows": [],
+                "lastPage": True,
+            },
+        ),
+    ]
+    dummy = _DummySession(responses)
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.aa.requests.Session",
+        lambda: dummy,
+    )
+
+    client = AdobeAnalyticsClient(cfg)
+
+    with pytest.warns(RuntimeWarning, match="unauthorized_dimension_global"):
+        df = client.get_report(
+            rsid=cfg.rsid,
+            dimension="evar1",
+            metrics=["occurrences"],
+            date_from="2026-02-17",
+            date_to="2026-02-18",
+        )
+
+    assert df.empty
+    assert list(df.columns) == ["variables/evar1", "metrics/occurrences"]
+
+
 def test_fetch_dimension_metric_shape(aa_env, monkeypatch):
     cfg = _config(aa_env)
     responses = [

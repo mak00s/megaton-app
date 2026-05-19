@@ -13,6 +13,7 @@ import email.utils
 import random
 import time
 from typing import Any
+import warnings
 
 import pandas as pd
 import requests
@@ -22,6 +23,31 @@ from megaton_lib.audit.providers.adobe_auth import AdobeOAuthClient
 
 
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+
+def _format_report_column_errors(
+    *,
+    rsid: str,
+    dimension: str,
+    metrics: list[str],
+    errors: list[Any],
+) -> str:
+    details: list[str] = []
+    for item in errors:
+        if not isinstance(item, dict):
+            details.append(str(item))
+            continue
+        code = str(item.get("errorCode") or "unknown_error").strip()
+        column = str(item.get("columnId") or "?").strip()
+        description = str(item.get("errorDescription") or "").strip()
+        suffix = f": {description}" if description else ""
+        details.append(f"column {column} {code}{suffix}")
+
+    joined = "; ".join(details) if details else "unknown column error"
+    return (
+        "Adobe Analytics report returned column errors. "
+        f"rsid={rsid}, dimension={dimension}, metrics={metrics}. {joined}"
+    )
 
 
 @dataclass(slots=True)
@@ -319,6 +345,7 @@ class AdobeAnalyticsClient:
         all_rows: list[dict[str, Any]] = []
         page = 0
         max_rows = float("inf") if n_results is None else float(max(n_results, 0))
+        warned_column_errors: set[str] = set()
 
         while True:
             request_body["settings"]["page"] = page
@@ -331,6 +358,18 @@ class AdobeAnalyticsClient:
                 authenticated=True,
                 retry_on_401=True,
             )
+
+            column_errors = (response.get("columns") or {}).get("columnErrors") or []
+            if column_errors:
+                warning_text = _format_report_column_errors(
+                    rsid=rsid,
+                    dimension=dim_api,
+                    metrics=metric_ids,
+                    errors=column_errors,
+                )
+                if warning_text not in warned_column_errors:
+                    warnings.warn(warning_text, RuntimeWarning, stacklevel=2)
+                    warned_column_errors.add(warning_text)
 
             page_rows = response.get("rows", [])
             if not isinstance(page_rows, list):
