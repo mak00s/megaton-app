@@ -25,6 +25,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Sequence
@@ -491,6 +492,8 @@ class ClassificationsClient:
         filename: str = "classification.tsv",
         chunk_rows: int = 100_000,
         chunk_pause_seconds: float = 2.0,
+        max_attempts: int = 10,
+        retry_backoff_seconds: float = 12.0,
         notification_emails: Sequence[str] | None = None,
         notification_states: Sequence[str] | None = None,
         verbose: bool = True,
@@ -549,6 +552,11 @@ class ClassificationsClient:
         ext = "tsv"
         if "." in filename:
             ext = filename.rsplit(".", 1)[1] or "tsv"
+        # Adobe's uploadFile endpoint returns HTTP 500 ("Cannot invoke ...")
+        # when the multipart filename contains spaces. Sanitise whitespace to
+        # underscores so chunk filenames are always accepted.
+        base_filename = re.sub(r"\s+", "_", base_filename) or "classification"
+        ext = re.sub(r"\s+", "_", ext) or "tsv"
 
         job_ids: list[str] = []
         for idx in range(total_chunks):
@@ -558,14 +566,41 @@ class ClassificationsClient:
             chunk_bytes = chunk_text.encode("utf-8")
             chunk_name = f"{base_name} (chunk {idx + 1}/{total_chunks}, {len(chunk):,} rows)"
             chunk_filename = f"{base_filename}.chunk{idx + 1:03d}.{ext}"
-            job_id = self.create_import_job(
-                dataset_id,
-                job_name=chunk_name,
-                notification_emails=notification_emails,
-                notification_states=notification_states,
-            )
-            self.upload_file(job_id, chunk_bytes, filename=chunk_filename)
-            self.commit_job(job_id)
+            # Adobe's createApiJob/uploadFile endpoints intermittently return
+            # HTTP 500 regardless of payload size. Retry the whole chunk (a
+            # fresh job each attempt) with linear backoff on transient 5xx /
+            # connection errors. keyOptions.overwrite=true makes re-committing
+            # already-imported keys idempotent, so retries are safe.
+            job_id = ""
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    job_id = self.create_import_job(
+                        dataset_id,
+                        job_name=chunk_name,
+                        notification_emails=notification_emails,
+                        notification_states=notification_states,
+                    )
+                    self.upload_file(job_id, chunk_bytes, filename=chunk_filename)
+                    self.commit_job(job_id)
+                    break
+                except (
+                    requests.exceptions.HTTPError,
+                    requests.exceptions.ConnectionError,
+                    requests.exceptions.Timeout,
+                ) as exc:
+                    status = getattr(getattr(exc, "response", None), "status_code", None)
+                    # Do not retry genuine client errors (4xx).
+                    if status is not None and 400 <= status < 500:
+                        raise
+                    if attempt >= max_attempts:
+                        raise
+                    wait = retry_backoff_seconds * attempt
+                    if verbose:
+                        print(
+                            f"    [{idx + 1}/{total_chunks}] attempt {attempt}/{max_attempts}"
+                            f" 失敗 (status={status}); {wait:.0f}s 後に再試行..."
+                        )
+                    time.sleep(wait)
             job_ids.append(job_id)
             if verbose:
                 print(
