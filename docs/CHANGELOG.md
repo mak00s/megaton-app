@@ -4,6 +4,8 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+- Made checkout-local CLIs more self-describing by adding shared help formatting, runnable examples, clearer argument metavars, and operational notes to query, audit, notebook, validation, Gmail draft, classification verification, and Data Warehouse helper commands.
+
 ## 2026-05-16 (v0.13.0)
 
 - Added optional CAPY puzzle helpers for Playwright validation and a `captcha_solver` hook for `perform_storefront_login()`. CAPY image decoding now uses Pillow, and storefront login re-checks that a CAPTCHA challenge is gone before submitting.

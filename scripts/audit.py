@@ -12,26 +12,44 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from megaton_lib.audit import AuditRunner, load_project_config
+from megaton_lib.cli_help import build_parser
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run reusable audit tasks")
+    parser = build_parser(
+        description=(
+            "Run reusable audit tasks from configs/audit/projects. "
+            "Use this for site mapping checks and tag-config exports."
+        ),
+        examples=[
+            "python scripts/audit.py site-mapping --project my-project --days 30",
+            (
+                "python scripts/audit.py site-mapping --project configs/audit/projects/my.yaml "
+                "--start-date 2026-05-01 --end-date 2026-05-27 --json"
+            ),
+            "python scripts/audit.py export-tag-config --project my-project --output output/tag_config",
+        ],
+        notes=[
+            "--project accepts either a project id under --config-root or a direct config file path.",
+            "Use --json when another script or AI Agent will parse the result.",
+        ],
+    )
     sub = parser.add_subparsers(dest="command")
 
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--project", required=True, help="project id or config file path")
+    common.add_argument("--project", required=True, metavar="PROJECT_OR_CONFIG", help="project id or config file path")
     common.add_argument(
         "--config-root",
         default="configs/audit/projects",
         help="project config directory (default: configs/audit/projects)",
     )
-    common.add_argument("--output", default=None, help="output directory")
+    common.add_argument("--output", default=None, metavar="DIR", help="output directory")
     common.add_argument("--json", action="store_true", help="emit JSON output")
 
     p_sm = sub.add_parser("site-mapping", parents=[common], help="run site mapping audit")
-    p_sm.add_argument("--days", type=int, default=30, help="period length if start/end omitted")
-    p_sm.add_argument("--start-date", default=None, help="start date (YYYY-MM-DD)")
-    p_sm.add_argument("--end-date", default=None, help="end date (YYYY-MM-DD)")
+    p_sm.add_argument("--days", type=int, default=30, metavar="N", help="period length if start/end omitted")
+    p_sm.add_argument("--start-date", default=None, metavar="YYYY-MM-DD", help="start date")
+    p_sm.add_argument("--end-date", default=None, metavar="YYYY-MM-DD", help="end date")
     p_sm.add_argument("--with-aa", action="store_true", help="include Adobe Analytics in cross-check")
 
     sub.add_parser("export-tag-config", parents=[common], help="export tag mapping snapshot")
