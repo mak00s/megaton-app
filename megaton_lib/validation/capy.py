@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import io
+import time
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
@@ -22,9 +23,24 @@ class CapySolveResult:
     source_y: float
     target_x: float
     target_y: float
+    answered: bool = False
+    answer_value_present: bool = False
+
+    @property
+    def drag_performed(self) -> bool:
+        """Return whether the drag action itself was completed."""
+        return self.solved
 
     def __bool__(self) -> bool:
         return self.solved
+
+
+class CapyDragTargetError(RuntimeError):
+    """Raised when the calculated CAPY drag start does not hit the puzzle piece."""
+
+    def __init__(self, message: str, diagnostics: dict[str, Any]) -> None:
+        super().__init__(f"{message}: {diagnostics}")
+        self.diagnostics = diagnostics
 
 
 def is_capy_puzzle_present(page: Page, *, selector: str = ".capy-captcha") -> bool:
@@ -34,6 +50,46 @@ def is_capy_puzzle_present(page: Page, *, selector: str = ".capy-captcha") -> bo
         return bool(locator.count() and locator.is_visible())
     except Exception:
         return False
+
+
+def is_capy_answered(page: Page, *, answer_selector: str = "input[name='capy_answer']") -> bool:
+    """Return True when CAPY has written a non-empty answer token."""
+    try:
+        answer = page.query_selector(answer_selector)
+        if answer is None:
+            return False
+        value = (answer.get_attribute("value") or "").strip().lower()
+        return bool(value and value != "null")
+    except RuntimeError:
+        raise
+    except Exception:
+        return False
+
+
+def wait_for_capy_answer(
+    page: Page,
+    *,
+    timeout_ms: int = 5000,
+    poll_ms: int = 100,
+    answer_selector: str = "input[name='capy_answer']",
+) -> bool:
+    """Wait until CAPY writes an answer token and return whether it appeared."""
+    if is_capy_answered(page, answer_selector=answer_selector):
+        return True
+
+    deadline = time.monotonic() + (timeout_ms / 1000)
+    while time.monotonic() < deadline:
+        sleep_ms = min(poll_ms, max(0, int((deadline - time.monotonic()) * 1000)))
+        if sleep_ms > 0:
+            try:
+                page.wait_for_timeout(sleep_ms)
+            except RuntimeError:
+                raise
+            except Exception:
+                time.sleep(sleep_ms / 1000)
+        if is_capy_answered(page, answer_selector=answer_selector):
+            return True
+    return False
 
 
 def solve_capy_puzzle(
@@ -59,6 +115,7 @@ def solve_capy_puzzle(
     """
     capy = page.locator(captcha_selector).first
     capy.wait_for(timeout=timeout_ms)
+    _scroll_capy_to_viewport_center(page, captcha_selector, timeout_ms=timeout_ms)
     if screenshot_settle_ms > 0:
         page.wait_for_timeout(screenshot_settle_ms)
     image_box = page.locator(image_area_selector).first.bounding_box()
@@ -80,12 +137,25 @@ def solve_capy_puzzle(
     target_x = capy_box["x"] + (x_min + x_max) / 2
     target_y = capy_box["y"] + (y_min + y_max) / 2
 
+    _validate_drag_source(
+        page,
+        piece_selector=piece_selector,
+        source_x=source_x,
+        source_y=source_y,
+        target_x=target_x,
+        target_y=target_y,
+        capy_box=capy_box,
+        image_box=image_box,
+        piece_box=piece_box,
+    )
+
     page.mouse.move(source_x, source_y)
     page.mouse.down()
     page.mouse.move(target_x, target_y, steps=drag_steps)
     page.mouse.up()
     if settle_ms > 0:
         page.wait_for_timeout(settle_ms)
+    answer_value_present = is_capy_answered(page)
 
     return CapySolveResult(
         solved=True,
@@ -94,7 +164,92 @@ def solve_capy_puzzle(
         source_y=float(source_y),
         target_x=float(target_x),
         target_y=float(target_y),
+        answered=answer_value_present,
+        answer_value_present=answer_value_present,
     )
+
+
+def _validate_drag_source(
+    page: Page,
+    *,
+    piece_selector: str,
+    source_x: float,
+    source_y: float,
+    target_x: float,
+    target_y: float,
+    capy_box: dict[str, float],
+    image_box: dict[str, float],
+    piece_box: dict[str, float],
+) -> None:
+    diagnostics = {
+        "source": {"x": source_x, "y": source_y},
+        "target": {"x": target_x, "y": target_y},
+        "capy_box": capy_box,
+        "image_box": image_box,
+        "piece_box": piece_box,
+    }
+    try:
+        hit = page.evaluate(
+            """
+            ({ pieceSelector, sourceX, sourceY }) => {
+              const piece = document.querySelector(pieceSelector);
+              const element = document.elementFromPoint(sourceX, sourceY);
+              const rect = piece ? piece.getBoundingClientRect() : null;
+              return {
+                ok: Boolean(piece && element && (element === piece || piece.contains(element))),
+                hitTag: element ? element.tagName : null,
+                hitId: element ? element.id : null,
+                hitClass: element ? String(element.className || "") : null,
+                pieceRect: rect ? {
+                  x: rect.x,
+                  y: rect.y,
+                  width: rect.width,
+                  height: rect.height
+                } : null,
+                scroll: { x: window.scrollX, y: window.scrollY },
+                viewport: { width: window.innerWidth, height: window.innerHeight }
+              };
+            }
+            """,
+            {"pieceSelector": piece_selector, "sourceX": source_x, "sourceY": source_y},
+        )
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        diagnostics["error"] = str(exc)
+        raise CapyDragTargetError("CAPY drag source could not be validated", diagnostics) from exc
+
+    diagnostics.update(hit or {})
+    if not isinstance(hit, dict) or not hit.get("ok"):
+        raise CapyDragTargetError("CAPY drag source is not on the puzzle piece", diagnostics)
+
+
+def _scroll_capy_to_viewport_center(page: Page, selector: str, *, timeout_ms: int) -> None:
+    try:
+        page.evaluate(
+            """
+            (captchaSelector) => {
+              const element = document.querySelector(captchaSelector);
+              if (element) {
+                element.scrollIntoView({ block: "center", inline: "center" });
+              }
+            }
+            """,
+            selector,
+        )
+        page.wait_for_timeout(100)
+        return
+    except RuntimeError:
+        raise
+    except Exception:
+        pass
+
+    try:
+        page.locator(selector).first.scroll_into_view_if_needed(timeout=timeout_ms)
+    except RuntimeError:
+        raise
+    except Exception:
+        return
 
 
 def _read_png_bytes(data: bytes) -> Any:
