@@ -30,30 +30,53 @@ import csv
 import sys
 from pathlib import Path
 
+from megaton_lib.cli_help import build_parser
+
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="AA 分類データの反映を確認する（Level 1: Export / Level 2: Report）",
+    parser = build_parser(
+        description=(
+            "Verify Adobe Analytics classification upload reflection. "
+            "Level 1 checks Classification Export API; --report also spot-checks Reporting API."
+        ),
+        examples=[
+            (
+                "python -m megaton_lib.audit.providers.analytics.verify_classification "
+                "--company-id wacoal1 --rsid wacoal-all --dimension evar29 --column 関係者 "
+                "--keys 'A100012345=社員,A100067890=業者'"
+            ),
+            (
+                "python -m megaton_lib.audit.providers.analytics.verify_classification "
+                "--company-id wacoal1 --rsid wacoal-all --dimension evar29 --column 関係者 "
+                "--diff-tsv data/diff.tsv --sample 5 --report --report-sample 10"
+            ),
+        ],
+        notes=[
+            "Exit code 0 means all sampled keys matched; exit code 1 means at least one NG.",
+            "Use --keys for ad hoc checks and --diff-tsv for batch upload verification.",
+        ],
     )
-    parser.add_argument("--company-id", required=True, help="Adobe Analytics company ID")
-    parser.add_argument("--rsid", required=True, help="Report suite ID")
-    parser.add_argument("--dimension", required=True, help="AA dimension (e.g. evar29, prop10)")
-    parser.add_argument("--column", required=True, help="Classification column name")
-    parser.add_argument("--org-id", default="", help="Adobe org ID (default: ADOBE_ORG_ID env)")
-    parser.add_argument("--token-cache", default="", help="Path to token cache file")
+    parser.add_argument("--company-id", required=True, metavar="COMPANY_ID", help="Adobe Analytics company ID")
+    parser.add_argument("--rsid", required=True, metavar="RSID", help="Report suite ID")
+    parser.add_argument("--dimension", required=True, metavar="DIMENSION", help="AA dimension (e.g. evar29, prop10)")
+    parser.add_argument("--column", required=True, metavar="COLUMN", help="Classification column name")
+    parser.add_argument("--org-id", default="", metavar="ORG_ID", help="Adobe org ID (default: ADOBE_ORG_ID env)")
+    parser.add_argument("--token-cache", default="", metavar="TOKEN.json", help="Path to token cache file")
     parser.add_argument(
         "--creds-file",
         default="",
+        metavar="CREDS.json",
         help="JSON file with client_id, client_secret, org_id",
     )
 
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--keys",
+        metavar="KEY=VALUE,...",
         help="Comma-separated key=value pairs (e.g. A100012345=社員,A100067890=業者)",
     )
-    group.add_argument("--diff-tsv", type=Path, help="TSV file with Key and column value")
-    parser.add_argument("--sample", type=int, default=0, help="Sample N keys from diff-tsv (0=all)")
+    group.add_argument("--diff-tsv", type=Path, metavar="DIFF.tsv", help="TSV file with Key and column value")
+    parser.add_argument("--sample", type=int, default=0, metavar="N", help="Sample N keys from diff-tsv (0=all)")
     parser.add_argument(
         "--report",
         action="store_true",
@@ -63,6 +86,7 @@ def main() -> None:
         "--report-sample",
         type=int,
         default=10,
+        metavar="N",
         help="Keys to spot-check in report mode (default: 10)",
     )
 

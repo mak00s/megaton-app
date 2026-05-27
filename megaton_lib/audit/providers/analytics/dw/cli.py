@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from megaton_lib.cli_help import build_parser
+
 from .runtime import build_dw_client
 from .scheduler import (
     bulk_create_requests_from_template,
@@ -18,19 +20,45 @@ from .scheduler import (
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Adobe Analytics Data Warehouse scheduled request helper.",
+    parser = build_parser(
+        description=(
+            "Inspect and create Adobe Analytics Data Warehouse scheduled requests. "
+            "Use --find-template/--describe-template before creating requests from a manifest."
+        ),
+        examples=[
+            (
+                "python -m megaton_lib.audit.providers.analytics.dw.cli "
+                "--company-id wacoal1 --list --rsid wacoal-all --limit 20"
+            ),
+            (
+                "python -m megaton_lib.audit.providers.analytics.dw.cli "
+                "--company-id wacoal1 --find-template --rsid wacoal-all "
+                "--name-contains tmpl_step_ --updated-after 2026-01-01T00:00:00Z"
+            ),
+            (
+                "python -m megaton_lib.audit.providers.analytics.dw.cli "
+                "--manifest configs/dw/monthly.json --dry-run"
+            ),
+            (
+                "python -m megaton_lib.audit.providers.analytics.dw.cli "
+                "--manifest configs/dw/monthly.json --create"
+            ),
+        ],
+        notes=[
+            "--manifest previews by default unless --create is present.",
+            "--dry-run is explicit preview mode and never creates requests.",
+        ],
     )
-    parser.add_argument("--company-id", default="", help="Adobe Analytics company ID")
-    parser.add_argument("--creds-file", default="", help="Path to Adobe OAuth credentials JSON")
-    parser.add_argument("--client-id", default="", help="Adobe client ID override")
-    parser.add_argument("--client-secret", default="", help="Adobe client secret override")
-    parser.add_argument("--org-id", default="", help="Adobe org ID override")
-    parser.add_argument("--scopes", default="", help="Adobe OAuth scopes override")
-    parser.add_argument("--token-cache", default="", help="Path to token cache file")
+    parser.add_argument("--company-id", default="", metavar="COMPANY_ID", help="Adobe Analytics company ID")
+    parser.add_argument("--creds-file", default="", metavar="CREDS.json", help="Path to Adobe OAuth credentials JSON")
+    parser.add_argument("--client-id", default="", metavar="CLIENT_ID", help="Adobe client ID override")
+    parser.add_argument("--client-secret", default="", metavar="CLIENT_SECRET", help="Adobe client secret override")
+    parser.add_argument("--org-id", default="", metavar="ORG_ID", help="Adobe org ID override")
+    parser.add_argument("--scopes", default="", metavar="SCOPES", help="Adobe OAuth scopes override")
+    parser.add_argument("--token-cache", default="", metavar="TOKEN.json", help="Path to token cache file")
 
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--manifest", type=Path, help="Manifest JSON path")
+    mode.add_argument("--manifest", type=Path, metavar="MANIFEST.json", help="Manifest JSON path")
     mode.add_argument("--list", action="store_true", help="List scheduled requests")
     mode.add_argument("--status", action="store_true", help="Get one scheduled request by UUID")
     mode.add_argument("--find-template", action="store_true", help="Find candidate templates")
@@ -43,18 +71,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--create", action="store_true", help="Create requests from manifest")
     parser.add_argument("--dry-run", action="store_true", help="Preview manifest without creating")
 
-    parser.add_argument("--scheduled-request-uuid", default="", help="Scheduled request UUID")
-    parser.add_argument("--rsid", default="", help="Report suite ID")
-    parser.add_argument("--name-contains", default="", help="Template name substring")
-    parser.add_argument("--output-file-basename", default="", help="Output file basename filter")
-    parser.add_argument("--segment-id", default="", help="Segment ID filter")
-    parser.add_argument("--owner-login", default="", help="Owner login filter")
-    parser.add_argument("--updated-after", default="", help="Updated-after ISO datetime filter")
-    parser.add_argument("--updated-before", default="", help="Updated-before ISO datetime filter")
-    parser.add_argument("--created-after", default="", help="Created-after ISO datetime filter")
-    parser.add_argument("--created-before", default="", help="Created-before ISO datetime filter")
-    parser.add_argument("--status-filter", action="append", default=[], help="Status filter. Repeatable.")
-    parser.add_argument("--limit", type=int, default=100, help="Result limit")
+    parser.add_argument("--scheduled-request-uuid", default="", metavar="UUID", help="Scheduled request UUID")
+    parser.add_argument("--rsid", default="", metavar="RSID", help="Report suite ID")
+    parser.add_argument("--name-contains", default="", metavar="TEXT", help="Template name substring")
+    parser.add_argument("--output-file-basename", default="", metavar="TEXT", help="Output file basename filter")
+    parser.add_argument("--segment-id", default="", metavar="SEGMENT_ID", help="Segment ID filter")
+    parser.add_argument("--owner-login", default="", metavar="LOGIN", help="Owner login filter")
+    parser.add_argument("--updated-after", default="", metavar="ISO_DATETIME", help="Updated-after ISO datetime filter")
+    parser.add_argument("--updated-before", default="", metavar="ISO_DATETIME", help="Updated-before ISO datetime filter")
+    parser.add_argument("--created-after", default="", metavar="ISO_DATETIME", help="Created-after ISO datetime filter")
+    parser.add_argument("--created-before", default="", metavar="ISO_DATETIME", help="Created-before ISO datetime filter")
+    parser.add_argument("--status-filter", action="append", default=[], metavar="STATUS", help="Status filter. Repeatable.")
+    parser.add_argument("--limit", type=int, default=100, metavar="N", help="Result limit")
     return parser.parse_args()
 
 

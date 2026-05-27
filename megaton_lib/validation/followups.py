@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+from megaton_lib.cli_help import build_parser
 
 from .metadata import build_validation_run_metadata, write_validation_json
 
@@ -316,24 +317,43 @@ def run_pending_verification_cli(
     default_pending_file: str | Path = "validation/pending_aa_verifications.json",
 ) -> int:
     """Run the shared pending follow-up CLI."""
-    parser = argparse.ArgumentParser(description="AA follow-up task management")
-    parser.add_argument("--file", default=str(default_pending_file), help="Pending task JSON path")
+    parser = build_parser(
+        description=(
+            "Manage delayed AA follow-up verification tasks. "
+            "Use this after a validation run when AA data may need time to settle."
+        ),
+        examples=[
+            "python scripts/check_pending_verifications.py",
+            "python scripts/check_pending_verifications.py --all",
+            "python scripts/check_pending_verifications.py --complete task_20260527 --result verified",
+            (
+                "python scripts/check_pending_verifications.py --add --id task_20260527 "
+                "--description 'Check AA reflection' --verification-file output/check.json "
+                "--expected eVar89=value"
+            ),
+        ],
+        notes=[
+            "Exit code 0 means no overdue blocking tasks.",
+            "Exit code 1 means an overdue task needs action or a requested task was not found.",
+        ],
+    )
+    parser.add_argument("--file", default=str(default_pending_file), metavar="PENDING.json", help="Pending task JSON path")
     parser.add_argument("--all", action="store_true", help="Show all pending tasks")
     parser.add_argument("--complete", metavar="TASK_ID", help="Mark a task as completed")
-    parser.add_argument("--result", default="verified", help="Completion result label")
-    parser.add_argument("--notes", default="", help="Completion notes")
+    parser.add_argument("--result", default="verified", metavar="LABEL", help="Completion result label")
+    parser.add_argument("--notes", default="", metavar="TEXT", help="Completion notes")
     parser.add_argument("--add", action="store_true", help="Add a pending task")
-    parser.add_argument("--id", default="", help="Task id for --add")
-    parser.add_argument("--description", default="", help="Task description for --add")
-    parser.add_argument("--verification-file", default="", help="Verification JSON path for --add")
-    parser.add_argument("--verification-type", default="", help="Verification type for --add")
-    parser.add_argument("--aa-verifier", default="", help="Verifier script name for --add")
-    parser.add_argument("--renkeiid", default="", help="renkeiid for --add")
-    parser.add_argument("--transaction-id", default="", help="transaction id for --add")
-    parser.add_argument("--region", default="", help="region for --add")
-    parser.add_argument("--page", default="", help="page for --add")
-    parser.add_argument("--expected", action="append", default=[], help="Expected key=value pair")
-    parser.add_argument("--delay-minutes", type=int, default=None, help="Fixed delay instead of next batch time")
+    parser.add_argument("--id", default="", metavar="TASK_ID", help="Task id for --add")
+    parser.add_argument("--description", default="", metavar="TEXT", help="Task description for --add")
+    parser.add_argument("--verification-file", default="", metavar="RESULT.json", help="Verification JSON path for --add")
+    parser.add_argument("--verification-type", default="", metavar="TYPE", help="Verification type for --add")
+    parser.add_argument("--aa-verifier", default="", metavar="SCRIPT.py", help="Verifier script name for --add")
+    parser.add_argument("--renkeiid", default="", metavar="ID", help="renkeiid for --add")
+    parser.add_argument("--transaction-id", default="", metavar="ID", help="transaction id for --add")
+    parser.add_argument("--region", default="", metavar="REGION", help="region for --add")
+    parser.add_argument("--page", default="", metavar="URL", help="page for --add")
+    parser.add_argument("--expected", action="append", default=[], metavar="KEY=VALUE", help="Expected key=value pair")
+    parser.add_argument("--delay-minutes", type=int, default=None, metavar="N", help="Fixed delay instead of next batch time")
     parser.add_argument("--quiet", "-q", action="store_true", help="Only print when overdue tasks exist")
     args = parser.parse_args()
 

@@ -24,6 +24,11 @@ import re
 import sys
 from pathlib import Path
 
+# Add project root to import path when executed as python scripts/run_notebook.py.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from megaton_lib.cli_help import build_parser
+
 # --- Cell parsing --------------------------------------------------------
 
 _CELL_MARKER = re.compile(r"^# %%(.*)$")
@@ -182,10 +187,24 @@ def run(notebook_path: str, overrides: dict[str, str]) -> None:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Run a jupytext percent-format notebook from CLI",
+    parser = build_parser(
+        description=(
+            "Run a Jupytext percent-format .py notebook as a plain Python script. "
+            "Use -p KEY=VALUE to override variables in the tags=[\"parameters\"] cell."
+        ),
+        examples=[
+            "python scripts/run_notebook.py notebooks/reports/monthly.py",
+            (
+                "python scripts/run_notebook.py notebooks/reports/monthly.py \\\n"
+                "  -p START_DATE=today-30d -p END_DATE=today"
+            ),
+        ],
+        notes=[
+            "Date templates such as today, today-7d, and YYYY-MM-DD are resolved before execution.",
+            "The notebook directory becomes the working directory while the notebook runs.",
+        ],
     )
-    parser.add_argument("notebook", help="Path to .py notebook")
+    parser.add_argument("notebook", metavar="NOTEBOOK.py", help="Jupytext percent-format .py notebook")
     parser.add_argument(
         "-p", "--param",
         action="append",

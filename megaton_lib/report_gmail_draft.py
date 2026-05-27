@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import string
@@ -11,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from .cli_help import build_parser
 from .gmail_client import (
     SCOPES_DRAFT,
     GmailClient,
@@ -288,20 +288,42 @@ def create_report_gmail_draft_from_env(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Create a Gmail draft from a successful report summary.")
+    parser = build_parser(
+        description=(
+            "Create a Gmail draft from a report execution summary JSON. "
+            "Recipients and sender are read from report-specific env vars."
+        ),
+        examples=[
+            (
+                "python -m megaton_lib.report_gmail_draft "
+                "--summary-path output/monthly/run_summary.json --report-label '月次レポート'"
+            ),
+            (
+                "DEI_GMAIL_DRAFT_TO=team@example.com python -m megaton_lib.report_gmail_draft "
+                "--env-prefix DEI --summary-path output/dei/summary.json"
+            ),
+        ],
+        notes=[
+            "Reads MEGATON_RUN_SUMMARY_PATH when --summary-path is omitted.",
+            "Use <PREFIX>_GMAIL_DRAFT_TO / CC / BCC / SENDER for report-specific routing.",
+        ],
+    )
     parser.add_argument(
         "--summary-path",
         default=env_value("MEGATON_RUN_SUMMARY_PATH"),
+        metavar="SUMMARY.json",
         help="Path to the report execution summary JSON.",
     )
     parser.add_argument(
         "--report-label",
         default="",
+        metavar="LABEL",
         help="Human-readable report label used in the default subject/body.",
     )
     parser.add_argument(
         "--env-prefix",
         default="",
+        metavar="PREFIX",
         help="Optional prefix for report-specific env vars, e.g. DEI uses DEI_GMAIL_DRAFT_TO.",
     )
     args = parser.parse_args()

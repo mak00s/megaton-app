@@ -3,10 +3,14 @@
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 import re
 import sys
+
+# Add project root to import path when executed as python scripts/check_validation_usage.py.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from megaton_lib.cli_help import build_parser
 
 
 DIRECT_PLAYWRIGHT_PATTERNS = (
@@ -94,12 +98,24 @@ def _check_file(path: Path) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Detect validation scripts that bypass megaton_lib.validation",
+    parser = build_parser(
+        description=(
+            "Scan validation scripts and report places that bypass shared megaton_lib.validation "
+            "helpers or result metadata conventions."
+        ),
+        examples=[
+            "python scripts/check_validation_usage.py /Users/maks/Repos/csk-analysis",
+            "python scripts/check_validation_usage.py validation/ /Users/maks/Repos/wws-analysis",
+        ],
+        notes=[
+            "Exit code 0 means no policy violations were found.",
+            "Exit code 1 means at least one file should be reviewed.",
+        ],
     )
     parser.add_argument(
         "paths",
         nargs="+",
+        metavar="PATH",
         help="Repo root or validation directory to scan",
     )
     args = parser.parse_args()

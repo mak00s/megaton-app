@@ -40,6 +40,7 @@ import pandas as pd
 # Add project root to import path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from megaton_lib.cli_help import build_parser
 from megaton_lib.megaton_client import (
     get_aa_segments,
     get_ga4_properties,
@@ -1008,26 +1009,47 @@ def run_batch_mode(args) -> int:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Unified Query CLI")
-    parser.add_argument("--params", default="input/params.json", help="Strict params JSON path (schema_version=1.0)")
-    parser.add_argument("--inline", help="Inline JSON params (no file needed)")
+    parser = build_parser(
+        description=(
+            "Run GA4, GSC, BigQuery, or Adobe Analytics queries from a params JSON file. "
+            "Also manages async query jobs and lists available source resources."
+        ),
+        examples=[
+            "python scripts/query.py --params input/params.json --output output/result.csv",
+            (
+                "python scripts/query.py --inline "
+                "'{\"schema_version\":\"1.0\",\"source\":\"gsc\",...}' --json"
+            ),
+            "python scripts/query.py --submit --params input/params.json",
+            "python scripts/query.py --result <job_id> --head 20 --sort 'clicks DESC'",
+            "python scripts/query.py --list-ga4-properties --json",
+            "python scripts/query.py --list-bq-datasets --project my-gcp-project --json",
+        ],
+        notes=[
+            "--params is synchronous unless --submit is present.",
+            "For synchronous --params runs, put pipeline filters in the params JSON pipeline field.",
+            "Use --output for large results; --json is best for small checks and AI-agent parsing.",
+        ],
+    )
+    parser.add_argument("--params", default="input/params.json", metavar="PARAMS.json", help="Strict params JSON path (schema_version=1.0)")
+    parser.add_argument("--inline", metavar="JSON", help="Inline JSON params (no file needed)")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
-    parser.add_argument("--output", help="CSV output file path")
+    parser.add_argument("--output", metavar="RESULT.csv", help="CSV output file path")
     parser.add_argument("--submit", action="store_true", help="Submit job asynchronously")
-    parser.add_argument("--status", help="Show job status by job_id")
-    parser.add_argument("--cancel", help="Cancel job by job_id")
-    parser.add_argument("--result", help="Show job result by job_id")
-    parser.add_argument("--head", type=int, help="Show first N rows with --result")
+    parser.add_argument("--status", metavar="JOB_ID", help="Show job status by job_id")
+    parser.add_argument("--cancel", metavar="JOB_ID", help="Cancel job by job_id")
+    parser.add_argument("--result", metavar="JOB_ID", help="Show job result by job_id")
+    parser.add_argument("--head", type=int, metavar="N", help="Show first N rows with --result")
     parser.add_argument("--summary", action="store_true", help="Show summary stats with --result")
-    parser.add_argument("--where", help="Filter rows (pandas query expression)")
-    parser.add_argument("--sort", help="Sort rows (e.g. 'clicks DESC,ctr ASC')")
-    parser.add_argument("--columns", help="Select columns (comma-separated)")
-    parser.add_argument("--group-by", help="Group by columns (comma-separated)")
-    parser.add_argument("--aggregate", help="Aggregate functions (e.g. 'sum:clicks,mean:ctr')")
-    parser.add_argument("--transform", help="Transform columns (e.g. 'date:date_format,page:url_decode')")
-    parser.add_argument("--batch", help="Run all JSON configs in directory (or single file)")
+    parser.add_argument("--where", metavar="EXPR", help="Filter rows (pandas query expression)")
+    parser.add_argument("--sort", metavar="SPEC", help="Sort rows (e.g. 'clicks DESC,ctr ASC')")
+    parser.add_argument("--columns", metavar="COLS", help="Select columns (comma-separated)")
+    parser.add_argument("--group-by", metavar="COLS", help="Group by columns (comma-separated)")
+    parser.add_argument("--aggregate", metavar="SPEC", help="Aggregate functions (e.g. 'sum:clicks,mean:ctr')")
+    parser.add_argument("--transform", metavar="SPEC", help="Transform columns (e.g. 'date:date_format,page:url_decode')")
+    parser.add_argument("--batch", metavar="DIR_OR_JSON", help="Run all JSON configs in directory (or single file)")
     parser.add_argument("--list-jobs", action="store_true", help="List recent jobs")
-    parser.add_argument("--job-limit", type=int, default=20, help="Max items for --list-jobs")
+    parser.add_argument("--job-limit", type=int, default=20, metavar="N", help="Max items for --list-jobs")
     parser.add_argument("--run-job", help=argparse.SUPPRESS)
 
     # List options
@@ -1035,11 +1057,11 @@ def main():
     parser.add_argument("--list-gsc-sites", action="store_true", help="List GSC sites")
     parser.add_argument("--list-bq-datasets", action="store_true", help="List BigQuery datasets")
     parser.add_argument("--list-aa-segments", action="store_true", help="List Adobe Analytics segments")
-    parser.add_argument("--project", help="GCP project ID for --list-bq-datasets")
-    parser.add_argument("--aa-company-id", help="Adobe Analytics company ID for --list-aa-segments")
-    parser.add_argument("--aa-rsid", help="Adobe Analytics RSID for --list-aa-segments")
-    parser.add_argument("--aa-org-id", help="Adobe Analytics org ID override for --list-aa-segments")
-    parser.add_argument("--aa-segment-name", help="Segment name filter for --list-aa-segments")
+    parser.add_argument("--project", metavar="GCP_PROJECT", help="GCP project ID for --list-bq-datasets")
+    parser.add_argument("--aa-company-id", metavar="COMPANY_ID", help="Adobe Analytics company ID for --list-aa-segments")
+    parser.add_argument("--aa-rsid", metavar="RSID", help="Adobe Analytics RSID for --list-aa-segments")
+    parser.add_argument("--aa-org-id", metavar="ORG_ID", help="Adobe Analytics org ID override for --list-aa-segments")
+    parser.add_argument("--aa-segment-name", metavar="TEXT", help="Segment name filter for --list-aa-segments")
     parser.add_argument(
         "--aa-segment-definition",
         action="store_true",
