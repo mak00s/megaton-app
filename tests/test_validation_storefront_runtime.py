@@ -408,6 +408,34 @@ def test_perform_storefront_login_rechecks_captcha_after_solver() -> None:
         raise AssertionError("visible CAPTCHA after solver should raise RuntimeError")
 
 
+def test_perform_storefront_login_accepts_answered_capy_after_solver() -> None:
+    selectors = {".capy-captcha": True, "input[name='capy_answer']": True}
+    page = _FakePage("https://example.com/order/shippingStart", selectors=selectors)
+    answer = _FakeLocator(True)
+    answer.value = "null"
+    page.locators["input[name='capy_answer']"] = answer
+    called: list[str] = []
+
+    def solver(_page):
+        called.append("solver")
+        answer.value = "answered-token"
+        return True
+
+    submitted = perform_storefront_login(
+        page,
+        login={"email": "user@example.com", "password": "secret"},
+        fill_credentials=lambda *_args, **_kwargs: called.append("fill"),
+        click_submit=lambda *_args, **_kwargs: called.append("submit") or True,
+        timeout_ms=30000,
+        timeout_exc_type=TimeoutError,
+        wait_label="checkout login to complete",
+        captcha_solver=solver,
+    )
+
+    assert submitted is True
+    assert called == ["fill", "solver", "submit"]
+
+
 def test_attempt_cart_checkout_entry_clicks_visible_button() -> None:
     page = _FakePage(
         "https://example.com/disp/viewCartLink",

@@ -197,12 +197,20 @@ def _first_visible_selector(page: Page, selectors: Sequence[str]) -> str | None:
         try:
             elem = page.query_selector(sel)
             if elem and elem.is_visible():
+                if sel == ".capy-captcha" and _has_solved_capy_answer(page):
+                    continue
                 return sel
         except RuntimeError:
             raise
         except Exception:
             continue
     return None
+
+
+def _has_solved_capy_answer(page: Page) -> bool:
+    from .capy import is_capy_answered
+
+    return is_capy_answered(page)
 
 
 def perform_storefront_login(

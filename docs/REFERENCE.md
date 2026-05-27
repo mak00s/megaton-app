@@ -888,8 +888,11 @@ Notes:
 | `save_storefront_session_cookies(page, path)` | Persist current browser-context cookies for later storefront sessions |
 | `run_storefront_validation_session(...)` | Run a storefront browser session with cookie preload plus shared validation setup |
 | `perform_storefront_login(..., captcha_solver=...)` | Fill and submit storefront login; optional solver is called when a configured CAPTCHA selector is visible and the challenge is re-checked before submit |
+| `CapyDragTargetError(...)` | Error raised with diagnostics when the calculated CAPY drag source does not hit the puzzle piece |
 | `is_capy_puzzle_present(page)` | Return whether a visible CAPY puzzle is present on the current Playwright page |
-| `solve_capy_puzzle(page, ...)` | Solve a visible CAPY drag puzzle by locating the puzzle hole in the screenshot; returns `CapySolveResult` on success and raises on failure |
+| `is_capy_answered(page)` | Return whether CAPY has written a non-empty answer token |
+| `wait_for_capy_answer(page, ...)` | Poll until CAPY writes an answer token |
+| `solve_capy_puzzle(page, ...)` | Center, validate, and solve a visible CAPY drag puzzle; returns `CapySolveResult` with drag and answer-token details |
 | `finalize_followup_verification(...)` | Attach follow-up metadata, save the verification JSON, and complete the matching pending task |
 
 Notes:
