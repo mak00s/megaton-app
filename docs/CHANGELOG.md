@@ -6,6 +6,9 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 - Added richer Adobe Edge beacon matching helpers to storefront validation, including analytics path requirements and rejected-candidate diagnostics.
 - Added `megaton_lib.playwright_browser`, a lazy-loaded optional Playwright helper module for browser scraping, persistent-profile runs, macOS Chrome debug-port launch, and CDP attach workflows.
+- Added `storage_state_path` and `save_storage_state` support to `megaton_lib.playwright_browser.browser_page()` / `scrape_with_playwright()` so consuming repos can reuse login state without hand-rolling browser context setup.
+- Added `save_page_storage_state(page, storage_state_path)` for workflows that must save login state only after a caller-defined success point.
+- Added `CanvasClipScreenshotter` to `megaton_lib.playwright_browser` for report workflows that need fixed-coordinate screenshots relative to a browser-rendered canvas, such as Google Sheets report captures.
 - Made checkout-local CLIs more self-describing by adding shared help formatting, runnable examples, clearer argument metavars, and operational notes to query, audit, notebook, validation, Gmail draft, classification verification, and Data Warehouse helper commands.
 
 ## 2026-05-16 (v0.13.0)

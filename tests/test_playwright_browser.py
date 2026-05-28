@@ -34,14 +34,19 @@ class FakeContext:
     def __init__(self, page: FakePage, *, prepopulated: bool = False) -> None:
         self.pages = [page] if prepopulated else []
         self._page = page
+        self._page.context = self
         self.closed = False
         self.kwargs: dict = {}
+        self.saved_storage_state_path = ""
 
     def new_page(self):
         return self._page
 
     def close(self):
         self.closed = True
+
+    def storage_state(self, *, path):
+        self.saved_storage_state_path = path
 
 
 class FakeBrowser:
@@ -137,6 +142,7 @@ def test_module_imports_without_playwright(monkeypatch):
 
     assert hasattr(mod, "browser_page")
     assert hasattr(mod, "scrape_with_playwright")
+    assert hasattr(mod, "CanvasClipScreenshotter")
 
 
 def test_browser_page_default_uses_launch_and_new_context(monkeypatch):
@@ -175,6 +181,53 @@ def test_browser_page_passes_optional_context_options(monkeypatch):
     }
 
 
+def test_save_storage_state_creates_parent_and_returns_path(tmp_path):
+    page = FakePage()
+    context = FakeContext(page)
+    page.context = context
+    state_path = tmp_path / "tokens" / "state.json"
+
+    result = playwright_browser.save_page_storage_state(page, state_path)
+
+    assert result == state_path
+    assert state_path.parent.exists()
+    assert context.saved_storage_state_path == str(state_path)
+
+
+def test_browser_page_loads_and_saves_storage_state(monkeypatch, tmp_path):
+    pw = _install_fake_sync_playwright(monkeypatch)
+    state_path = tmp_path / "tokens" / "state.json"
+    state_path.parent.mkdir()
+    state_path.write_text("{}", encoding="utf-8")
+
+    with playwright_browser.browser_page(
+        storage_state_path=state_path,
+        save_storage_state=True,
+    ):
+        pass
+
+    assert pw.chromium.browser.new_context_kwargs == {
+        "locale": "ja-JP",
+        "storage_state": str(state_path),
+    }
+    assert pw.chromium.context.saved_storage_state_path == str(state_path)
+
+
+def test_browser_page_creates_parent_when_saving_new_storage_state(monkeypatch, tmp_path):
+    pw = _install_fake_sync_playwright(monkeypatch)
+    state_path = tmp_path / "new" / "state.json"
+
+    with playwright_browser.browser_page(
+        storage_state_path=state_path,
+        save_storage_state=True,
+    ):
+        pass
+
+    assert pw.chromium.browser.new_context_kwargs == {"locale": "ja-JP"}
+    assert state_path.parent.exists()
+    assert pw.chromium.context.saved_storage_state_path == str(state_path)
+
+
 def test_browser_page_with_user_data_dir_uses_persistent_context(monkeypatch, tmp_path):
     pw = _install_fake_sync_playwright(monkeypatch)
     profile = tmp_path / "profile"
@@ -190,6 +243,28 @@ def test_browser_page_with_user_data_dir_uses_persistent_context(monkeypatch, tm
         "locale": "ja-JP",
     }
     assert pw.chromium.persistent_context.closed is True
+
+
+def test_browser_page_with_user_data_dir_can_save_storage_state(monkeypatch, tmp_path):
+    pw = _install_fake_sync_playwright(monkeypatch)
+    profile = tmp_path / "profile"
+    state_path = tmp_path / "tokens" / "state.json"
+    state_path.parent.mkdir()
+    state_path.write_text("{}", encoding="utf-8")
+
+    with playwright_browser.browser_page(
+        user_data_dir=profile,
+        storage_state_path=state_path,
+        save_storage_state=True,
+    ):
+        pass
+
+    assert pw.chromium.launch_persistent_kwargs == {
+        "user_data_dir": str(profile),
+        "headless": True,
+        "locale": "ja-JP",
+    }
+    assert pw.chromium.persistent_context.saved_storage_state_path == str(state_path)
 
 
 def test_browser_page_cleans_up_on_handler_exception(monkeypatch):
@@ -233,6 +308,117 @@ def test_scrape_with_playwright_skips_wait_selector_when_none(monkeypatch):
 
     assert pw.chromium.page.wait_selector_calls == []
     assert pw.chromium.page.goto_calls[0]["wait_until"] == "domcontentloaded"
+
+
+# ---- CanvasClipScreenshotter ----
+
+
+class FakeCanvasLocator:
+    def __init__(self, box: dict | None) -> None:
+        self.first = self
+        self.box = box
+        self.scrolled = False
+        self.clicks: list[dict] = []
+
+    def click(self, *, timeout):
+        self.clicks.append({"timeout": timeout})
+
+    def scroll_into_view_if_needed(self):
+        self.scrolled = True
+
+    def bounding_box(self):
+        return self.box
+
+
+class FakeCanvasPage:
+    def __init__(self, url: str = "about:blank", box: dict | None = None) -> None:
+        self.url = url
+        self.context = None
+        self.box = box or {"x": 10, "y": 20, "width": 1000, "height": 600}
+        self.goto_calls: list[dict] = []
+        self.wait_timeout_calls: list[int] = []
+        self.wait_selector_calls: list[dict] = []
+        self.screenshot_calls: list[dict] = []
+        self.locators: dict[str, FakeCanvasLocator] = {}
+        self.brought_to_front = 0
+
+    def goto(self, url, *, wait_until, timeout):
+        self.url = url
+        self.goto_calls.append({"url": url, "wait_until": wait_until, "timeout": timeout})
+
+    def wait_for_timeout(self, ms):
+        self.wait_timeout_calls.append(ms)
+
+    def wait_for_selector(self, selector, *, state=None, timeout):
+        self.wait_selector_calls.append({"selector": selector, "state": state, "timeout": timeout})
+
+    def locator(self, selector):
+        if selector not in self.locators:
+            self.locators[selector] = FakeCanvasLocator(self.box)
+        return self.locators[selector]
+
+    def screenshot(self, *, path, clip):
+        self.screenshot_calls.append({"path": path, "clip": clip})
+
+    def bring_to_front(self):
+        self.brought_to_front += 1
+
+
+class FakeCanvasContext:
+    def __init__(self, page: FakeCanvasPage) -> None:
+        self.pages = [page]
+        page.context = self
+
+
+@contextmanager
+def _fake_browser_page_context(page: FakeCanvasPage):
+    yield page
+
+
+def test_canvas_clip_screenshotter_captures_canvas_relative_clip(monkeypatch, tmp_path):
+    page = FakeCanvasPage(url="https://docs.google.com/spreadsheets/d/sheet")
+    FakeCanvasContext(page)
+    monkeypatch.setattr(
+        playwright_browser,
+        "browser_page",
+        lambda **kwargs: _fake_browser_page_context(page),
+    )
+
+    with playwright_browser.CanvasClipScreenshotter(screenshot_dir=tmp_path) as shotter:
+        saved = shotter.screenshot_canvas_clip(
+            url="https://docs.google.com/spreadsheets/d/sheet#gid=1",
+            path="clip.png",
+            offset={"x": 5, "y": 7, "width": 300, "height": 120},
+        )
+
+    assert saved == str(tmp_path / "clip.png")
+    assert page.goto_calls == [
+        {
+            "url": "https://docs.google.com/spreadsheets/d/sheet#gid=1",
+            "wait_until": "domcontentloaded",
+            "timeout": 30_000,
+        }
+    ]
+    assert page.screenshot_calls == [
+        {
+            "path": str(tmp_path / "clip.png"),
+            "clip": {"x": 15.0, "y": 27.0, "width": 300.0, "height": 120.0},
+        }
+    ]
+
+
+def test_canvas_clip_screenshotter_fails_closed_when_headless_login_required(monkeypatch, tmp_path):
+    page = FakeCanvasPage(url="https://accounts.google.com/signin")
+    page.context = FakeCanvasContext(page)
+    monkeypatch.setattr(
+        playwright_browser,
+        "browser_page",
+        lambda **kwargs: _fake_browser_page_context(page),
+    )
+
+    with pytest.raises(RuntimeError, match="Login is required"):
+        with playwright_browser.CanvasClipScreenshotter(screenshot_dir=tmp_path, headless=True) as shotter:
+            shotter.open("https://accounts.google.com/signin")
 
 
 # ---- is_port_open ----
@@ -284,7 +470,7 @@ def test_launch_chrome_with_debug_port_invokes_open_command(monkeypatch, tmp_pat
     assert calls[0]["check"] is True
     args = calls[0]["args"]
     assert args[:4] == ["open", "-na", "Google Chrome", "--args"]
-    assert f"--remote-debugging-port=9231" in args
+    assert "--remote-debugging-port=9231" in args
     assert f"--user-data-dir={profile}" in args
     assert args[-1] == "https://example.test/login"
     assert sleeps == [1.5]

@@ -188,6 +188,30 @@ Notes:
 - Adobe Analytics can also auto-detect OAuth JSON files in `ADOBE_CREDS_PATH` or `credentials/`.
 - Adobe OAuth JSON shape: `client_id`, `client_secret`, `org_id` (or `ims_org_id`), optional `scopes`.
 
+## Playwright Browser Helpers
+
+`megaton_lib.playwright_browser` is a lazy-loaded optional Playwright module for browser-only workflows.
+
+Use `browser_page()` when a notebook or analysis repo needs a managed Playwright page with optional storage state, persistent profile, locale, timezone, and viewport settings.
+
+Use `CanvasClipScreenshotter` when a report needs fixed-coordinate screenshots relative to a rendered canvas.
+
+```python
+from megaton_lib.playwright_browser import CanvasClipScreenshotter
+
+with CanvasClipScreenshotter(
+    screenshot_dir="output/clip",
+    storage_state_path="data/google-s.json",
+) as shotter:
+    shotter.screenshot_canvas_clip(
+        url="https://docs.google.com/spreadsheets/d/...#gid=1&range=A1",
+        path="monthly.png",
+        offset={"x": 40, "y": 20, "width": 1200, "height": 500},
+    )
+```
+
+For Google Sheets captures, run headless only after `storage_state_path` contains a valid logged-in session. If login is required, run headful once and let the helper save the refreshed storage state on exit.
+
 ### Adobe Analytics Classifications CLI
 
 Module entrypoint:
@@ -922,8 +946,9 @@ a browser is opened. Install with `pip install -e ".[playwright]"` and run
 
 | Function | Description |
 |----------|-------------|
-| `browser_page(...)` | Context manager that yields a Playwright page using either a fresh context or a persistent `user_data_dir` profile |
+| `browser_page(...)` | Context manager that yields a Playwright page using either a fresh context or a persistent `user_data_dir` profile; can load/save a `storage_state_path` JSON |
 | `scrape_with_playwright(url, handler=..., ...)` | Open a URL, optionally wait for a selector, and return `handler(page)` |
+| `save_page_storage_state(page, storage_state_path)` | Save the current page context storage state at a caller-controlled safe timing |
 | `is_port_open(port, host="127.0.0.1", ...)` | Probe whether a local TCP port is accepting connections |
 | `launch_chrome_with_debug_port(...)` | macOS-only helper that opens Google Chrome with `--remote-debugging-port` for CDP attach |
 | `find_or_open_page(context, url, ...)` | Reuse an existing page whose URL starts with `url`, or open and navigate a new page |
