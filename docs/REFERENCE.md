@@ -912,6 +912,23 @@ Notes:
   `Pillow`). The CAPY exports are loaded lazily so other
   `megaton_lib.validation` imports do not require those packages.
 
+### Browser Scraping Helpers (`megaton_lib.playwright_browser`)
+
+Use these helpers for scraping or semi-manual browser workflows that are not
+AA/Tags validation runs. They lazy-load Playwright, so importing
+`megaton_lib.playwright_browser` does not require the optional dependency until
+a browser is opened. Install with `pip install -e ".[playwright]"` and run
+`playwright install chromium` before use.
+
+| Function | Description |
+|----------|-------------|
+| `browser_page(...)` | Context manager that yields a Playwright page using either a fresh context or a persistent `user_data_dir` profile |
+| `scrape_with_playwright(url, handler=..., ...)` | Open a URL, optionally wait for a selector, and return `handler(page)` |
+| `is_port_open(port, host="127.0.0.1", ...)` | Probe whether a local TCP port is accepting connections |
+| `launch_chrome_with_debug_port(...)` | macOS-only helper that opens Google Chrome with `--remote-debugging-port` for CDP attach |
+| `find_or_open_page(context, url, ...)` | Reuse an existing page whose URL starts with `url`, or open and navigate a new page |
+| `connected_browser_page(cdp_url, ...)` | Context manager that attaches to an existing Chrome over CDP and yields a page |
+
 #### Adobe Tags Launch Override
 
 Use `TagsLaunchOverride` when you need to test a site against a different Adobe Tags

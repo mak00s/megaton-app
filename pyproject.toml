@@ -31,6 +31,9 @@ notebook = [
     "matplotlib",
     "plotly",
 ]
+playwright = [
+    "playwright>=1.40",
+]
 ui = [
     "plotly",
     "streamlit",
