@@ -5,20 +5,26 @@ from pathlib import Path
 
 from megaton_lib.validation.storefront_runtime import (
     JST,
+    CapturedBeacons,
     DEFAULT_CAPTCHA_SELECTORS,
     StorefrontCheckoutState,
+    analytics_satisfies_requirements,
+    analytics_value_matches,
     append_pending_verification_task,
     append_unique_checkpoint,
     attempt_cart_checkout_entry,
     build_storefront_checkpoint,
     capture_storefront_checkpoint,
+    get_analytics_path,
     is_login_form_page,
     load_storefront_session_cookies,
     next_aa_reflection_time,
+    parse_analytics_path,
     perform_storefront_login,
     record_checkout_stage,
     run_storefront_validation_session,
     save_storefront_session_cookies,
+    summarize_failed_analytics_requirements,
     wait_until_login_completed,
     write_progress_json,
 )
@@ -66,6 +72,80 @@ def test_next_aa_reflection_time_rounds_to_next_batch() -> None:
     now = datetime(2026, 3, 28, 10, 12, 34, tzinfo=JST)
     due_at = next_aa_reflection_time(now)
     assert due_at.isoformat() == "2026-03-28T11:00:00+09:00"
+
+
+def test_parse_and_get_analytics_path_supports_list_indexes() -> None:
+    data = {"productListItems": [{"SKU": "sku-1"}], "merchandisingEVars": {"item": [{"eVar8": "M"}]}}
+
+    assert parse_analytics_path("productListItems[0].SKU") == ["productListItems", 0, "SKU"]
+    assert get_analytics_path(data, "productListItems[0].SKU") == "sku-1"
+    assert get_analytics_path(data, "merchandisingEVars.item[0].eVar8") == "M"
+    assert get_analytics_path(data, "productListItems[1].SKU") is None
+
+
+def test_analytics_value_matching_and_requirement_diagnostics() -> None:
+    analytics = {"pageName": "cart", "events": {"event11": {"value": 1}}, "items": ["a", "b"]}
+    requirements = [
+        {"key": "pageName", "op": "matches", "value": "cart"},
+        {"key": "items", "op": "contains", "value": "b"},
+        {"key": "events.event12.value", "op": "exists"},
+    ]
+
+    assert analytics_value_matches("abc", "contains", "b") is True
+    assert analytics_value_matches(None, "empty") is True
+    assert analytics_satisfies_requirements(analytics, requirements[:2]) is True
+    assert analytics_satisfies_requirements(analytics, requirements) is False
+    assert summarize_failed_analytics_requirements(analytics, requirements) == [
+        {"key": "events.event12.value", "op": "exists", "expected": None, "actual": None}
+    ]
+
+
+def test_captured_beacons_find_matching_picks_richest_matching_event() -> None:
+    beacons = CapturedBeacons()
+    beacons.add(
+        "https://edge.adobedc.net/ee/collect",
+        {
+            "events": [
+                {
+                    "xdm": {
+                        "eventType": "commerce.productViews",
+                        "web": {"webPageDetails": {"name": "product/detail"}},
+                        "productListItems": [
+                            {
+                                "SKU": "sku-1",
+                                "quantity": 1,
+                                "_experience": {
+                                    "analytics": {
+                                        "customDimensions": {"eVars": {"eVar8": "color-red"}}
+                                    }
+                                },
+                            }
+                        ],
+                        "_experience": {"analytics": {"customDimensions": {"eVars": {"eVar1": "page"}}}},
+                    },
+                },
+                {
+                    "xdm": {
+                        "eventType": "commerce.productViews",
+                        "web": {"webPageDetails": {"name": "product/detail"}},
+                    },
+                },
+            ]
+        },
+    )
+
+    rejected: list[dict] = []
+    match = beacons.find_matching(
+        page_name_pattern="product",
+        event_type="commerce.productViews",
+        requirements=[{"key": "productListItems[0].SKU", "op": "equals", "value": "sku-1"}],
+        rejected_candidates=rejected,
+    )
+
+    assert match is not None
+    assert match["productListItems"][0]["SKU"] == "sku-1"
+    assert get_analytics_path(match, "merchandisingEVars.item[0].eVar8") == "color-red"
+    assert rejected
 
 
 class _FakeLocator:

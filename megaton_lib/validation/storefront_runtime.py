@@ -20,6 +20,42 @@ from .adobe_analytics import dump_digital_data
 from .followups import JST, append_pending_verification_task, next_aa_reflection_time
 from .playwright_pages import run_page_session
 ADOBE_BEACON_HOSTS = ("edge.adobedc.net", "s-adobe.wacoal.jp")
+DEFAULT_BEACON_SCORE_PATHS = (
+    "commerce.productViews.value",
+    "commerce.productListAdds.value",
+    "commerce.productListViews.value",
+    "commerce.purchases.value",
+    "commerce.order.purchaseID",
+    "events.event11.value",
+    "events.event12.value",
+    "events.event13.value",
+    "events.event14.value",
+    "events.event15.value",
+    "events.event16.value",
+    "events.event17.value",
+    "props.prop5",
+    "props.prop6",
+    "props.prop8",
+    "props.prop9",
+    "props.prop34",
+    "props.prop74",
+    "eVars.eVar1",
+    "eVars.eVar55",
+    "eVars.eVar61",
+    "productListItems[0].SKU",
+    "productListItems[0].quantity",
+    "productListItems[0].priceTotal",
+    "merchandisingEVars.item[0].eVar8",
+    "merchandisingEVars.item[0].eVar9",
+    "merchandisingEVars.item[0].eVar23",
+    "merchandisingEVars.item[0].eVar24",
+    "merchandisingEVars.item[0].eVar63",
+    "merchandisingEVars.item[0].eVar64",
+    "merchandisingEVars.item[0].eVar65",
+    "merchandisingEVars.item[0].eVar68",
+    "productListItems[0]._experience.analytics.customDimensions.eVars.eVar24",
+    "productListItems[0]._experience.analytics.customDimensions.eVars.eVar68",
+)
 DEFAULT_CAPTCHA_SELECTORS = (
     ".g-recaptcha",
     "iframe[src*='recaptcha']",
@@ -29,6 +65,111 @@ DEFAULT_CAPTCHA_SELECTORS = (
     "#captcha",
     ".captcha",
 )
+
+
+def parse_analytics_path(path: str) -> list[Any]:
+    """Parse a dotted analytics path with optional ``[index]`` list access."""
+    tokens: list[Any] = []
+    for part in path.split("."):
+        while "[" in part:
+            before, after = part.split("[", 1)
+            if before:
+                tokens.append(before)
+            idx, part = after.split("]", 1)
+            tokens.append(int(idx))
+            if part.startswith("."):
+                part = part[1:]
+        if part:
+            tokens.append(part)
+    return tokens
+
+
+def get_analytics_path(data: Any, path: str) -> Any:
+    """Resolve a dotted/list path from extracted analytics data."""
+    current = data
+    for token in parse_analytics_path(path):
+        if isinstance(token, int):
+            if not isinstance(current, list) or token >= len(current):
+                return None
+            current = current[token]
+            continue
+        if not isinstance(current, dict) or token not in current:
+            return None
+        current = current[token]
+    return current
+
+
+def analytics_value_matches(actual: Any, op: str, expected: Any = None) -> bool:
+    """Evaluate a small assertion against an extracted analytics value."""
+    if op == "exists":
+        return actual not in (None, "", [], {})
+    if op == "empty":
+        return actual in (None, "", [], {})
+    if op == "equals":
+        return actual == expected
+    if op in {"contains", "includes"}:
+        if isinstance(actual, list):
+            return expected in actual
+        return actual is not None and str(expected) in str(actual)
+    if op == "matches":
+        return actual is not None and re.search(str(expected), str(actual)) is not None
+    return False
+
+
+def analytics_satisfies_requirements(
+    analytics: Mapping[str, Any], requirements: Sequence[Mapping[str, Any]] | None
+) -> bool:
+    """Return whether extracted analytics satisfies all required path checks."""
+    if not requirements:
+        return True
+    for requirement in requirements:
+        key = str(requirement.get("key", ""))
+        op = str(requirement.get("op", "exists"))
+        expected = requirement.get("value")
+        actual = get_analytics_path(analytics, key) if key else analytics
+        if not analytics_value_matches(actual, op, expected):
+            return False
+    return True
+
+
+def summarize_failed_analytics_requirements(
+    analytics: Mapping[str, Any], requirements: Sequence[Mapping[str, Any]] | None
+) -> list[dict[str, Any]]:
+    """Return compact diagnostics for required path checks that failed."""
+    failures: list[dict[str, Any]] = []
+    for requirement in requirements or []:
+        key = str(requirement.get("key", ""))
+        op = str(requirement.get("op", "exists"))
+        expected = requirement.get("value")
+        actual = get_analytics_path(analytics, key) if key else analytics
+        if analytics_value_matches(actual, op, expected):
+            continue
+        failures.append(
+            {
+                "key": key,
+                "op": op,
+                "expected": expected,
+                "actual": actual,
+            }
+        )
+    return failures
+
+
+def summarize_rejected_beacon_candidate(
+    analytics: Mapping[str, Any], requirements: Sequence[Mapping[str, Any]] | None
+) -> dict[str, Any]:
+    """Return a compact record explaining why a beacon candidate was skipped."""
+    return {
+        "pageName": analytics.get("pageName", ""),
+        "eventType": analytics.get("eventType", ""),
+        "currentTime": analytics.get("currentTime", ""),
+        "events": analytics.get("events", {}),
+        "commerce": analytics.get("commerce", {}),
+        "eVars": analytics.get("eVars", {}),
+        "props": analytics.get("props", {}),
+        "merchandisingEVars": analytics.get("merchandisingEVars", {}),
+        "failedRequirements": summarize_failed_analytics_requirements(analytics, requirements),
+    }
 
 
 @dataclass
@@ -53,6 +194,58 @@ class CapturedBeacons:
                 if page_name and re.search(pattern, page_name):
                     return self._extract_analytics(event)
         return None
+
+    def find_matching(
+        self,
+        *,
+        page_name_pattern: str = "",
+        event_type: str = "",
+        requirements: Sequence[Mapping[str, Any]] | None = None,
+        start_index: int = 0,
+        rejected_candidates: list[dict[str, Any]] | None = None,
+        rejected_limit: int = 20,
+        score_paths: Sequence[str] = DEFAULT_BEACON_SCORE_PATHS,
+    ) -> dict[str, Any] | None:
+        """Find the richest captured beacon matching page/event/required fields."""
+        best_match: dict[str, Any] | None = None
+        best_score = -1
+
+        def score_match(analytics: Mapping[str, Any]) -> int:
+            score = 0
+            for key in ("pageName", "eventType", "products", "renkeiid"):
+                if analytics.get(key):
+                    score += 2
+            for path in score_paths:
+                if get_analytics_path(analytics, path) not in (None, "", [], {}):
+                    score += 3
+            return score
+
+        for beacon in reversed(self.beacons[start_index:]):
+            body = beacon.get("body")
+            if not isinstance(body, dict):
+                continue
+            for event in reversed(body.get("events", [])):
+                analytics = self._extract_analytics(event)
+                page_name = analytics.get("pageName", "")
+                current_event_type = analytics.get("eventType", "")
+                if page_name_pattern and not re.search(page_name_pattern, page_name):
+                    continue
+                if event_type and event_type != current_event_type:
+                    continue
+                if not analytics_satisfies_requirements(analytics, requirements):
+                    if (
+                        rejected_candidates is not None
+                        and len(rejected_candidates) < rejected_limit
+                    ):
+                        rejected_candidates.append(
+                            summarize_rejected_beacon_candidate(analytics, requirements)
+                        )
+                    continue
+                score = score_match(analytics)
+                if score > best_score:
+                    best_score = score
+                    best_match = analytics
+        return best_match
 
     def _extract_analytics(self, event: dict[str, Any]) -> dict[str, Any]:
         """Extract page-level analytics details from one edge event."""
@@ -91,18 +284,17 @@ class CapturedBeacons:
         if xdm.get("productListItems"):
             items = xdm["productListItems"]
             result["productListItems"] = items
-            merch: dict[str, dict[str, Any]] = {}
-            for idx, item in enumerate(items):
+            merch_items: list[dict[str, Any]] = []
+            for item in items:
                 item_evars = (
                     item.get("_experience", {})
                     .get("analytics", {})
                     .get("customDimensions", {})
                     .get("eVars", {})
                 )
-                if item_evars:
-                    merch[f"item[{idx}]"] = item_evars
-            if merch:
-                result["merchandisingEVars"] = merch
+                merch_items.append(item_evars if isinstance(item_evars, dict) else {})
+            if any(merch_items):
+                result["merchandisingEVars"] = {"item": merch_items}
 
         identity_map = xdm.get("identityMap", {})
         renkeiid_list = identity_map.get("renkeiid", [])
@@ -479,6 +671,113 @@ def _parse_request_json(request) -> dict[str, Any] | None:
     return json.loads(body.decode())
 
 
+def extract_matching_analytics_from_request(
+    request: Any,
+    beacons: CapturedBeacons,
+    *,
+    page_name_pattern: str = "",
+    event_type: str = "",
+    requirements: Sequence[Mapping[str, Any]] | None = None,
+    beacon_hosts: Sequence[str] = ADOBE_BEACON_HOSTS,
+    rejected_candidates: list[dict[str, Any]] | None = None,
+    rejected_limit: int = 20,
+) -> dict[str, Any] | None:
+    """Extract the first analytics event in a request that matches criteria."""
+    if not _matches_any_host(request.url, beacon_hosts):
+        return None
+    parsed = _parse_request_json(request)
+    if not parsed:
+        return None
+    for event in parsed.get("events", []):
+        xdm = event.get("xdm", {})
+        page_name = xdm.get("web", {}).get("webPageDetails", {}).get("name", "")
+        current_event_type = xdm.get("eventType", "")
+        if page_name_pattern and not re.search(page_name_pattern, page_name):
+            continue
+        if event_type and event_type != current_event_type:
+            continue
+        analytics = beacons._extract_analytics(event)  # noqa: SLF001
+        if not analytics_satisfies_requirements(analytics, requirements):
+            if rejected_candidates is not None and len(rejected_candidates) < rejected_limit:
+                rejected_candidates.append(
+                    summarize_rejected_beacon_candidate(analytics, requirements)
+                )
+            continue
+        return analytics
+    return None
+
+
+def wait_for_matching_beacon(
+    page: Page,
+    beacons: CapturedBeacons,
+    *,
+    page_name_pattern: str = "",
+    event_type: str = "",
+    requirements: Sequence[Mapping[str, Any]] | None = None,
+    start_index: int = 0,
+    timeout_ms: int = 0,
+    label: str = "beacon match",
+    timeout_exc_type: type[Exception],
+    heartbeat_ms: int = 5000,
+    beacon_hosts: Sequence[str] = ADOBE_BEACON_HOSTS,
+    rejected_candidates: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Wait for an Adobe beacon matching page/event/required extracted fields."""
+    already = beacons.find_matching(
+        page_name_pattern=page_name_pattern,
+        event_type=event_type,
+        requirements=requirements,
+        start_index=start_index,
+        rejected_candidates=rejected_candidates,
+    )
+    if already:
+        return already
+    if timeout_ms <= 0:
+        return None
+
+    captured: list[dict[str, Any]] = []
+
+    def _request_matches(request: Any) -> bool:
+        try:
+            analytics = extract_matching_analytics_from_request(
+                request,
+                beacons,
+                page_name_pattern=page_name_pattern,
+                event_type=event_type,
+                requirements=requirements,
+                beacon_hosts=beacon_hosts,
+                rejected_candidates=rejected_candidates,
+            )
+        except Exception:
+            return False
+        if not analytics:
+            return False
+        captured.append(analytics)
+        return True
+
+    wait_for_condition_with_heartbeat(
+        lambda slice_ms: page.context.wait_for_event(
+            "request",
+            predicate=_request_matches,
+            timeout=slice_ms,
+        ),
+        timeout_ms=timeout_ms,
+        label=label,
+        timeout_exc_type=timeout_exc_type,
+        heartbeat_ms=heartbeat_ms,
+    )
+
+    if captured:
+        return captured[0]
+    return beacons.find_matching(
+        page_name_pattern=page_name_pattern,
+        event_type=event_type,
+        requirements=requirements,
+        start_index=start_index,
+        rejected_candidates=rejected_candidates,
+    )
+
+
 def _extract_ecid_from_interact_response(
     response,
     *,
@@ -632,24 +931,31 @@ def run_storefront_validation_session(
 __all__ = [
     "ADOBE_BEACON_HOSTS",
     "CapturedBeacons",
+    "DEFAULT_BEACON_SCORE_PATHS",
     "DEFAULT_CAPTCHA_SELECTORS",
     "StorefrontCheckoutState",
     "JST",
+    "analytics_satisfies_requirements",
+    "analytics_value_matches",
     "append_pending_verification_task",
     "append_unique_checkpoint",
     "attempt_cart_checkout_entry",
     "build_storefront_checkpoint",
     "capture_storefront_checkpoint",
     "dump_digital_data",
+    "get_analytics_path",
     "is_login_form_page",
     "load_json_credentials",
     "load_storefront_session_cookies",
     "next_aa_reflection_time",
+    "parse_analytics_path",
     "perform_storefront_login",
     "record_checkout_stage",
     "run_storefront_validation_session",
     "save_storefront_session_cookies",
     "setup_storefront_validation_page",
+    "summarize_failed_analytics_requirements",
+    "summarize_rejected_beacon_candidate",
     "wait_until_login_completed",
     "wait_for_condition_with_heartbeat",
     "write_progress_json",

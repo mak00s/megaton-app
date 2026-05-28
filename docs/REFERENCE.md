@@ -846,6 +846,10 @@ Notes:
 | `select_headers(headers)` | Keep stable request/response headers for debug output |
 | `extract_mbox_names(payload)` | Extract Target delivery mbox names from request payload |
 | `PageEventCapture(...)` | Collect Playwright console logs, page errors, failed requests, and Target delivery calls |
+| `CapturedBeacons.find_matching(...)` | Find the richest captured Adobe Edge beacon matching pageName/event/required analytics fields |
+| `get_analytics_path(data, path)` | Resolve dotted analytics paths with list indexes such as `productListItems[0].SKU` |
+| `analytics_satisfies_requirements(analytics, requirements)` | Evaluate compact `key`/`op`/`value` requirements against extracted analytics data |
+| `summarize_failed_analytics_requirements(...)` | Return compact diagnostics for failed analytics requirements |
 | `GtmPreviewOverride(...)` | Describe how GTM container requests should be routed to a workspace preview |
 | `TagsLaunchOverride(...)` | Describe how Adobe Tags launch assets should be replaced during Playwright runs |
 | `build_gtm_preview_override(config, ...)` | Build GTM preview override config from Tag Assistant URL or raw params |
