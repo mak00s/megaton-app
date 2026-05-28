@@ -368,6 +368,8 @@ class AdobeAnalyticsClient:
                     errors=column_errors,
                 )
                 if warning_text not in warned_column_errors:
+                    # Intentionally use warnings.warn so notebook / pytest callers see
+                    # report column API issues inline; batch-only fallbacks use logging.
                     warnings.warn(warning_text, RuntimeWarning, stacklevel=2)
                     warned_column_errors.add(warning_text)
 

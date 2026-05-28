@@ -185,10 +185,21 @@ def _wait_for_capy_puzzle_boxes(
     last: dict[str, Any] = {}
 
     while True:
+        remaining_ms = int((deadline - time.monotonic()) * 1000)
+        if remaining_ms <= 0:
+            raise RuntimeError(f"CAPY puzzle elements were not measurable: {last}")
+        wait_ms = min(poll_ms, remaining_ms)
+
         try:
-            capy_box = capy.bounding_box()
-            image_box = page.locator(image_area_selector).first.bounding_box()
-            piece_box = page.locator(piece_selector).first.bounding_box()
+            capy_box = _locator_bounding_box(capy, timeout_ms=wait_ms)
+            image_box = _locator_bounding_box(
+                page.locator(image_area_selector).first,
+                timeout_ms=wait_ms,
+            )
+            piece_box = _locator_bounding_box(
+                page.locator(piece_selector).first,
+                timeout_ms=wait_ms,
+            )
         except RuntimeError:
             raise
         except Exception as exc:
@@ -207,16 +218,19 @@ def _wait_for_capy_puzzle_boxes(
                 "piece_box": _box_diagnostics(piece_box),
             },
         )
-        remaining_ms = int((deadline - time.monotonic()) * 1000)
-        if remaining_ms <= 0:
-            raise RuntimeError(f"CAPY puzzle elements were not measurable: {last}")
-        wait_ms = min(poll_ms, remaining_ms)
         try:
             page.wait_for_timeout(wait_ms)
         except RuntimeError:
             raise
         except Exception:
             time.sleep(wait_ms / 1000)
+
+
+def _locator_bounding_box(locator: Any, *, timeout_ms: int) -> dict[str, float] | None:
+    try:
+        return locator.bounding_box(timeout=timeout_ms)
+    except TypeError:
+        return locator.bounding_box()
 
 
 def _is_measurable_box(box: Any) -> bool:
