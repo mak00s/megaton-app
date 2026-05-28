@@ -78,7 +78,7 @@ class _FakeMouse:
 
 
 class _FakeSolveLocator:
-    def __init__(self, box: dict[str, float]) -> None:
+    def __init__(self, box: dict[str, float] | None) -> None:
         self.first = self
         self.box = box
         self.waited = False
@@ -87,11 +87,22 @@ class _FakeSolveLocator:
         _ = timeout
         self.waited = True
 
-    def bounding_box(self) -> dict[str, float]:
+    def bounding_box(self) -> dict[str, float] | None:
         return self.box
 
     def screenshot(self) -> bytes:
         return b"png"
+
+
+class _FakeSequenceSolveLocator(_FakeSolveLocator):
+    def __init__(self, boxes: list[dict[str, float] | None]) -> None:
+        super().__init__(boxes[-1])
+        self.boxes = boxes
+
+    def bounding_box(self) -> dict[str, float] | None:
+        if len(self.boxes) > 1:
+            return self.boxes.pop(0)
+        return self.boxes[0]
 
 
 class _FakeSolvePage:
@@ -231,6 +242,38 @@ def test_solve_capy_centers_puzzle_before_calculating_drag(monkeypatch) -> None:
         ("move", 200, 260),
         ("up", None, None),
     ]
+
+
+def test_solve_capy_waits_until_puzzle_geometry_is_measurable(monkeypatch) -> None:
+    import megaton_lib.validation.capy as mod
+
+    page = _FakeSolvePage()
+    page.locators['[id$="image-area"]'] = _FakeSequenceSolveLocator(
+        [
+            None,
+            {"x": 100, "y": 200, "width": 300, "height": 200},
+        ],
+    )
+    page.locators['[id$="pieces"] > div'] = _FakeSequenceSolveLocator(
+        [
+            {"x": 0, "y": 0, "width": 0, "height": 0},
+            {"x": 420, "y": 230, "width": 80, "height": 80},
+        ],
+    )
+    monkeypatch.setattr(mod, "_read_png_bytes", lambda _data: np.zeros((200, 400, 3), dtype=int))
+    monkeypatch.setattr(mod, "_largest_component", lambda _mask: (1200, 80, 40, 120, 80))
+
+    result = solve_capy_puzzle(
+        page,
+        timeout_ms=1000,
+        screenshot_settle_ms=0,
+        settle_ms=0,
+        drag_steps=3,
+    )
+
+    assert page.wait_calls == [100, 100]
+    assert result.solved is True
+    assert page.mouse.events[-2:] == [("move", 200, 260), ("up", None, None)]
 
 
 def test_solve_capy_raises_with_diagnostics_when_drag_source_misses_piece(monkeypatch) -> None:

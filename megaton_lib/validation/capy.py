@@ -118,11 +118,13 @@ def solve_capy_puzzle(
     _scroll_capy_to_viewport_center(page, captcha_selector, timeout_ms=timeout_ms)
     if screenshot_settle_ms > 0:
         page.wait_for_timeout(screenshot_settle_ms)
-    image_box = page.locator(image_area_selector).first.bounding_box()
-    capy_box = capy.bounding_box()
-    piece_box = page.locator(piece_selector).first.bounding_box()
-    if not image_box or not capy_box or not piece_box:
-        raise RuntimeError("CAPY puzzle elements were not measurable")
+    capy_box, image_box, piece_box = _wait_for_capy_puzzle_boxes(
+        page,
+        capy=capy,
+        image_area_selector=image_area_selector,
+        piece_selector=piece_selector,
+        timeout_ms=timeout_ms,
+    )
 
     image = _read_png_bytes(capy.screenshot())[:, :, :3].astype(int)
     main = image[:, : int(round(image_box["width"])), :]
@@ -167,6 +169,73 @@ def solve_capy_puzzle(
         answered=answer_value_present,
         answer_value_present=answer_value_present,
     )
+
+
+def _wait_for_capy_puzzle_boxes(
+    page: Page,
+    *,
+    capy: Any,
+    image_area_selector: str,
+    piece_selector: str,
+    timeout_ms: int,
+    poll_ms: int = 100,
+) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
+    """Wait until CAPY has finished loading and all drag geometry is measurable."""
+    deadline = time.monotonic() + (timeout_ms / 1000)
+    last: dict[str, Any] = {}
+
+    while True:
+        try:
+            capy_box = capy.bounding_box()
+            image_box = page.locator(image_area_selector).first.bounding_box()
+            piece_box = page.locator(piece_selector).first.bounding_box()
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            capy_box = image_box = piece_box = None
+            last = {"error": str(exc)}
+
+        if _is_measurable_box(capy_box) and _is_measurable_box(image_box) and _is_measurable_box(
+            piece_box,
+        ):
+            return capy_box, image_box, piece_box
+
+        last.update(
+            {
+                "capy_box": _box_diagnostics(capy_box),
+                "image_box": _box_diagnostics(image_box),
+                "piece_box": _box_diagnostics(piece_box),
+            },
+        )
+        remaining_ms = int((deadline - time.monotonic()) * 1000)
+        if remaining_ms <= 0:
+            raise RuntimeError(f"CAPY puzzle elements were not measurable: {last}")
+        wait_ms = min(poll_ms, remaining_ms)
+        try:
+            page.wait_for_timeout(wait_ms)
+        except RuntimeError:
+            raise
+        except Exception:
+            time.sleep(wait_ms / 1000)
+
+
+def _is_measurable_box(box: Any) -> bool:
+    return bool(
+        isinstance(box, dict)
+        and float(box.get("width") or 0) > 0
+        and float(box.get("height") or 0) > 0
+    )
+
+
+def _box_diagnostics(box: Any) -> dict[str, float] | None:
+    if not isinstance(box, dict):
+        return None
+    return {
+        "x": float(box.get("x") or 0),
+        "y": float(box.get("y") or 0),
+        "width": float(box.get("width") or 0),
+        "height": float(box.get("height") or 0),
+    }
 
 
 def _validate_drag_source(

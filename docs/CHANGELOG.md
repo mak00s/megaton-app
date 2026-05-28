@@ -4,6 +4,9 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+- Warn when Adobe Analytics report rows omit expected columns instead of failing with opaque downstream errors.
+- Hardened `ClassificationsClient.import_classification_chunked()` by sanitizing chunk filenames and retrying transient chunk upload failures.
+- Improved CAPY validation helpers with answer-token detection, viewport centering, drag-source validation diagnostics, and storefront login handling for solved CAPY challenges.
 - Added richer Adobe Edge beacon matching helpers to storefront validation, including analytics path requirements and rejected-candidate diagnostics.
 - Added `megaton_lib.playwright_browser`, a lazy-loaded optional Playwright helper module for browser scraping, persistent-profile runs, macOS Chrome debug-port launch, and CDP attach workflows.
 - Added `storage_state_path` and `save_storage_state` support to `megaton_lib.playwright_browser.browser_page()` / `scrape_with_playwright()` so consuming repos can reuse login state without hand-rolling browser context setup.

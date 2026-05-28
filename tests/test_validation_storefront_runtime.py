@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from megaton_lib.validation.storefront_runtime import (
     attempt_cart_checkout_entry,
     build_storefront_checkpoint,
     capture_storefront_checkpoint,
+    extract_matching_analytics_from_request,
     get_analytics_path,
     is_login_form_page,
     load_storefront_session_cookies,
@@ -25,6 +27,7 @@ from megaton_lib.validation.storefront_runtime import (
     run_storefront_validation_session,
     save_storefront_session_cookies,
     summarize_failed_analytics_requirements,
+    summarize_rejected_beacon_candidate,
     wait_until_login_completed,
     write_progress_json,
 )
@@ -146,6 +149,91 @@ def test_captured_beacons_find_matching_picks_richest_matching_event() -> None:
     assert match["productListItems"][0]["SKU"] == "sku-1"
     assert get_analytics_path(match, "merchandisingEVars.item[0].eVar8") == "color-red"
     assert rejected
+
+
+class _FakeRequest:
+    def __init__(
+        self,
+        body: str,
+        url: str = "https://s-adobe.wacoal.jp/ee/jpn3/v1/interact",
+    ) -> None:
+        self.url = url
+        self.post_data = body
+
+
+def _edge_body(page_name: str = "stg-store:/disp/viewCartLink") -> str:
+    return json.dumps(
+        {
+            "events": [
+                {
+                    "xdm": {
+                        "eventType": "web.webPageDetails.pageViews",
+                        "web": {"webPageDetails": {"name": page_name}},
+                        "_experience": {"analytics": {"event1to100": {"event13": {"value": 1}}}},
+                        "commerce": {"productListViews": {"value": 1}},
+                        "productListItems": [
+                            {
+                                "SKU": "null",
+                                "_experience": {
+                                    "analytics": {
+                                        "customDimensions": {
+                                            "eVars": {"eVar24": "S", "eVar68": "code1"}
+                                        }
+                                    }
+                                },
+                            }
+                        ],
+                    },
+                    "data": {"currentTime": "12:34:56"},
+                }
+            ]
+        }
+    )
+
+
+def test_extract_matching_analytics_from_request_filters_required_fields() -> None:
+    beacons = CapturedBeacons()
+
+    match = extract_matching_analytics_from_request(
+        _FakeRequest(_edge_body()),
+        beacons,
+        page_name_pattern="viewCartLink",
+        event_type="web.webPageDetails.pageViews",
+        requirements=[
+            {"key": "events.event13.value", "op": "equals", "value": 1},
+            {
+                "key": "productListItems[0]._experience.analytics.customDimensions.eVars.eVar68",
+                "op": "equals",
+                "value": "code1",
+            },
+        ],
+    )
+
+    assert match is not None
+    assert match["currentTime"] == "12:34:56"
+    assert match["merchandisingEVars"]["item"][0]["eVar24"] == "S"
+
+
+def test_extract_matching_analytics_from_request_returns_rejection_diagnostics() -> None:
+    beacons = CapturedBeacons()
+    requirements = [{"key": "events.event13.value", "op": "equals", "value": 2}]
+    rejected: list[dict[str, object]] = []
+
+    match = extract_matching_analytics_from_request(
+        _FakeRequest(_edge_body()),
+        beacons,
+        page_name_pattern="viewCartLink",
+        event_type="web.webPageDetails.pageViews",
+        requirements=requirements,
+        rejected_candidates=rejected,
+    )
+
+    assert match is None
+    expected = summarize_rejected_beacon_candidate(
+        beacons._extract_analytics(json.loads(_edge_body())["events"][0]),
+        requirements,
+    )
+    assert rejected == [expected]
 
 
 class _FakeLocator:
