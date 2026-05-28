@@ -4,6 +4,7 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+- Added richer Adobe Edge beacon matching helpers to storefront validation, including analytics path requirements and rejected-candidate diagnostics.
 - Made checkout-local CLIs more self-describing by adding shared help formatting, runnable examples, clearer argument metavars, and operational notes to query, audit, notebook, validation, Gmail draft, classification verification, and Data Warehouse helper commands.
 
 ## 2026-05-16 (v0.13.0)
