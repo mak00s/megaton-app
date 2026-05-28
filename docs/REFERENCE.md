@@ -871,6 +871,8 @@ Notes:
 | `extract_mbox_names(payload)` | Extract Target delivery mbox names from request payload |
 | `PageEventCapture(...)` | Collect Playwright console logs, page errors, failed requests, and Target delivery calls |
 | `CapturedBeacons.find_matching(...)` | Find the richest captured Adobe Edge beacon matching pageName/event/required analytics fields |
+| `extract_matching_analytics_from_request(request, beacons, ...)` | Extract the first matching Adobe Edge analytics event from one Playwright request |
+| `wait_for_matching_beacon(page, beacons, ...)` | Wait for a captured or future Adobe Edge beacon that matches pageName/event/required analytics fields |
 | `get_analytics_path(data, path)` | Resolve dotted analytics paths with list indexes such as `productListItems[0].SKU` |
 | `analytics_satisfies_requirements(analytics, requirements)` | Evaluate compact `key`/`op`/`value` requirements against extracted analytics data |
 | `summarize_failed_analytics_requirements(...)` | Return compact diagnostics for failed analytics requirements |
