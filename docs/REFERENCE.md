@@ -194,7 +194,11 @@ Notes:
 
 Use `browser_page()` when a notebook or analysis repo needs a managed Playwright page with optional storage state, persistent profile, locale, timezone, and viewport settings.
 
+Use `async_browser_page()` for existing async Playwright flows such as Box UI upload/download or Looker Studio export. It supports the same storage state, persistent profile, browser channel, launch args, downloads, device emulation, locale, timezone, and viewport options.
+
 Use `CanvasClipScreenshotter` when a report needs fixed-coordinate screenshots relative to a rendered canvas.
+
+Use `wait_for_url_not_contains()` / `async_wait_for_url_not_contains()` for headed login handoff flows where automation should wait until a login provider URL disappears.
 
 ```python
 from megaton_lib.playwright_browser import CanvasClipScreenshotter
@@ -211,6 +215,19 @@ with CanvasClipScreenshotter(
 ```
 
 For Google Sheets captures, run headless only after `storage_state_path` contains a valid logged-in session. If login is required, run headful once and let the helper save the refreshed storage state on exit.
+
+## Box UI Helpers
+
+`megaton_lib.box_ui` contains shared Playwright web-UI helpers for Box download/upload workflows used by report notebooks.
+
+Primary functions:
+
+| Function | Description |
+|---|---|
+| `download_from_box()` | Log in to a Box file/folder URL and download the current item. |
+| `upload_file_to_box_folder_via_ui()` | Log in, open/create an optional subfolder, upload one file, and optionally create a shared link. |
+| `upload_files_to_box_folder_via_ui()` | Upload multiple files in one Box browser session. |
+| `upload_file_to_box_folder_via_ui_sync()` | Synchronous wrapper for notebook/report code. |
 
 ### Adobe Analytics Classifications CLI
 

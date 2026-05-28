@@ -30,11 +30,12 @@ import socket
 import subprocess
 import time
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from playwright.async_api import Page as AsyncPage
     from playwright.sync_api import BrowserContext, Page
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,14 @@ def _load_sync_playwright() -> Any:
     return sync_playwright
 
 
+def _load_async_playwright() -> Any:
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError as exc:  # pragma: no cover - exercised when extras missing
+        raise RuntimeError(_PLAYWRIGHT_MISSING_MSG) from exc
+    return async_playwright
+
+
 def save_page_storage_state(page: Page, storage_state_path: str | Path) -> Path:
     """Persist the current Playwright context storage_state and return the path.
 
@@ -67,17 +76,100 @@ def save_page_storage_state(page: Page, storage_state_path: str | Path) -> Path:
     return state_path
 
 
+async def async_save_page_storage_state(page: AsyncPage, storage_state_path: str | Path) -> Path:
+    """Async variant of :func:`save_page_storage_state`."""
+    state_path = Path(storage_state_path)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    await page.context.storage_state(path=str(state_path))
+    return state_path
+
+
+def wait_for_url_not_contains(
+    page: Page,
+    url_part: str,
+    *,
+    timeout_ms: int = 60_000,
+    poll_ms: int = 1_000,
+    wait_load_state: str | None = "domcontentloaded",
+) -> bool:
+    """Poll until ``url_part`` is no longer present in ``page.url``.
+
+    This is intentionally small and generic for browser flows where a user may
+    need to complete Google/Box/SAML login in a headed window before automation
+    can continue.
+    """
+    deadline = time.monotonic() + max(timeout_ms, 1) / 1000
+    poll_ms = max(poll_ms, 1)
+    while True:
+        if url_part not in page.url:
+            if wait_load_state:
+                _wait_for_load_state(page, wait_load_state, timeout_ms=_remaining_timeout_ms(deadline))
+            return True
+        remaining_ms = _remaining_timeout_ms(deadline)
+        if remaining_ms <= 0:
+            return False
+        page.wait_for_timeout(min(poll_ms, remaining_ms))
+
+
+async def async_wait_for_url_not_contains(
+    page: AsyncPage,
+    url_part: str,
+    *,
+    timeout_ms: int = 60_000,
+    poll_ms: int = 1_000,
+    wait_load_state: str | None = "domcontentloaded",
+) -> bool:
+    """Async variant of :func:`wait_for_url_not_contains`."""
+    deadline = time.monotonic() + max(timeout_ms, 1) / 1000
+    poll_ms = max(poll_ms, 1)
+    while True:
+        if url_part not in page.url:
+            if wait_load_state:
+                await _async_wait_for_load_state(
+                    page,
+                    wait_load_state,
+                    timeout_ms=_remaining_timeout_ms(deadline),
+                )
+            return True
+        remaining_ms = _remaining_timeout_ms(deadline)
+        if remaining_ms <= 0:
+            return False
+        await page.wait_for_timeout(min(poll_ms, remaining_ms))
+
+
+def _remaining_timeout_ms(deadline: float) -> int:
+    return max(0, int((deadline - time.monotonic()) * 1000))
+
+
+def _wait_for_load_state(page: Page, state: str, *, timeout_ms: int) -> None:
+    try:
+        page.wait_for_load_state(state, timeout=max(timeout_ms, 1))
+    except TypeError:
+        page.wait_for_load_state(state)
+
+
+async def _async_wait_for_load_state(page: AsyncPage, state: str, *, timeout_ms: int) -> None:
+    try:
+        await page.wait_for_load_state(state, timeout=max(timeout_ms, 1))
+    except TypeError:
+        await page.wait_for_load_state(state)
+
+
 @contextmanager
 def browser_page(
     *,
     headless: bool = True,
     locale: str = "ja-JP",
+    browser_channel: str | None = None,
+    launch_args: list[str] | None = None,
     user_data_dir: str | Path | None = None,
     storage_state_path: str | Path | None = None,
     save_storage_state: bool = False,
     user_agent: str | None = None,
     timezone_id: str | None = None,
     viewport: Mapping[str, int] | None = None,
+    accept_downloads: bool | None = None,
+    device_name: str | None = None,
     context_kwargs: Mapping[str, Any] | None = None,
 ) -> Iterator[Page]:
     """Yield a Playwright ``Page`` and clean up the browser on exit.
@@ -106,26 +198,32 @@ def browser_page(
     """
     sync_playwright = _load_sync_playwright()
 
-    extra: dict[str, Any] = {"locale": locale}
     state_path = Path(storage_state_path) if storage_state_path is not None else None
-    if state_path is not None and state_path.exists() and user_data_dir is None:
-        extra["storage_state"] = str(state_path)
-    if user_agent is not None:
-        extra["user_agent"] = user_agent
-    if timezone_id is not None:
-        extra["timezone_id"] = timezone_id
-    if viewport is not None:
-        extra["viewport"] = dict(viewport)
-    if context_kwargs:
-        extra.update(context_kwargs)
 
     with sync_playwright() as pw:
+        extra = _build_context_options(
+            devices=pw.devices,
+            locale=locale,
+            device_name=device_name,
+            storage_state_path=state_path,
+            use_storage_state=user_data_dir is None,
+            user_agent=user_agent,
+            timezone_id=timezone_id,
+            viewport=viewport,
+            accept_downloads=accept_downloads,
+            context_kwargs=context_kwargs,
+        )
+        launch_kwargs = _build_launch_options(
+            headless=headless,
+            browser_channel=browser_channel,
+            launch_args=launch_args,
+        )
         if user_data_dir is not None:
             profile = Path(user_data_dir)
             profile.mkdir(parents=True, exist_ok=True)
             context = pw.chromium.launch_persistent_context(
                 user_data_dir=str(profile),
-                headless=headless,
+                **launch_kwargs,
                 **extra,
             )
             try:
@@ -136,7 +234,7 @@ def browser_page(
                     save_page_storage_state(page, state_path)
                 context.close()
         else:
-            browser = pw.chromium.launch(headless=headless)
+            browser = _launch_sync_browser(pw.chromium, launch_kwargs)
             try:
                 context = browser.new_context(**extra)
                 try:
@@ -149,6 +247,153 @@ def browser_page(
                     context.close()
             finally:
                 browser.close()
+
+
+@asynccontextmanager
+async def async_browser_page(
+    *,
+    headless: bool = True,
+    locale: str = "ja-JP",
+    browser_channel: str | None = None,
+    launch_args: list[str] | None = None,
+    user_data_dir: str | Path | None = None,
+    storage_state_path: str | Path | None = None,
+    save_storage_state: bool = False,
+    user_agent: str | None = None,
+    timezone_id: str | None = None,
+    viewport: Mapping[str, int] | None = None,
+    accept_downloads: bool | None = None,
+    device_name: str | None = None,
+    context_kwargs: Mapping[str, Any] | None = None,
+) -> Iterator[AsyncPage]:
+    """Async variant of :func:`browser_page` for existing async Playwright flows."""
+    async_playwright = _load_async_playwright()
+    state_path = Path(storage_state_path) if storage_state_path is not None else None
+
+    async with async_playwright() as pw:
+        extra = _build_context_options(
+            devices=pw.devices,
+            locale=locale,
+            device_name=device_name,
+            storage_state_path=state_path,
+            use_storage_state=user_data_dir is None,
+            user_agent=user_agent,
+            timezone_id=timezone_id,
+            viewport=viewport,
+            accept_downloads=accept_downloads,
+            context_kwargs=context_kwargs,
+        )
+        launch_kwargs = _build_launch_options(
+            headless=headless,
+            browser_channel=browser_channel,
+            launch_args=launch_args,
+        )
+        if user_data_dir is not None:
+            profile = Path(user_data_dir)
+            profile.mkdir(parents=True, exist_ok=True)
+            context = await pw.chromium.launch_persistent_context(
+                user_data_dir=str(profile),
+                **launch_kwargs,
+                **extra,
+            )
+            try:
+                page = context.pages[0] if context.pages else await context.new_page()
+                yield page
+            finally:
+                if save_storage_state and state_path is not None:
+                    await async_save_page_storage_state(page, state_path)
+                await context.close()
+        else:
+            browser = await _launch_async_browser(pw.chromium, launch_kwargs)
+            try:
+                context = await browser.new_context(**extra)
+                try:
+                    page = await context.new_page()
+                    yield page
+                finally:
+                    if save_storage_state and state_path is not None:
+                        await async_save_page_storage_state(page, state_path)
+                    await context.close()
+            finally:
+                await browser.close()
+
+
+def _build_launch_options(
+    *,
+    headless: bool,
+    browser_channel: str | None,
+    launch_args: list[str] | None,
+) -> dict[str, Any]:
+    options: dict[str, Any] = {"headless": headless}
+    if browser_channel:
+        options["channel"] = browser_channel
+    if launch_args is not None:
+        options["args"] = list(launch_args)
+    return options
+
+
+def _build_context_options(
+    *,
+    devices: Mapping[str, Mapping[str, Any]],
+    locale: str,
+    device_name: str | None,
+    storage_state_path: Path | None,
+    use_storage_state: bool,
+    user_agent: str | None,
+    timezone_id: str | None,
+    viewport: Mapping[str, int] | None,
+    accept_downloads: bool | None,
+    context_kwargs: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    extra: dict[str, Any] = dict(devices[device_name]) if device_name else {}
+    extra["locale"] = locale
+    if storage_state_path is not None and storage_state_path.exists() and use_storage_state:
+        extra["storage_state"] = str(storage_state_path)
+    if user_agent is not None:
+        extra["user_agent"] = user_agent
+    if timezone_id is not None:
+        extra["timezone_id"] = timezone_id
+    if viewport is not None:
+        extra["viewport"] = dict(viewport)
+    if accept_downloads is not None:
+        extra["accept_downloads"] = bool(accept_downloads)
+    if context_kwargs:
+        extra.update(context_kwargs)
+    return extra
+
+
+async def _launch_async_browser(chromium: Any, launch_kwargs: Mapping[str, Any]) -> Any:
+    try:
+        return await chromium.launch(**launch_kwargs)
+    except Exception as exc:
+        if "channel" not in launch_kwargs:
+            raise
+        fallback = dict(launch_kwargs)
+        channel = fallback.pop("channel")
+        logger.warning(
+            "Could not launch Chromium channel %s; falling back to bundled Chromium: %s",
+            channel,
+            exc,
+            exc_info=True,
+        )
+        return await chromium.launch(**fallback)
+
+
+def _launch_sync_browser(chromium: Any, launch_kwargs: Mapping[str, Any]) -> Any:
+    try:
+        return chromium.launch(**launch_kwargs)
+    except Exception as exc:
+        if "channel" not in launch_kwargs:
+            raise
+        fallback = dict(launch_kwargs)
+        channel = fallback.pop("channel")
+        logger.warning(
+            "Could not launch Chromium channel %s; falling back to bundled Chromium: %s",
+            channel,
+            exc,
+            exc_info=True,
+        )
+        return chromium.launch(**fallback)
 
 
 def scrape_with_playwright(

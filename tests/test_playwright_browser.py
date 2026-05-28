@@ -4,7 +4,7 @@ import builtins
 import importlib
 import socket
 import sys
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from unittest.mock import MagicMock
 
 import pytest
@@ -25,6 +25,12 @@ class FakePage:
 
     def wait_for_selector(self, selector, *, timeout):
         self.wait_selector_calls.append({"selector": selector, "timeout": timeout})
+
+    def wait_for_timeout(self, ms):
+        pass
+
+    def wait_for_load_state(self, state):
+        self.wait_load_state = state
 
     def bring_to_front(self):
         self.brought_to_front += 1
@@ -84,6 +90,7 @@ class FakeChromium:
 class FakePlaywright:
     def __init__(self) -> None:
         self.chromium = FakeChromium()
+        self.devices = {}
 
 
 @contextmanager
@@ -141,6 +148,7 @@ def test_module_imports_without_playwright(monkeypatch):
         importlib.import_module("megaton_lib.playwright_browser")
 
     assert hasattr(mod, "browser_page")
+    assert hasattr(mod, "async_browser_page")
     assert hasattr(mod, "scrape_with_playwright")
     assert hasattr(mod, "CanvasClipScreenshotter")
 
@@ -179,6 +187,67 @@ def test_browser_page_passes_optional_context_options(monkeypatch):
         "viewport": {"width": 1280, "height": 720},
         "ignore_https_errors": True,
     }
+
+
+def test_browser_page_passes_channel_args_accept_downloads_and_device(monkeypatch):
+    pw = _install_fake_sync_playwright(monkeypatch)
+    pw.devices["iPhone 13 Mini"] = {"viewport": {"width": 375, "height": 812}, "is_mobile": True}
+
+    with playwright_browser.browser_page(
+        browser_channel="chrome",
+        launch_args=["--no-sandbox"],
+        device_name="iPhone 13 Mini",
+        accept_downloads=True,
+        viewport={"width": 390, "height": 844},
+    ):
+        pass
+
+    assert pw.chromium.launch_kwargs == {
+        "headless": True,
+        "channel": "chrome",
+        "args": ["--no-sandbox"],
+    }
+    assert pw.chromium.browser.new_context_kwargs == {
+        "viewport": {"width": 390, "height": 844},
+        "is_mobile": True,
+        "locale": "ja-JP",
+        "accept_downloads": True,
+    }
+
+
+def test_launch_sync_browser_fallback_logs_original_error(caplog):
+    class FallbackChromium:
+        def __init__(self) -> None:
+            self.calls = []
+            self.browser = object()
+
+        def launch(self, **kwargs):
+            self.calls.append(kwargs)
+            if "channel" in kwargs:
+                raise RuntimeError("chrome missing")
+            return self.browser
+
+    chromium = FallbackChromium()
+
+    with caplog.at_level("WARNING", logger="megaton_lib.playwright_browser"):
+        result = playwright_browser._launch_sync_browser(
+            chromium,
+            {"headless": True, "channel": "chrome"},
+        )
+
+    assert result is chromium.browser
+    assert chromium.calls == [{"headless": True, "channel": "chrome"}, {"headless": True}]
+    assert "chrome missing" in caplog.text
+    assert caplog.records[0].exc_info is not None
+
+
+def test_launch_sync_browser_without_channel_reraises():
+    class BrokenChromium:
+        def launch(self, **kwargs):
+            raise RuntimeError("bundled broken")
+
+    with pytest.raises(RuntimeError, match="bundled broken"):
+        playwright_browser._launch_sync_browser(BrokenChromium(), {"headless": True})
 
 
 def test_save_storage_state_creates_parent_and_returns_path(tmp_path):
@@ -308,6 +377,244 @@ def test_scrape_with_playwright_skips_wait_selector_when_none(monkeypatch):
 
     assert pw.chromium.page.wait_selector_calls == []
     assert pw.chromium.page.goto_calls[0]["wait_until"] == "domcontentloaded"
+
+
+# ---- async_browser_page ----
+
+
+class AsyncFakePage:
+    def __init__(self) -> None:
+        self.context = None
+        self.url = "about:blank"
+        self.waited_load_state = ""
+
+    async def wait_for_timeout(self, ms):
+        pass
+
+    async def wait_for_load_state(self, state):
+        self.waited_load_state = state
+
+
+class AsyncFakeContext:
+    def __init__(self, page: AsyncFakePage, *, prepopulated: bool = False) -> None:
+        self.pages = [page] if prepopulated else []
+        self._page = page
+        self._page.context = self
+        self.closed = False
+        self.saved_storage_state_path = ""
+
+    async def new_page(self):
+        return self._page
+
+    async def close(self):
+        self.closed = True
+
+    async def storage_state(self, *, path):
+        self.saved_storage_state_path = path
+
+
+class AsyncFakeBrowser:
+    def __init__(self, context: AsyncFakeContext) -> None:
+        self._context = context
+        self.closed = False
+        self.new_context_kwargs: dict = {}
+
+    async def new_context(self, **kwargs):
+        self.new_context_kwargs = kwargs
+        return self._context
+
+    async def close(self):
+        self.closed = True
+
+
+class AsyncFakeChromium:
+    def __init__(self) -> None:
+        self.page = AsyncFakePage()
+        self.persistent_page = AsyncFakePage()
+        self.context = AsyncFakeContext(self.page)
+        self.persistent_context = AsyncFakeContext(self.persistent_page, prepopulated=True)
+        self.browser = AsyncFakeBrowser(self.context)
+        self.launch_kwargs: dict = {}
+        self.launch_persistent_kwargs: dict = {}
+
+    async def launch(self, **kwargs):
+        self.launch_kwargs = kwargs
+        return self.browser
+
+    async def launch_persistent_context(self, **kwargs):
+        self.launch_persistent_kwargs = kwargs
+        return self.persistent_context
+
+
+class AsyncFakePlaywright:
+    def __init__(self) -> None:
+        self.chromium = AsyncFakeChromium()
+        self.devices = {"Pixel": {"viewport": {"width": 393, "height": 851}, "is_mobile": True}}
+
+
+@asynccontextmanager
+async def _fake_async_playwright_cm():
+    yield ASYNC_FAKE_PW
+
+
+ASYNC_FAKE_PW = AsyncFakePlaywright()
+
+
+def _install_fake_async_playwright(monkeypatch):
+    global ASYNC_FAKE_PW
+    ASYNC_FAKE_PW = AsyncFakePlaywright()
+    monkeypatch.setattr(playwright_browser, "_load_async_playwright", lambda: _fake_async_playwright_cm)
+    return ASYNC_FAKE_PW
+
+
+def test_async_browser_page_passes_options_and_closes(monkeypatch):
+    pw = _install_fake_async_playwright(monkeypatch)
+
+    async def run():
+        async with playwright_browser.async_browser_page(
+            headless=False,
+            browser_channel="chrome",
+            launch_args=["--disable-popup-blocking"],
+            device_name="Pixel",
+            accept_downloads=True,
+            timezone_id="Asia/Tokyo",
+        ) as page:
+            assert page is pw.chromium.page
+
+    import asyncio
+
+    asyncio.run(run())
+
+    assert pw.chromium.launch_kwargs == {
+        "headless": False,
+        "channel": "chrome",
+        "args": ["--disable-popup-blocking"],
+    }
+    assert pw.chromium.browser.new_context_kwargs == {
+        "viewport": {"width": 393, "height": 851},
+        "is_mobile": True,
+        "locale": "ja-JP",
+        "timezone_id": "Asia/Tokyo",
+        "accept_downloads": True,
+    }
+    assert pw.chromium.context.closed is True
+    assert pw.chromium.browser.closed is True
+
+
+def test_launch_async_browser_fallback_logs_original_error(caplog):
+    class AsyncFallbackChromium:
+        def __init__(self) -> None:
+            self.calls = []
+            self.browser = object()
+
+        async def launch(self, **kwargs):
+            self.calls.append(kwargs)
+            if "channel" in kwargs:
+                raise RuntimeError("chrome missing")
+            return self.browser
+
+    async def run():
+        chromium = AsyncFallbackChromium()
+        with caplog.at_level("WARNING", logger="megaton_lib.playwright_browser"):
+            result = await playwright_browser._launch_async_browser(
+                chromium,
+                {"headless": True, "channel": "chrome"},
+            )
+        return chromium, result
+
+    import asyncio
+
+    chromium, result = asyncio.run(run())
+
+    assert result is chromium.browser
+    assert chromium.calls == [{"headless": True, "channel": "chrome"}, {"headless": True}]
+    assert "chrome missing" in caplog.text
+    assert caplog.records[0].exc_info is not None
+
+
+def test_async_browser_page_can_save_storage_state(monkeypatch, tmp_path):
+    pw = _install_fake_async_playwright(monkeypatch)
+    state_path = tmp_path / "tokens" / "state.json"
+
+    async def run():
+        async with playwright_browser.async_browser_page(
+            storage_state_path=state_path,
+            save_storage_state=True,
+        ):
+            pass
+
+    import asyncio
+
+    asyncio.run(run())
+
+    assert state_path.parent.exists()
+    assert pw.chromium.context.saved_storage_state_path == str(state_path)
+
+
+def test_wait_for_url_not_contains_returns_true_after_login():
+    page = FakePage(url="https://app.example.test/dashboard")
+
+    assert playwright_browser.wait_for_url_not_contains(page, "accounts.google.com") is True
+    assert page.wait_load_state == "domcontentloaded"
+
+
+def test_wait_for_url_not_contains_caps_poll_to_remaining_timeout(monkeypatch):
+    clock = {"now": 0.0}
+
+    class RecordingPage(FakePage):
+        def __init__(self) -> None:
+            super().__init__(url="https://accounts.google.com/signin")
+            self.wait_timeout_calls: list[int] = []
+
+        def wait_for_timeout(self, ms):
+            self.wait_timeout_calls.append(ms)
+            clock["now"] += ms / 1000
+
+    monkeypatch.setattr(playwright_browser.time, "monotonic", lambda: clock["now"])
+    page = RecordingPage()
+
+    assert playwright_browser.wait_for_url_not_contains(
+        page,
+        "accounts.google.com",
+        timeout_ms=5,
+        poll_ms=100,
+    ) is False
+    assert page.wait_timeout_calls == [5]
+
+
+def test_wait_for_url_not_contains_passes_remaining_timeout_to_load_state(monkeypatch):
+    class RecordingPage(FakePage):
+        def wait_for_load_state(self, state, *, timeout):
+            self.wait_load_state = state
+            self.wait_load_timeout = timeout
+
+    monkeypatch.setattr(playwright_browser.time, "monotonic", lambda: 10.0)
+    page = RecordingPage(url="https://app.example.test/dashboard")
+
+    assert playwright_browser.wait_for_url_not_contains(
+        page,
+        "accounts.google.com",
+        timeout_ms=1000,
+    ) is True
+    assert page.wait_load_state == "domcontentloaded"
+    assert page.wait_load_timeout == 1000
+
+
+def test_async_wait_for_url_not_contains_returns_false_on_timeout():
+    page = AsyncFakePage()
+    page.url = "https://accounts.google.com/signin"
+
+    async def run():
+        return await playwright_browser.async_wait_for_url_not_contains(
+            page,
+            "accounts.google.com",
+            timeout_ms=1,
+            poll_ms=1,
+        )
+
+    import asyncio
+
+    assert asyncio.run(run()) is False
 
 
 # ---- CanvasClipScreenshotter ----

@@ -3,6 +3,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
+import requests
 
 from megaton_lib.audit.providers.analytics.classifications import (
     ClassificationsClient,
@@ -78,6 +79,7 @@ def test_create_import_job_includes_notification_payload(monkeypatch):
         "/classifications/job/import/createApiJob/dataset-1"
     )
     assert captured["json"]["jobName"] == "manual import"
+    assert captured["json"]["keyOptions"] == {"overwrite": True}
     assert captured["json"]["notifications"] == [
         {
             "method": "email",
@@ -108,6 +110,54 @@ def test_create_import_job_omits_notifications_without_email(monkeypatch):
     client.create_import_job("dataset-1")
 
     assert "notifications" not in captured["json"]
+    assert captured["json"]["keyOptions"] == {"overwrite": True}
+
+
+def test_import_classification_chunked_retries_transient_upload_error(monkeypatch):
+    client = ClassificationsClient(auth=_DummyAuth(), company_id="wacoal1")
+    calls = []
+
+    def fake_create_import_job(dataset_id, **kwargs):
+        job_id = f"job-{len([call for call in calls if call[0] == 'create']) + 1}"
+        calls.append(("create", job_id, dataset_id, kwargs))
+        return job_id
+
+    upload_attempts = {"count": 0}
+
+    def fake_upload_file(job_id, content, **kwargs):
+        upload_attempts["count"] += 1
+        calls.append(("upload", job_id, kwargs))
+        if upload_attempts["count"] == 1:
+            response = _DummyResponse(500, {"error": "transient"})
+            error = requests.exceptions.HTTPError("HTTP 500")
+            error.response = response
+            raise error
+
+    def fake_commit_job(job_id):
+        calls.append(("commit", job_id))
+
+    sleeps = []
+    monkeypatch.setattr(client, "create_import_job", fake_create_import_job)
+    monkeypatch.setattr(client, "upload_file", fake_upload_file)
+    monkeypatch.setattr(client, "commit_job", fake_commit_job)
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.classifications.time.sleep",
+        lambda seconds: sleeps.append(seconds),
+    )
+
+    job_ids = client.import_classification_chunked(
+        "dataset-1",
+        "Key\tLabel\nA\tAlpha\n",
+        chunk_rows=1,
+        chunk_pause_seconds=0,
+        max_attempts=2,
+        retry_backoff_seconds=0.5,
+        verbose=False,
+    )
+
+    assert job_ids == ["job-2"]
+    assert [call[0] for call in calls] == ["create", "upload", "create", "upload", "commit"]
+    assert sleeps == [0.5]
 
 
 def test_import_helpers_forward_notification_options(monkeypatch):

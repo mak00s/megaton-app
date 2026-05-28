@@ -368,6 +368,7 @@ class ClassificationsClient:
             "dataFormat": "tsv",
             "encoding": "UTF8",
             "jobName": job_name or f"import {dataset_id}",
+            "keyOptions": {"overwrite": True},
             "listDelimiter": ",",
             "source": "Direct API Upload",
         }
@@ -569,8 +570,8 @@ class ClassificationsClient:
             # Adobe's createApiJob/uploadFile endpoints intermittently return
             # HTTP 500 regardless of payload size. Retry the whole chunk (a
             # fresh job each attempt) with linear backoff on transient 5xx /
-            # connection errors. keyOptions.overwrite=true makes re-committing
-            # already-imported keys idempotent, so retries are safe.
+            # connection errors. create_import_job() sets keyOptions.overwrite
+            # so re-committing already-imported keys is idempotent.
             job_id = ""
             for attempt in range(1, max_attempts + 1):
                 try:

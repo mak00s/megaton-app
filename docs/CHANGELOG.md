@@ -6,12 +6,15 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 - Warn when Adobe Analytics report rows omit expected columns instead of failing with opaque downstream errors.
 - Hardened `ClassificationsClient.import_classification_chunked()` by sanitizing chunk filenames and retrying transient chunk upload failures.
+- Adobe Classifications import jobs now set `keyOptions.overwrite=true` so chunked retries can safely re-commit already-imported keys instead of depending on Adobe's dataset defaults.
 - Improved CAPY validation helpers with answer-token detection, viewport centering, drag-source validation diagnostics, and storefront login handling for solved CAPY challenges.
 - Added richer Adobe Edge beacon matching helpers to storefront validation, including analytics path requirements and rejected-candidate diagnostics.
-- Added `megaton_lib.playwright_browser`, a lazy-loaded optional Playwright helper module for browser scraping, persistent-profile runs, macOS Chrome debug-port launch, and CDP attach workflows.
+- Added `megaton_lib.playwright_browser`, a lazy-loaded optional Playwright helper module for browser scraping, async/sync managed page sessions, persistent-profile runs, macOS Chrome debug-port launch, and CDP attach workflows.
 - Added `storage_state_path` and `save_storage_state` support to `megaton_lib.playwright_browser.browser_page()` / `scrape_with_playwright()` so consuming repos can reuse login state without hand-rolling browser context setup.
 - Added `save_page_storage_state(page, storage_state_path)` for workflows that must save login state only after a caller-defined success point.
+- Added `wait_for_url_not_contains()` / `async_wait_for_url_not_contains()` for headed login handoff flows.
 - Added `CanvasClipScreenshotter` to `megaton_lib.playwright_browser` for report workflows that need fixed-coordinate screenshots relative to a browser-rendered canvas, such as Google Sheets report captures.
+- Added `megaton_lib.box_ui`, a shared Box web-UI helper for Playwright download/upload, subfolder creation, and shared-link creation.
 - Made checkout-local CLIs more self-describing by adding shared help formatting, runnable examples, clearer argument metavars, and operational notes to query, audit, notebook, validation, Gmail draft, classification verification, and Data Warehouse helper commands.
 
 ## 2026-05-16 (v0.13.0)
