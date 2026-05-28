@@ -2,7 +2,7 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-## Unreleased
+## 2026-05-28 (v0.14.0)
 
 - Warn when Adobe Analytics report rows omit expected columns instead of failing with opaque downstream errors.
 - Hardened `ClassificationsClient.import_classification_chunked()` by sanitizing chunk filenames and retrying transient chunk upload failures.
