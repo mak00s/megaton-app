@@ -95,6 +95,37 @@ def test_upload_file_to_box_folder_via_ui_sync_forwards_kwargs(monkeypatch, tmp_
     }
 
 
+def test_upload_files_to_box_folder_via_ui_sync_forwards_kwargs(monkeypatch, tmp_path):
+    captured = {}
+
+    async def fake_upload(**kwargs):
+        captured.update(kwargs)
+        return [{"uploaded_file_name": Path(kwargs["file_paths"][0]).name}]
+
+    monkeypatch.setattr(box_ui, "upload_files_to_box_folder_via_ui", fake_upload)
+    file_path = tmp_path / "report.pdf"
+    file_path.write_text("x", encoding="utf-8")
+
+    result = box_ui.upload_files_to_box_folder_via_ui_sync(
+        parent_folder_url="https://app.box.com/folder/123",
+        target_subfolder_name="202605",
+        file_paths=[file_path],
+        login="user@example.test",
+        password="secret",
+        create_shared_link=True,
+    )
+
+    assert result == [{"uploaded_file_name": "report.pdf"}]
+    assert captured == {
+        "parent_folder_url": "https://app.box.com/folder/123",
+        "target_subfolder_name": "202605",
+        "file_paths": [file_path],
+        "login": "user@example.test",
+        "password": "secret",
+        "create_shared_link": True,
+    }
+
+
 def test_download_from_box_downloads_current_file(monkeypatch, tmp_path):
     calls = []
 
@@ -187,3 +218,75 @@ def test_upload_file_to_box_folder_via_ui_returns_result_shape(monkeypatch, tmp_
     assert calls[0][1]["url"] == "https://app.box.com/folder/123"
     assert calls[0][1]["headless"] is True
     assert calls[2][1]["file_path"] == file_path.resolve()
+
+
+def test_upload_files_to_box_folder_via_ui_adds_folder_shared_link(monkeypatch, tmp_path):
+    calls = []
+
+    class FakePage:
+        pass
+
+    class FakeContext:
+        pass
+
+    @asynccontextmanager
+    async def fake_open_box_session(**kwargs):
+        calls.append(("session", kwargs))
+        yield FakeContext(), FakePage()
+
+    async def fake_ensure_box_folder_page_ready(**kwargs):
+        calls.append(("ready", kwargs))
+
+    async def fake_open_or_create_box_subfolder(**kwargs):
+        calls.append(("subfolder", kwargs))
+        return False, "202605"
+
+    async def fake_upload_file_to_current_box_folder(**kwargs):
+        calls.append(("upload", kwargs))
+
+    async def fake_create_or_get_current_box_folder_shared_link(**kwargs):
+        calls.append(("share-folder", kwargs))
+        return "https://app.box.com/s/folder"
+
+    monkeypatch.setattr(box_ui, "_open_box_session", fake_open_box_session)
+    monkeypatch.setattr(box_ui, "_ensure_box_folder_page_ready", fake_ensure_box_folder_page_ready)
+    monkeypatch.setattr(box_ui, "_open_or_create_box_subfolder", fake_open_or_create_box_subfolder)
+    monkeypatch.setattr(box_ui, "_upload_file_to_current_box_folder", fake_upload_file_to_current_box_folder)
+    monkeypatch.setattr(
+        box_ui,
+        "_create_or_get_current_box_folder_shared_link",
+        fake_create_or_get_current_box_folder_shared_link,
+    )
+    file_path = tmp_path / "report.pdf"
+    file_path.write_text("x", encoding="utf-8")
+
+    result = asyncio.run(
+        box_ui.upload_files_to_box_folder_via_ui(
+            parent_folder_url="https://app.box.com/folder/123",
+            target_subfolder_name="202605",
+            file_paths=[file_path],
+            login="user@example.test",
+            password="secret",
+            headless=True,
+            create_shared_link=True,
+            shared_link_access="company",
+            shared_link_target="folder",
+        )
+    )
+
+    assert result == [
+        {
+            "uploaded_file_name": "report.pdf",
+            "target_subfolder_name": "202605",
+            "nested_subfolder_name": "",
+            "folder_created": False,
+            "nested_folder_created": False,
+            "upload_mode": "playwright-ui",
+            "output_dir": str(tmp_path),
+            "folder_shared_url": "https://app.box.com/s/folder",
+            "folder_shared_link_access": "company",
+            "folder_shared_link_status": "created",
+            "folder_shared_link_error": "",
+        }
+    ]
+    assert [call[0] for call in calls] == ["session", "ready", "subfolder", "upload", "share-folder"]

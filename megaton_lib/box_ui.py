@@ -319,6 +319,9 @@ async def upload_files_to_box_folder_via_ui(
     upload_button_pattern: str = r"^(New|新規|Create|作成|Upload|アップロード)$",
     upload_file_item_pattern: str = r"^File Upload$|^Upload File$|^ファイルアップロード$",
     upload_post_wait_ms: int = 3_000,
+    create_shared_link: bool = False,
+    shared_link_access: str = "company",
+    shared_link_target: str = "file",
 ) -> list[dict]:
     """Upload multiple files to a (optionally nested) Box folder in one session.
 
@@ -344,6 +347,9 @@ async def upload_files_to_box_folder_via_ui(
 
     first_candidates = _candidates(target_subfolder_name)
     second_candidates = _candidates(nested_subfolder_name)
+    normalized_shared_link_target = str(shared_link_target or "file").strip().lower()
+    if normalized_shared_link_target not in {"file", "folder"}:
+        raise ValueError(f"Unsupported Box shared link target: {shared_link_target}")
 
     async with _open_box_session(
         url=parent_folder_url,
@@ -394,7 +400,7 @@ async def upload_files_to_box_folder_via_ui(
                 upload_file_item_pattern=upload_file_item_pattern,
                 upload_post_wait_ms=upload_post_wait_ms,
             )
-            results.append({
+            result = {
                 "uploaded_file_name": path.name,
                 "target_subfolder_name": target_subfolder,
                 "nested_subfolder_name": nested_subfolder,
@@ -402,9 +408,89 @@ async def upload_files_to_box_folder_via_ui(
                 "nested_folder_created": nested_created,
                 "upload_mode": "playwright-ui",
                 "output_dir": str(path.parent),
-            })
+            }
+            if create_shared_link and normalized_shared_link_target == "file":
+                resolved_access = normalize_box_shared_link_access(shared_link_access)
+                shared_url = ""
+                shared_link_status = "failed"
+                shared_link_error = ""
+                try:
+                    shared_url = await _create_or_get_box_shared_link(
+                        page=page,
+                        item_name=path.name,
+                        access=resolved_access,
+                        timeout_ms=timeout_ms,
+                    )
+                    shared_link_status = "created" if shared_url else "failed"
+                except Exception as exc:
+                    shared_link_error = str(exc)
+                    print(f"[warn] Could not create Box shared link for uploaded file: {path.name}; upload succeeded: {exc}")
+                result.update(
+                    {
+                        "shared_url": shared_url,
+                        "shared_link_access": resolved_access,
+                        "shared_link_status": shared_link_status,
+                        "shared_link_error": shared_link_error,
+                    }
+                )
+            results.append(result)
+
+        shared_url = ""
+        resolved_shared_link_access = ""
+        shared_link_status = "skipped"
+        shared_link_error = ""
+        if create_shared_link and normalized_shared_link_target == "folder":
+            resolved_shared_link_access = normalize_box_shared_link_access(shared_link_access)
+            try:
+                shared_url = await _create_or_get_current_box_folder_shared_link(
+                    page=page,
+                    access=resolved_shared_link_access,
+                    timeout_ms=timeout_ms,
+                )
+                shared_link_status = "created" if shared_url else "failed"
+            except Exception as exc:
+                shared_link_error = str(exc)
+                shared_link_status = "failed"
+                folder_name = nested_subfolder or target_subfolder or "current folder"
+                print(f"[warn] Could not create Box shared link for {folder_name}; upload succeeded: {exc}")
+
+        if create_shared_link:
+            for result in results:
+                result.update(
+                    {
+                        "folder_shared_url": shared_url,
+                        "folder_shared_link_access": resolved_shared_link_access,
+                        "folder_shared_link_status": shared_link_status,
+                        "folder_shared_link_error": shared_link_error,
+                    }
+                )
 
     return results
+
+
+def upload_files_to_box_folder_via_ui_sync(**kwargs) -> list[dict]:
+    """Run the async multi-file Box UI upload helper from sync code."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(upload_files_to_box_folder_via_ui(**kwargs))
+
+    result: dict = {}
+    error_holder: dict = {}
+
+    def _runner():
+        try:
+            result["value"] = asyncio.run(upload_files_to_box_folder_via_ui(**kwargs))
+        except Exception as exc:  # pragma: no cover - thread handoff
+            error_holder["error"] = exc
+
+    thread = threading.Thread(target=_runner, daemon=True)
+    thread.start()
+    thread.join()
+
+    if "error" in error_holder:
+        raise error_holder["error"]
+    return result["value"]
 
 
 def upload_file_to_box_folder_via_ui_sync(**kwargs) -> dict:
@@ -914,6 +1000,39 @@ async def _create_or_get_box_shared_link(
         shared_url = await _read_box_shared_link_from_dialog(page=page, dialog=dialog)
     if not shared_url:
         print(f"[warn] Could not read Box shared link for uploaded file: {item_name}; upload succeeded")
+        return ""
+    return shared_url
+
+
+async def _create_or_get_current_box_folder_shared_link(
+    *,
+    page,
+    access: str,
+    timeout_ms: int,
+) -> str:
+    await page.context.grant_permissions(
+        ["clipboard-read", "clipboard-write"],
+        origin="https://app.box.com",
+    )
+    await _click_box_share_button(page=page, timeout_ms=timeout_ms)
+    dialog = await _box_active_dialog(page=page)
+    await _ensure_box_shared_link_enabled(page=page, dialog=dialog, timeout_ms=timeout_ms)
+    await _set_box_shared_link_access(page=page, dialog=dialog, access=access, timeout_ms=timeout_ms)
+
+    shared_url = await _read_box_shared_link_from_dialog(page=page, dialog=dialog)
+    if shared_url:
+        return shared_url
+
+    copy_button = dialog.get_by_role("button", name=re.compile(r"Copy Link|Copy shared link|リンクをコピー|コピー", re.I)).first
+    await copy_button.click(timeout=timeout_ms)
+    try:
+        shared_url = str(await page.evaluate("navigator.clipboard.readText()")).strip()
+    except Exception:
+        shared_url = ""
+    if not shared_url:
+        shared_url = await _read_box_shared_link_from_dialog(page=page, dialog=dialog)
+    if not shared_url:
+        print("[warn] Could not read Box shared link for current folder; upload succeeded")
         return ""
     return shared_url
 
