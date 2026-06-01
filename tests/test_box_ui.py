@@ -3,6 +3,7 @@ from __future__ import annotations
 import builtins
 import importlib
 import asyncio
+import re
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -64,6 +65,19 @@ def test_normalize_box_shared_link_access_aliases(raw, expected):
 def test_normalize_box_shared_link_access_rejects_unknown():
     with pytest.raises(ValueError, match="Unsupported Box shared link access"):
         box_ui.normalize_box_shared_link_access("private")
+
+
+def test_company_access_patterns_match_enterprise_specific_label():
+    patterns = box_ui.BOX_SHARED_LINK_ACCESS_PATTERNS["company"]
+
+    assert any(
+        re.search(pattern, "People in Shiseido with the link", re.I)
+        for pattern in patterns
+    )
+    assert any(
+        re.search(pattern, "Boxアカウント保持者", re.I)
+        for pattern in patterns
+    )
 
 
 def test_upload_file_to_box_folder_via_ui_sync_forwards_kwargs(monkeypatch, tmp_path):

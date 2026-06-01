@@ -51,13 +51,18 @@ BOX_SHARED_LINK_ACCESS_PATTERNS = {
     "company": [
         r"People in your company",
         r"People in this company",
+        r"People in .* with the link",
+        r"People with .* account",
         r"Company",
         r"Organization",
         r"Enterprise",
         r"会社",
+        r"会社のユーザー",
         r"組織",
+        r"組織内",
         r"アカウント保持者",
         r"アカウント所有者",
+        r"Boxアカウント",
     ],
 }
 
@@ -1097,6 +1102,8 @@ async def _ensure_box_shared_link_enabled(*, page, dialog, timeout_ms: int) -> N
 
 async def _set_box_shared_link_access(*, page, dialog, access: str, timeout_ms: int) -> None:
     patterns = BOX_SHARED_LINK_ACCESS_PATTERNS[access]
+    if await _box_access_text_visible(scope=dialog, patterns=patterns):
+        return
     if await _click_box_access_option(page=page, scope=dialog, patterns=patterns, timeout_ms=2_000):
         return
 
@@ -1125,6 +1132,14 @@ async def _set_box_shared_link_access(*, page, dialog, access: str, timeout_ms: 
             return
 
     raise RuntimeError(f"Could not set Box shared link access: {access}")
+
+
+async def _box_access_text_visible(*, scope, patterns: list[str]) -> bool:
+    try:
+        text = str(await scope.evaluate("(el) => el.innerText || el.textContent || ''"))
+    except Exception:
+        text = ""
+    return any(re.search(pattern, text, re.I) for pattern in patterns)
 
 
 async def _click_box_access_option(*, page, scope, patterns: list[str], timeout_ms: int) -> bool:
