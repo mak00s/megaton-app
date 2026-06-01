@@ -51,7 +51,11 @@ BOX_SHARED_LINK_ACCESS_PATTERNS = {
     "company": [
         r"People in your company",
         r"People in this company",
+        r"People in your organization",
+        r"People in this organization",
+        r"People at .* with the link",
         r"People in .* with the link",
+        r"People with the link in .*",
         r"People with .* account",
         r"Company",
         r"Organization",
@@ -60,11 +64,39 @@ BOX_SHARED_LINK_ACCESS_PATTERNS = {
         r"会社のユーザー",
         r"組織",
         r"組織内",
+        r"社内",
+        r"この会社",
+        r"リンクを.*(会社|組織|アカウント|ユーザー)",
+        r"(会社|組織|アカウント|ユーザー).*リンク",
         r"アカウント保持者",
         r"アカウント所有者",
         r"Boxアカウント",
     ],
 }
+
+BOX_SHARED_LINK_ACCESS_MENU_PATTERNS = [
+    r"Shared link access",
+    r"Link access",
+    r"Access type",
+    r"Who can access",
+    r"People with",
+    r"Anyone with",
+    r"Invited people",
+    r"Only invited",
+    r"Company",
+    r"Organization",
+    r"Enterprise",
+    r"共有リンク",
+    r"リンクアクセス",
+    r"アクセス権",
+    r"アクセス",
+    r"リンクを知っている",
+    r"招待された",
+    r"全員",
+    r"会社",
+    r"組織",
+    r"アカウント",
+]
 
 
 def normalize_box_shared_link_access(value: str) -> str:
@@ -1107,21 +1139,22 @@ async def _set_box_shared_link_access(*, page, dialog, access: str, timeout_ms: 
     if await _click_box_access_option(page=page, scope=dialog, patterns=patterns, timeout_ms=2_000):
         return
 
-    menu_openers = dialog.get_by_role("button").filter(
-        has_text=re.compile(
-            r"Invited|People|Anyone|Company|Organization|Link|招待|全員|会社|組織|リンク|アクセス",
-            re.I,
-        )
-    )
-    count = await menu_openers.count()
-    for idx in range(count):
-        opener = menu_openers.nth(idx)
+    clicked_any = False
+    for opener in await _box_shared_link_access_menu_openers(dialog=dialog):
         try:
             if not await opener.is_visible():
                 continue
             await opener.click(timeout=5_000)
+            clicked_any = True
+            await page.wait_for_timeout(500)
             if await _click_box_access_option(page=page, scope=page.locator("body"), patterns=patterns, timeout_ms=5_000):
                 return
+            if await _box_access_text_visible(scope=dialog, patterns=patterns):
+                return
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
         except PlaywrightTimeoutError:
             continue
 
@@ -1131,7 +1164,10 @@ async def _set_box_shared_link_access(*, page, dialog, access: str, timeout_ms: 
         if await _click_box_access_option(page=page, scope=page.locator("body"), patterns=patterns, timeout_ms=5_000):
             return
 
-    raise RuntimeError(f"Could not set Box shared link access: {access}")
+    debug_labels = await _box_dialog_control_labels(dialog=dialog)
+    hint = f"; visible controls: {', '.join(debug_labels[:12])}" if debug_labels else ""
+    clicked = " after opening access controls" if clicked_any else ""
+    raise RuntimeError(f"Could not set Box shared link access: {access}{clicked}{hint}")
 
 
 async def _box_access_text_visible(*, scope, patterns: list[str]) -> bool:
@@ -1140,6 +1176,88 @@ async def _box_access_text_visible(*, scope, patterns: list[str]) -> bool:
     except Exception:
         text = ""
     return any(re.search(pattern, text, re.I) for pattern in patterns)
+
+
+async def _box_shared_link_access_menu_openers(*, dialog) -> list:
+    openers: list = []
+    seen: set[str] = set()
+
+    async def add(locator) -> None:
+        try:
+            count = await locator.count()
+        except Exception:
+            return
+        for idx in range(count):
+            item = locator.nth(idx)
+            key = await _box_locator_identity(item)
+            if key in seen:
+                continue
+            seen.add(key)
+            openers.append(item)
+
+    for role in ("combobox", "button"):
+        for pattern in BOX_SHARED_LINK_ACCESS_MENU_PATTERNS:
+            await add(dialog.get_by_role(role, name=re.compile(pattern, re.I)))
+
+    await add(
+        dialog.locator(
+            "button[aria-haspopup], [role='button'][aria-haspopup], "
+            "button[aria-expanded], [role='button'][aria-expanded]"
+        ).filter(
+            has_text=re.compile(
+                r"Invited|People|Anyone|Company|Organization|Enterprise|Link|"
+                r"招待|全員|会社|組織|リンク|アクセス|アカウント",
+                re.I,
+            )
+        )
+    )
+    return openers
+
+
+async def _box_locator_identity(locator) -> str:
+    try:
+        return str(
+            await locator.evaluate(
+                """el => [
+                    el.tagName,
+                    el.getAttribute('role') || '',
+                    el.getAttribute('aria-label') || '',
+                    el.getAttribute('title') || '',
+                    el.getAttribute('data-testid') || '',
+                    (el.innerText || el.textContent || '').trim(),
+                ].join('|')"""
+            )
+        )
+    except Exception:
+        return str(id(locator))
+
+
+async def _box_dialog_control_labels(*, dialog) -> list[str]:
+    try:
+        raw_labels = await dialog.locator("button, [role='button'], [role='combobox'], input, textarea").evaluate_all(
+            """els => els.map((el) => [
+                el.getAttribute('aria-label') || '',
+                el.getAttribute('title') || '',
+                el.getAttribute('placeholder') || '',
+                el.getAttribute('value') || '',
+                (el.innerText || el.textContent || '').trim(),
+            ].filter(Boolean).join(' / ').trim()).filter(Boolean)"""
+        )
+    except Exception:
+        return []
+    labels: list[str] = []
+    for label in raw_labels:
+        text = _sanitize_box_debug_text(str(label))
+        if text and text not in labels:
+            labels.append(text)
+    return labels
+
+
+def _sanitize_box_debug_text(value: str) -> str:
+    text = re.sub(r"[\w.+-]+@[\w.-]+", "[email]", value)
+    text = re.sub(r"https://\S+", "[url]", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:120]
 
 
 async def _click_box_access_option(*, page, scope, patterns: list[str], timeout_ms: int) -> bool:
