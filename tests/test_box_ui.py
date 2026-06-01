@@ -78,6 +78,22 @@ def test_company_access_patterns_match_enterprise_specific_label():
         re.search(pattern, "Boxアカウント保持者", re.I)
         for pattern in patterns
     )
+    assert any(
+        re.search(pattern, "People at Shiseido with the link", re.I)
+        for pattern in patterns
+    )
+    assert any(
+        re.search(pattern, "リンクを知っている会社のユーザー", re.I)
+        for pattern in patterns
+    )
+
+
+def test_sanitize_box_debug_text_redacts_emails_and_urls():
+    text = box_ui._sanitize_box_debug_text(
+        "Share with user@example.com https://app.box.com/s/token"
+    )
+
+    assert text == "Share with [email] [url]"
 
 
 def test_upload_file_to_box_folder_via_ui_sync_forwards_kwargs(monkeypatch, tmp_path):
