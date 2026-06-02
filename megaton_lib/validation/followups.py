@@ -219,12 +219,15 @@ def mark_verification_task_completed_by_file(
 ) -> dict[str, Any] | None:
     """Mark the pending task for a verification file as completed."""
     data = load_pending_verification_store(pending_file)
+    matched_completed_partial: dict[str, Any] | None = None
     for task in data.get("verifications", []):
-        if task.get("status") != "pending":
-            continue
         if _normalize_path_value(task.get("verification_file", "")) != _normalize_path_value(verification_file):
             continue
         if verification_type and str(task.get("verification_type", "")).strip() != verification_type:
+            continue
+        if task.get("status") != "pending":
+            if result == "pass" and task.get("result") == "partial":
+                matched_completed_partial = task
             continue
         task["status"] = "completed"
         task["completed_at"] = (now or datetime.now(JST)).isoformat()
@@ -235,6 +238,15 @@ def mark_verification_task_completed_by_file(
             task.update(extra_updates)
         save_pending_verification_store(pending_file, data)
         return task
+    if matched_completed_partial is not None:
+        matched_completed_partial["completed_at"] = (now or datetime.now(JST)).isoformat()
+        matched_completed_partial["result"] = result
+        if notes:
+            matched_completed_partial["notes"] = notes
+        if extra_updates:
+            matched_completed_partial.update(extra_updates)
+        save_pending_verification_store(pending_file, data)
+        return matched_completed_partial
     return None
 
 
