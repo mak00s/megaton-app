@@ -67,6 +67,19 @@ def test_normalize_box_shared_link_access_rejects_unknown():
         box_ui.normalize_box_shared_link_access("private")
 
 
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        ("/file/123", "https://app.box.com/file/123"),
+        ("file/123", "https://app.box.com/file/123"),
+        ("https://app.box.com/file/123", "https://app.box.com/file/123"),
+        ("", ""),
+    ],
+)
+def test_normalize_box_item_web_url(href, expected):
+    assert box_ui._normalize_box_item_web_url(href) == expected
+
+
 def test_company_access_patterns_match_enterprise_specific_label():
     patterns = box_ui.BOX_SHARED_LINK_ACCESS_PATTERNS["company"]
 
@@ -313,6 +326,7 @@ def test_upload_files_to_box_folder_via_ui_adds_folder_shared_link(monkeypatch, 
             "nested_folder_created": False,
             "upload_mode": "playwright-ui",
             "output_dir": str(tmp_path),
+            "web_url": "",
             "folder_shared_url": "https://app.box.com/s/folder",
             "folder_shared_link_access": "company",
             "folder_shared_link_status": "created",
