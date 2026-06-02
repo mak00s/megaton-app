@@ -445,6 +445,11 @@ async def upload_files_to_box_folder_via_ui(
                 "nested_folder_created": nested_created,
                 "upload_mode": "playwright-ui",
                 "output_dir": str(path.parent),
+                "web_url": await _get_box_item_web_url(
+                    page=page,
+                    item_name=path.name,
+                    timeout_ms=timeout_ms,
+                ),
             }
             if create_shared_link and normalized_shared_link_target == "file":
                 resolved_access = normalize_box_shared_link_access(shared_link_access)
@@ -1338,6 +1343,29 @@ async def _find_box_item_link(*, page, item_name: str):
     if await generic_folder_locator.count() > 0:
         return generic_folder_locator
     return None
+
+
+def _normalize_box_item_web_url(href: str) -> str:
+    value = str(href or "").strip()
+    if not value:
+        return ""
+    if value.startswith(("http://", "https://")):
+        return value
+    if value.startswith("/"):
+        return f"https://app.box.com{value}"
+    return f"https://app.box.com/{value}"
+
+
+async def _get_box_item_web_url(*, page, item_name: str, timeout_ms: int) -> str:
+    try:
+        item_link = await _wait_for_box_item_link(
+            page=page,
+            item_name=item_name,
+            timeout_ms=timeout_ms,
+        )
+        return _normalize_box_item_web_url(str(await item_link.get_attribute("href") or ""))
+    except Exception:
+        return ""
 
 
 async def _wait_for_box_item_link(*, page, item_name: str, timeout_ms: int):
