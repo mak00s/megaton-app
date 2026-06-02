@@ -37,6 +37,12 @@ BOX_SHARED_LINK_ACCESS_ALIASES = {
     "organization": "company",
     "org": "company",
     "enterprise": "company",
+    "invited": "invited",
+    "invited_people": "invited",
+    "invited_people_only": "invited",
+    "collaborators": "invited",
+    "collaborator": "invited",
+    "people_with_access": "invited",
 }
 
 BOX_SHARED_LINK_ACCESS_PATTERNS = {
@@ -72,10 +78,28 @@ BOX_SHARED_LINK_ACCESS_PATTERNS = {
         r"アカウント所有者",
         r"Boxアカウント",
     ],
+    "invited": [
+        r"Invited people only",
+        r"Invited people",
+        r"Only invited people",
+        r"Only people invited",
+        r"People invited to this (file|folder)",
+        r"People with access",
+        r"Collaborators only",
+        r"Only collaborators",
+        r"招待されたユーザーのみ",
+        r"招待済みユーザーのみ",
+        r"招待された人のみ",
+        r"招待済みのユーザー",
+        r"アクセス権を持つユーザー",
+        r"共同編集者のみ",
+    ],
 }
 
 BOX_SHARED_LINK_ACCESS_MENU_PATTERNS = [
     r"Shared link access",
+    r"Shared link",
+    r"Share link",
     r"Link access",
     r"Access type",
     r"Who can access",
@@ -1041,7 +1065,9 @@ async def _create_or_get_box_shared_link(
     if not shared_url:
         shared_url = await _read_box_shared_link_from_dialog(page=page, dialog=dialog)
     if not shared_url:
-        print(f"[warn] Could not read Box shared link for uploaded file: {item_name}; upload succeeded")
+        shared_url = await _get_box_item_web_url(page=page, item_name=item_name, timeout_ms=timeout_ms)
+    if not shared_url:
+        print(f"[warn] Could not read Box link for uploaded file: {item_name}; upload succeeded")
         return ""
     return shared_url
 
@@ -1289,23 +1315,35 @@ async def _click_box_access_option(*, page, scope, patterns: list[str], timeout_
 
 
 async def _read_box_shared_link_from_dialog(*, page, dialog) -> str:
-    link = await dialog.locator("input, textarea").evaluate_all(
-        """els => {
-            const found = els
-                .map((el) => el.value || el.getAttribute('value') || '')
-                .find((value) => /^https:\\/\\/[^\\s]+/.test(value));
-            return found || '';
-        }"""
-    )
+    try:
+        link = await asyncio.wait_for(
+            dialog.locator("input, textarea").evaluate_all(
+                """els => {
+                    const found = els
+                        .map((el) => el.value || el.getAttribute('value') || '')
+                        .find((value) => /^https:\\/\\/[^\\s]+/.test(value));
+                    return found || '';
+                }"""
+            ),
+            timeout=5,
+        )
+    except Exception:
+        link = ""
     if str(link).strip():
         return str(link).strip()
-    text_link = await dialog.evaluate(
-        """el => {
-            const text = el.innerText || '';
-            const match = text.match(/https:\\/\\/[^\\s]+/);
-            return match ? match[0] : '';
-        }"""
-    )
+    try:
+        text_link = await asyncio.wait_for(
+            dialog.evaluate(
+                """el => {
+                    const text = el.innerText || '';
+                    const match = text.match(/https:\\/\\/[^\\s]+/);
+                    return match ? match[0] : '';
+                }"""
+            ),
+            timeout=5,
+        )
+    except Exception:
+        text_link = ""
     if str(text_link).strip():
         return str(text_link).strip()
     try:

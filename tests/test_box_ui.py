@@ -56,6 +56,8 @@ def test_build_box_login_url_preserves_redirect_query():
         ("company", "company"),
         ("account holders", "company"),
         ("org", "company"),
+        ("invited people only", "invited"),
+        ("people with access", "invited"),
     ],
 )
 def test_normalize_box_shared_link_access_aliases(raw, expected):
@@ -97,6 +99,19 @@ def test_company_access_patterns_match_enterprise_specific_label():
     )
     assert any(
         re.search(pattern, "リンクを知っている会社のユーザー", re.I)
+        for pattern in patterns
+    )
+
+
+def test_invited_access_patterns_match_box_labels():
+    patterns = box_ui.BOX_SHARED_LINK_ACCESS_PATTERNS["invited"]
+
+    assert any(
+        re.search(pattern, "Invited people only", re.I)
+        for pattern in patterns
+    )
+    assert any(
+        re.search(pattern, "People with access", re.I)
         for pattern in patterns
     )
 
