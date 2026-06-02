@@ -263,7 +263,7 @@ async def upload_file_to_box_folder_via_ui(
     upload_file_item_pattern: str = r"^File Upload$|^Upload File$|^ファイルアップロード$",
     upload_post_wait_ms: int = 3_000,
     create_shared_link: bool = False,
-    shared_link_access: str = "company",
+    shared_link_access: str = "invited",
 ) -> dict:
     """Upload a file to a Box folder via the web UI.
 
@@ -381,7 +381,7 @@ async def upload_files_to_box_folder_via_ui(
     upload_file_item_pattern: str = r"^File Upload$|^Upload File$|^ファイルアップロード$",
     upload_post_wait_ms: int = 3_000,
     create_shared_link: bool = False,
-    shared_link_access: str = "company",
+    shared_link_access: str = "invited",
     shared_link_target: str = "file",
 ) -> list[dict]:
     """Upload multiple files to a (optionally nested) Box folder in one session.

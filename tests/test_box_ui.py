@@ -3,6 +3,7 @@ from __future__ import annotations
 import builtins
 import importlib
 import asyncio
+import inspect
 import re
 import sys
 from contextlib import asynccontextmanager
@@ -67,6 +68,15 @@ def test_normalize_box_shared_link_access_aliases(raw, expected):
 def test_normalize_box_shared_link_access_rejects_unknown():
     with pytest.raises(ValueError, match="Unsupported Box shared link access"):
         box_ui.normalize_box_shared_link_access("private")
+
+
+def test_box_upload_shared_link_access_defaults_to_invited():
+    assert inspect.signature(box_ui.upload_file_to_box_folder_via_ui).parameters[
+        "shared_link_access"
+    ].default == "invited"
+    assert inspect.signature(box_ui.upload_files_to_box_folder_via_ui).parameters[
+        "shared_link_access"
+    ].default == "invited"
 
 
 @pytest.mark.parametrize(
