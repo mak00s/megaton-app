@@ -134,6 +134,24 @@ def test_sanitize_box_debug_text_redacts_emails_and_urls():
     assert text == "Share with [email] [url]"
 
 
+def test_box_text_implies_invited_shared_link_from_invite_only_controls():
+    assert box_ui._box_text_implies_invited_shared_link(
+        "",
+        ["Add names or email addresses", "Shared link / shared-link", "Close"],
+    )
+
+
+def test_box_text_implies_invited_shared_link_rejects_broader_access():
+    assert not box_ui._box_text_implies_invited_shared_link(
+        "People with the link",
+        ["Add names or email addresses", "Shared link / shared-link"],
+    )
+    assert not box_ui._box_text_implies_invited_shared_link(
+        "People in Shiseido with the link",
+        ["Add names or email addresses", "Shared link / shared-link"],
+    )
+
+
 def test_upload_file_to_box_folder_via_ui_sync_forwards_kwargs(monkeypatch, tmp_path):
     captured = {}
 
