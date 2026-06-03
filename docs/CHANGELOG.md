@@ -2,6 +2,10 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## Unreleased
+
+- Hardened Box shared-link creation for invite-only dialogs: `invited` access now accepts Box UI states that show `Add names or email addresses` with `Shared link` but no access dropdown, and falls back to the Box item/folder URL when no copyable shared-link control is exposed.
+
 ## 2026-05-28 (v0.14.0)
 
 - Warn when Adobe Analytics report rows omit expected columns instead of failing with opaque downstream errors.

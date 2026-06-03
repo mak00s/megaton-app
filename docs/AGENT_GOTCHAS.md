@@ -4,9 +4,10 @@ Short operational notes for AI agents and shell automation.
 
 - Adobe Tags workspace exit code `4` means outside-library-scope resources/files were detected. In EXAMPLE this can be steady state and should not automatically block a workflow; inspect `severity`, `summary`, and `details` before failing the run.
 
-## Adobe Tags Snapshot Workers
+## Adobe Tags Snapshot Workers (EXAMPLE Benchmark)
 
-EXAMPLE benchmark for `python -m tags status` on a property with about 170 in-library resources:
+EXAMPLE-specific benchmark for `python -m tags status` on a property with about
+170 in-library resources:
 
 | Workers | Wall time | Notes |
 |---:|---:|---|

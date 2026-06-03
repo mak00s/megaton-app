@@ -188,37 +188,21 @@ Notes:
 - Adobe Analytics can also auto-detect OAuth JSON files in `ADOBE_CREDS_PATH` or `credentials/`.
 - Adobe OAuth JSON shape: `client_id`, `client_secret`, `org_id` (or `ims_org_id`), optional `scopes`.
 
-## Playwright Browser Helpers
+## Browser / Box Workflow Overview
 
-`megaton_lib.playwright_browser` is a lazy-loaded optional Playwright module for browser-only workflows.
-
-Use `browser_page()` when a notebook or analysis repo needs a managed Playwright page with optional storage state, persistent profile, locale, timezone, and viewport settings.
-
-Use `async_browser_page()` for existing async Playwright flows such as Box UI upload/download or Looker Studio export. It supports the same storage state, persistent profile, browser channel, launch args, downloads, device emulation, locale, timezone, and viewport options.
-
-Use `CanvasClipScreenshotter` when a report needs fixed-coordinate screenshots relative to a rendered canvas.
-
-Use `wait_for_url_not_contains()` / `async_wait_for_url_not_contains()` for headed login handoff flows where automation should wait until a login provider URL disappears.
-
-```python
-from megaton_lib.playwright_browser import CanvasClipScreenshotter
-
-with CanvasClipScreenshotter(
-    screenshot_dir="output/clip",
-    storage_state_path="data/google-s.json",
-) as shotter:
-    shotter.screenshot_canvas_clip(
-        url="https://docs.google.com/spreadsheets/d/...#gid=1&range=A1",
-        path="monthly.png",
-        offset={"x": 40, "y": 20, "width": 1200, "height": 500},
-    )
-```
-
-For Google Sheets captures, run headless only after `storage_state_path` contains a valid logged-in session. If login is required, run headful once and let the helper save the refreshed storage state on exit.
+`megaton_lib.playwright_browser` is the shared home for non-validation browser
+automation such as notebook scraping, headed login handoff, CDP attach, and
+canvas screenshots. Keep detailed API options in
+[Browser Scraping Helpers](#browser-scraping-helpers-megaton_libplaywright_browser);
+this section only lists workflow entry points that notebook/report code usually
+chooses from.
 
 ## Box UI Helpers
 
-`megaton_lib.box_ui` contains shared Playwright web-UI helpers for Box download/upload workflows used by report notebooks.
+`megaton_lib.box_ui` contains shared Playwright web-UI helpers for Box
+download/upload workflows used by report notebooks. It builds on
+`async_browser_page()` so Box-specific selectors and fallbacks do not leak into
+generic Playwright helpers.
 
 Primary functions:
 
@@ -228,6 +212,12 @@ Primary functions:
 | `upload_file_to_box_folder_via_ui()` | Log in, open/create an optional subfolder, upload one file, and optionally create a shared link. |
 | `upload_files_to_box_folder_via_ui()` | Upload multiple files in one Box browser session. |
 | `upload_file_to_box_folder_via_ui_sync()` | Synchronous wrapper for notebook/report code. |
+
+Shared-link access supports `invited`, `company`, and `open`. For `invited`,
+the helper also handles Box dialogs that show invite-only controls such as
+`Add names or email addresses` plus `Shared link` without exposing an access
+dropdown. If Box does not expose a copyable shared-link input/button, the helper
+falls back to the Box item/folder URL instead of failing the upload.
 
 ### Adobe Analytics Classifications CLI
 
@@ -966,12 +956,35 @@ a browser is opened. Install with `pip install -e ".[playwright]"` and run
 | Function | Description |
 |----------|-------------|
 | `browser_page(...)` | Context manager that yields a Playwright page using either a fresh context or a persistent `user_data_dir` profile; can load/save a `storage_state_path` JSON |
+| `async_browser_page(...)` | Async context manager with the same storage state, persistent profile, browser channel, launch args, downloads, device emulation, locale, timezone, and viewport options as `browser_page()` |
 | `scrape_with_playwright(url, handler=..., ...)` | Open a URL, optionally wait for a selector, and return `handler(page)` |
 | `save_page_storage_state(page, storage_state_path)` | Save the current page context storage state at a caller-controlled safe timing |
+| `async_save_page_storage_state(page, storage_state_path)` | Async variant of `save_page_storage_state()` |
+| `wait_for_url_not_contains(page, url_part, ...)` | Poll until a login-provider URL disappears in headed handoff flows |
+| `async_wait_for_url_not_contains(page, url_part, ...)` | Async variant of `wait_for_url_not_contains()` |
+| `CanvasClipScreenshotter(...)` | Context manager for fixed-coordinate screenshots relative to a browser-rendered canvas |
 | `is_port_open(port, host="127.0.0.1", ...)` | Probe whether a local TCP port is accepting connections |
 | `launch_chrome_with_debug_port(...)` | macOS-only helper that opens Google Chrome with `--remote-debugging-port` for CDP attach |
 | `find_or_open_page(context, url, ...)` | Reuse an existing page whose URL starts with `url`, or open and navigate a new page |
 | `connected_browser_page(cdp_url, ...)` | Context manager that attaches to an existing Chrome over CDP and yields a page |
+
+For Google Sheets captures, run headless only after `storage_state_path`
+contains a valid logged-in session. If login is required, run headful once and
+let the helper save the refreshed storage state on exit.
+
+```python
+from megaton_lib.playwright_browser import CanvasClipScreenshotter
+
+with CanvasClipScreenshotter(
+    screenshot_dir="output/clip",
+    storage_state_path="data/google-s.json",
+) as shotter:
+    shotter.screenshot_canvas_clip(
+        url="https://docs.google.com/spreadsheets/d/...#gid=1&range=A1",
+        path="monthly.png",
+        offset={"x": 40, "y": 20, "width": 1200, "height": 500},
+    )
+```
 
 #### Adobe Tags Launch Override
 
