@@ -122,6 +122,25 @@ BOX_SHARED_LINK_ACCESS_MENU_PATTERNS = [
     r"アカウント",
 ]
 
+BOX_SHARED_LINK_IMPLICIT_INVITED_PATTERNS = [
+    r"Add names or email addresses",
+    r"Add names or email",
+    r"Add people",
+    r"Invite people",
+    r"Invite collaborators",
+    r"名前またはメールアドレス",
+    r"ユーザーまたはグループを追加",
+    r"ユーザーを招待",
+    r"共同編集者を招待",
+]
+
+BOX_SHARED_LINK_ENABLED_PATTERNS = [
+    r"Shared link",
+    r"shared-link",
+    r"Share link",
+    r"共有リンク",
+]
+
 
 def normalize_box_shared_link_access(value: str) -> str:
     normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
@@ -1056,16 +1075,16 @@ async def _create_or_get_box_shared_link(
     if shared_url:
         return shared_url
 
-    copy_button = dialog.get_by_role("button", name=re.compile(r"Copy Link|Copy shared link|リンクをコピー|コピー", re.I)).first
-    await copy_button.click(timeout=timeout_ms)
-    try:
-        shared_url = str(await page.evaluate("navigator.clipboard.readText()")).strip()
-    except Exception:
-        shared_url = ""
+    shared_url = await _copy_box_shared_link_from_dialog(page=page, dialog=dialog, timeout_ms=timeout_ms)
     if not shared_url:
         shared_url = await _read_box_shared_link_from_dialog(page=page, dialog=dialog)
     if not shared_url:
+        await _close_box_dialog(page=page, dialog=dialog)
         shared_url = await _get_box_item_web_url(page=page, item_name=item_name, timeout_ms=timeout_ms)
+    if not shared_url:
+        current_url = str(getattr(page, "url", "") or "").strip()
+        if re.search(r"https://app\.box\.com/(file|s)/", current_url):
+            shared_url = current_url
     if not shared_url:
         print(f"[warn] Could not read Box link for uploaded file: {item_name}; upload succeeded")
         return ""
@@ -1091,15 +1110,13 @@ async def _create_or_get_current_box_folder_shared_link(
     if shared_url:
         return shared_url
 
-    copy_button = dialog.get_by_role("button", name=re.compile(r"Copy Link|Copy shared link|リンクをコピー|コピー", re.I)).first
-    await copy_button.click(timeout=timeout_ms)
-    try:
-        shared_url = str(await page.evaluate("navigator.clipboard.readText()")).strip()
-    except Exception:
-        shared_url = ""
+    shared_url = await _copy_box_shared_link_from_dialog(page=page, dialog=dialog, timeout_ms=timeout_ms)
     if not shared_url:
         shared_url = await _read_box_shared_link_from_dialog(page=page, dialog=dialog)
     if not shared_url:
+        current_url = str(getattr(page, "url", "") or "").strip()
+        if current_url.startswith("https://app.box.com/"):
+            return current_url
         print("[warn] Could not read Box shared link for current folder; upload succeeded")
         return ""
     return shared_url
@@ -1169,6 +1186,8 @@ async def _set_box_shared_link_access(*, page, dialog, access: str, timeout_ms: 
         return
     if await _click_box_access_option(page=page, scope=dialog, patterns=patterns, timeout_ms=2_000):
         return
+    if access == "invited" and await _box_dialog_implies_invited_shared_link(dialog=dialog):
+        return
 
     clicked_any = False
     for opener in await _box_shared_link_access_menu_openers(dialog=dialog):
@@ -1199,6 +1218,52 @@ async def _set_box_shared_link_access(*, page, dialog, access: str, timeout_ms: 
     hint = f"; visible controls: {', '.join(debug_labels[:12])}" if debug_labels else ""
     clicked = " after opening access controls" if clicked_any else ""
     raise RuntimeError(f"Could not set Box shared link access: {access}{clicked}{hint}")
+
+
+def _box_text_implies_invited_shared_link(text: str, labels: list[str] | None = None) -> bool:
+    combined = "\n".join([str(text or ""), *(labels or [])])
+    if not any(re.search(pattern, combined, re.I) for pattern in BOX_SHARED_LINK_ENABLED_PATTERNS):
+        return False
+    if not any(re.search(pattern, combined, re.I) for pattern in BOX_SHARED_LINK_IMPLICIT_INVITED_PATTERNS):
+        return False
+
+    non_invited_patterns = (
+        BOX_SHARED_LINK_ACCESS_PATTERNS["open"]
+        + BOX_SHARED_LINK_ACCESS_PATTERNS["company"]
+    )
+    return not any(re.search(pattern, combined, re.I) for pattern in non_invited_patterns)
+
+
+async def _box_dialog_implies_invited_shared_link(*, dialog) -> bool:
+    try:
+        text = str(await dialog.evaluate("(el) => el.innerText || el.textContent || ''"))
+    except Exception:
+        text = ""
+    labels = await _box_dialog_control_labels(dialog=dialog)
+    return _box_text_implies_invited_shared_link(text, labels)
+
+
+async def _copy_box_shared_link_from_dialog(*, page, dialog, timeout_ms: int) -> str:
+    copy_button = dialog.get_by_role("button", name=re.compile(r"Copy Link|Copy shared link|リンクをコピー|コピー", re.I)).first
+    try:
+        if await copy_button.count() == 0:
+            return ""
+        await copy_button.click(timeout=min(timeout_ms, 10_000))
+        return str(await page.evaluate("navigator.clipboard.readText()")).strip()
+    except Exception:
+        return ""
+
+
+async def _close_box_dialog(*, page, dialog) -> None:
+    close_button = dialog.get_by_role("button", name=re.compile(r"Close|閉じる", re.I)).first
+    try:
+        if await close_button.count() > 0:
+            await close_button.click(timeout=5_000)
+        else:
+            await page.keyboard.press("Escape")
+        await page.wait_for_timeout(500)
+    except Exception:
+        pass
 
 
 async def _box_access_text_visible(*, scope, patterns: list[str]) -> bool:
