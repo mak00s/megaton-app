@@ -47,6 +47,18 @@ _PLAYWRIGHT_MISSING_MSG = (
     "`playwright install chromium`"
 )
 
+# Launch arg + init script that hide the headless-automation fingerprint.
+# ``--disable-blink-features=AutomationControlled`` stops Chromium from
+# auto-setting ``navigator.webdriver``; the init script is a redundant
+# belt-and-braces override that also covers frames spawned later. This is
+# the canonical signal bot-detection (incl. Adobe Analytics Bot Rules)
+# keys off. Note: ``stealth`` here does NOT set a user-agent — pass
+# ``user_agent`` explicitly when a site also screens UA strings.
+_STEALTH_LAUNCH_ARG = "--disable-blink-features=AutomationControlled"
+_STEALTH_INIT_SCRIPT = (
+    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+)
+
 
 def _load_sync_playwright() -> Any:
     try:
@@ -159,9 +171,11 @@ async def _async_wait_for_load_state(page: AsyncPage, state: str, *, timeout_ms:
 def browser_page(
     *,
     headless: bool = True,
-    locale: str = "ja-JP",
+    locale: str | None = "ja-JP",
     browser_channel: str | None = None,
     launch_args: list[str] | None = None,
+    slow_mo: int = 0,
+    stealth: bool = False,
     user_data_dir: str | Path | None = None,
     storage_state_path: str | Path | None = None,
     save_storage_state: bool = False,
@@ -176,7 +190,12 @@ def browser_page(
 
     Args:
         headless: Launch Chromium headless. Default ``True``.
-        locale: Browser locale; passed to the context.
+        locale: Browser locale; passed to the context. Pass ``None`` to
+            leave the locale unset (Playwright default).
+        slow_mo: Slow each Playwright operation by this many milliseconds.
+        stealth: Hide the automation fingerprint (``navigator.webdriver``)
+            via a launch flag + init script. Does NOT set a user-agent —
+            pass ``user_agent`` when a site also screens UA strings.
         user_data_dir: If set, use a persistent context rooted at this
             directory so cookies / localStorage survive across runs.
             The directory is created if missing.
@@ -217,6 +236,8 @@ def browser_page(
             headless=headless,
             browser_channel=browser_channel,
             launch_args=launch_args,
+            slow_mo=slow_mo,
+            stealth=stealth,
         )
         if user_data_dir is not None:
             profile = Path(user_data_dir)
@@ -227,6 +248,8 @@ def browser_page(
                 **extra,
             )
             try:
+                if stealth:
+                    context.add_init_script(_STEALTH_INIT_SCRIPT)
                 page = context.pages[0] if context.pages else context.new_page()
                 yield page
             finally:
@@ -238,6 +261,8 @@ def browser_page(
             try:
                 context = browser.new_context(**extra)
                 try:
+                    if stealth:
+                        context.add_init_script(_STEALTH_INIT_SCRIPT)
                     page = context.new_page()
                     yield page
                 finally:
@@ -253,9 +278,11 @@ def browser_page(
 async def async_browser_page(
     *,
     headless: bool = True,
-    locale: str = "ja-JP",
+    locale: str | None = "ja-JP",
     browser_channel: str | None = None,
     launch_args: list[str] | None = None,
+    slow_mo: int = 0,
+    stealth: bool = False,
     user_data_dir: str | Path | None = None,
     storage_state_path: str | Path | None = None,
     save_storage_state: bool = False,
@@ -287,6 +314,8 @@ async def async_browser_page(
             headless=headless,
             browser_channel=browser_channel,
             launch_args=launch_args,
+            slow_mo=slow_mo,
+            stealth=stealth,
         )
         if user_data_dir is not None:
             profile = Path(user_data_dir)
@@ -297,6 +326,8 @@ async def async_browser_page(
                 **extra,
             )
             try:
+                if stealth:
+                    await context.add_init_script(_STEALTH_INIT_SCRIPT)
                 page = context.pages[0] if context.pages else await context.new_page()
                 yield page
             finally:
@@ -308,6 +339,8 @@ async def async_browser_page(
             try:
                 context = await browser.new_context(**extra)
                 try:
+                    if stealth:
+                        await context.add_init_script(_STEALTH_INIT_SCRIPT)
                     page = await context.new_page()
                     yield page
                 finally:
@@ -323,19 +356,26 @@ def _build_launch_options(
     headless: bool,
     browser_channel: str | None,
     launch_args: list[str] | None,
+    slow_mo: int = 0,
+    stealth: bool = False,
 ) -> dict[str, Any]:
     options: dict[str, Any] = {"headless": headless}
     if browser_channel:
         options["channel"] = browser_channel
-    if launch_args is not None:
-        options["args"] = list(launch_args)
+    if slow_mo:
+        options["slow_mo"] = slow_mo
+    args = list(launch_args) if launch_args else []
+    if stealth:
+        args.append(_STEALTH_LAUNCH_ARG)
+    if args:
+        options["args"] = args
     return options
 
 
 def _build_context_options(
     *,
     devices: Mapping[str, Mapping[str, Any]],
-    locale: str,
+    locale: str | None,
     device_name: str | None,
     storage_state_path: Path | None,
     use_storage_state: bool,
@@ -346,7 +386,8 @@ def _build_context_options(
     context_kwargs: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     extra: dict[str, Any] = dict(devices[device_name]) if device_name else {}
-    extra["locale"] = locale
+    if locale is not None:
+        extra["locale"] = locale
     if storage_state_path is not None and storage_state_path.exists() and use_storage_state:
         extra["storage_state"] = str(storage_state_path)
     if user_agent is not None:

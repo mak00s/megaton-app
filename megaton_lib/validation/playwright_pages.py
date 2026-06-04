@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import parse_qs, urlencode, urlparse, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+from megaton_lib.playwright_browser import browser_page
+
 if TYPE_CHECKING:
     from playwright.sync_api import Page
 else:
@@ -19,16 +21,9 @@ else:
 
 try:
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-    from playwright.sync_api import sync_playwright
 except ModuleNotFoundError:  # pragma: no cover - exercised in CI environments without Playwright
     class PlaywrightTimeoutError(Exception):
         """Fallback timeout error used when Playwright is unavailable."""
-
-    def sync_playwright() -> Any:
-        raise ModuleNotFoundError(
-            "playwright is required to use megaton_lib.validation.playwright_pages. "
-            "Install the 'playwright' package to run browser-based validation.",
-        )
 
 
 _SATELLITE_LIB_PATTERN = re.compile(
@@ -608,63 +603,49 @@ def run_page_session(
     if tags_override is not None and not route_url:
         raise ValueError("route_url is required when tags_override is provided")
 
-    with sync_playwright() as playwright:
-        launch_options: dict[str, Any] = {"headless": headless}
-        if channel:
-            launch_options["channel"] = channel
-        if slow_mo > 0:
-            launch_options["slow_mo"] = slow_mo
-        if stealth:
-            launch_options.setdefault("args", []).append(
-                "--disable-blink-features=AutomationControlled"
-            )
-        browser = playwright.chromium.launch(**launch_options)
+    # The browser/context/page lifecycle, stealth flag, and storage-state
+    # handling all live in ``megaton_lib.playwright_browser.browser_page``;
+    # this function adds only the validation-specific layer (AA stealth UA,
+    # cookies, GTM/Tags route interception). ``locale=None`` preserves the
+    # historical behavior of not forcing an Accept-Language on the context.
+    context_kwargs: dict[str, Any] = {}
+    if ignore_https_errors:
+        context_kwargs["ignore_https_errors"] = True
+    if basic_auth:
+        context_kwargs["http_credentials"] = basic_auth
+    if storage_state is not None:
+        context_kwargs["storage_state"] = storage_state
 
-        context_options: dict[str, Any] = {}
-        if ignore_https_errors:
-            context_options["ignore_https_errors"] = True
-        if basic_auth:
-            context_options["http_credentials"] = basic_auth
-        if storage_state is not None:
-            context_options["storage_state"] = storage_state
-        if viewport is not None:
-            context_options["viewport"] = dict(viewport)
-        # Resolve effective user-agent: explicit override > stealth default >
-        # Playwright's HeadlessChrome default. The Playwright default leaks
-        # 'HeadlessChrome/X.Y.Z' which AA Bot Rules drop on sight.
-        effective_ua = user_agent
-        if effective_ua is None and stealth:
-            effective_ua = DEFAULT_STEALTH_USER_AGENT
-        if effective_ua:
-            context_options["user_agent"] = effective_ua
+    # Effective UA: explicit override > stealth default. The Playwright
+    # default leaks 'HeadlessChrome/X.Y.Z' which AA Bot Rules drop on sight,
+    # so stealth runs pose as a real Chrome. ``browser_page(stealth=...)``
+    # only hides ``navigator.webdriver``; the UA is supplied here.
+    effective_ua = user_agent
+    if effective_ua is None and stealth:
+        effective_ua = DEFAULT_STEALTH_USER_AGENT
 
-        context = browser.new_context(**context_options)
-        try:
-            if stealth:
-                # navigator.webdriver = true is the canonical bot-detection
-                # signal. Chromium tries to suppress it via the launch flag
-                # above, but a redundant init-script ensures it's hidden
-                # everywhere (including any frames spawned later).
-                context.add_init_script(
-                    "Object.defineProperty(navigator, 'webdriver', "
-                    "{get: () => undefined})"
-                )
-            if cookies:
-                context.add_cookies([dict(cookie) for cookie in cookies])
-            if context_setup is not None:
-                context_setup(context)
-
-            page = context.new_page()
-            if gtm_preview is not None:
-                configure_gtm_preview_override(page, gtm_preview)
-            if tags_override is not None:
-                configure_tags_launch_override(page, route_url or "", tags_override)
-            if setup is not None:
-                setup(page)
-            return callback(page)
-        finally:
-            context.close()
-            browser.close()
+    with browser_page(
+        headless=headless,
+        locale=None,
+        browser_channel=channel,
+        slow_mo=slow_mo,
+        stealth=stealth,
+        user_agent=effective_ua,
+        viewport=viewport,
+        context_kwargs=context_kwargs or None,
+    ) as page:
+        context = page.context
+        if cookies:
+            context.add_cookies([dict(cookie) for cookie in cookies])
+        if context_setup is not None:
+            context_setup(context)
+        if gtm_preview is not None:
+            configure_gtm_preview_override(page, gtm_preview)
+        if tags_override is not None:
+            configure_tags_launch_override(page, route_url or "", tags_override)
+        if setup is not None:
+            setup(page)
+        return callback(page)
 
 
 def capture_storage_state(
