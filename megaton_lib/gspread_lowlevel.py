@@ -17,6 +17,7 @@ __all__ = [
     "get_or_create_worksheet",
     "overwrite_worksheet",
     "append_rows",
+    "fetch_worksheet_values",
     "batch_update_spreadsheet",
     "fetch_sheet_properties",
     "get_sheet_id",
@@ -136,6 +137,33 @@ def append_rows(
     if rows:
         ws.append_rows(rows, value_input_option=value_input_option)
     return len(rows)
+
+
+def fetch_worksheet_values(
+    spreadsheet,
+    sheet_name: str,
+    *,
+    missing_ok: bool = False,
+) -> list[list[str]]:
+    """Return all values of a worksheet as a list of string rows.
+
+    The read-side counterpart to :func:`overwrite_worksheet` /
+    :func:`append_rows`, so callers don't reach past this module to call
+    ``worksheet(...).get_all_values()`` directly.
+
+    Args:
+        missing_ok: When the worksheet does not exist, return ``[]``
+            instead of raising ``WorksheetNotFound``.
+    """
+    import gspread
+
+    try:
+        ws = spreadsheet.worksheet(sheet_name)
+    except gspread.exceptions.WorksheetNotFound:
+        if missing_ok:
+            return []
+        raise
+    return ws.get_all_values()
 
 
 def batch_update_spreadsheet(

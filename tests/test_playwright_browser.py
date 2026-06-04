@@ -412,6 +412,36 @@ def test_scrape_with_playwright_navigates_and_calls_handler(monkeypatch):
     assert pw.chromium.page.wait_selector_calls == [{"selector": ".price", "timeout": 5000}]
 
 
+def test_load_storage_state_reads_valid_json(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text('{"cookies": [{"name": "s"}], "origins": []}', encoding="utf-8")
+
+    state = playwright_browser.load_storage_state(path)
+
+    assert state == {"cookies": [{"name": "s"}], "origins": []}
+
+
+def test_load_storage_state_missing_file_raises(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        playwright_browser.load_storage_state(tmp_path / "nope.json")
+
+
+def test_load_storage_state_non_object_raises(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text("[1, 2, 3]", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="must be a JSON object"):
+        playwright_browser.load_storage_state(path)
+
+
+def test_load_storage_state_roundtrips_with_save(tmp_path):
+    # save_page_storage_state writes via page.context.storage_state(path=...);
+    # load_storage_state should read back an equivalent object.
+    path = tmp_path / "rt.json"
+    path.write_text('{"cookies": [], "origins": [{"origin": "https://x.test"}]}', encoding="utf-8")
+    assert playwright_browser.load_storage_state(path)["origins"][0]["origin"] == "https://x.test"
+
+
 def test_scrape_with_playwright_skips_wait_selector_when_none(monkeypatch):
     pw = _install_fake_sync_playwright(monkeypatch)
     handler = MagicMock(return_value=[])

@@ -30,6 +30,7 @@ from .gspread_lowlevel import (
     ensure_sheet_exists,
     fetch_gspread_sheet_properties,
     fetch_sheet_properties,
+    fetch_worksheet_values,
     get_gspread_sheet_id,
     get_or_create_gspread_worksheet,
     get_or_create_worksheet,
@@ -86,8 +87,7 @@ def read_sheet_table(
         df.columns = [str(c).strip() for c in df.columns]
         return df.dropna(how="all")
 
-    worksheet = mg.gs._driver.worksheet(sheet_name)
-    values = worksheet.get_all_values()
+    values = fetch_worksheet_values(mg.gs._driver, sheet_name)
     if not values or header_row >= len(values):
         return pd.DataFrame()
 

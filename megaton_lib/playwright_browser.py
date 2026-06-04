@@ -24,6 +24,7 @@ extras group and run ``playwright install chromium`` before use.
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import socket
@@ -94,6 +95,31 @@ async def async_save_page_storage_state(page: AsyncPage, storage_state_path: str
     state_path.parent.mkdir(parents=True, exist_ok=True)
     await page.context.storage_state(path=str(state_path))
     return state_path
+
+
+def load_storage_state(storage_state_path: str | Path) -> dict[str, Any]:
+    """Read and validate a Playwright storage_state JSON file.
+
+    The read-side counterpart to :func:`save_page_storage_state`. Both
+    ``browser_page`` (via ``storage_state_path``) and
+    ``new_context(storage_state=...)`` can consume a path directly, but
+    this helper validates the file up front (exists + is a JSON object)
+    and returns the parsed dict so callers can inspect or merge it before
+    handing it to a context.
+
+    Raises:
+        FileNotFoundError: If the path does not exist.
+        ValueError: If the file is not a JSON object.
+    """
+    path = Path(storage_state_path)
+    if not path.exists():
+        raise FileNotFoundError(f"storage_state file not found: {path}")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"storage_state must be a JSON object, got {type(data).__name__}: {path}"
+        )
+    return data
 
 
 def wait_for_url_not_contains(
