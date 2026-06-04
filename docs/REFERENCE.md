@@ -317,6 +317,8 @@ Failure:
 
 全メソッドは `write_enabled=False` 時にスキップし、run summary に `mode="skipped_write"` として記録する。
 
+読み取りは `tracker.read_sheet_df(mg, gs_url, sheet_name, *, strict=False)`。`strict=True` の場合は読み取りエラーをそのまま送出し、`False`（既定）の場合は警告を出して空 DataFrame を返す。累積シートで既存データを失いたくない処理では `strict=True` を使う。
+
 ### Gmail Draft Helpers
 
 `megaton_lib.gmail_client` は Gmail API の薄い共通 wrapper。
@@ -729,6 +731,7 @@ Save destination for query results (post-pipeline). Available for all sources.
 | Function | Description |
 |----------|-------------|
 | `now_in_tz(tz="Asia/Tokyo")` | Current timezone-aware datetime |
+| `resolve_timezone(name=None)` (in `megaton_lib.tz_utils`) | `ZoneInfo` for `name`, falling back to `Asia/Tokyo` on blank/unknown. Shared by `date_utils` and `date_template` |
 | `previous_month_range(reference=None, tz="Asia/Tokyo")` | Previous month start/end (`YYYY-MM-DD`) |
 | `month_start_months_ago(months_ago, reference=None, tz="Asia/Tokyo")` | Month start for N months ago |
 | `previous_year_start(reference=None, tz="Asia/Tokyo")` | Jan 1 of previous year |
@@ -828,8 +831,10 @@ should import them from `megaton_lib.gspread_lowlevel`.
 | Function | Description |
 |----------|-------------|
 | `open_spreadsheet(spreadsheet_id, credentials_path, scopes=None)` | Open a spreadsheet with a service-account JSON |
+| `get_or_create_worksheet(spreadsheet, sheet_name, rows=100, cols=20)` | Return a worksheet, creating it when missing |
 | `overwrite_worksheet(spreadsheet, sheet_name, df, ...)` | Clear and overwrite one worksheet from a DataFrame |
 | `append_rows(spreadsheet, sheet_name, rows, ...)` | Append raw row values |
+| `fetch_worksheet_values(spreadsheet, sheet_name, *, missing_ok=False)` | Read all worksheet values as string rows (read-side of overwrite/append) |
 | `ensure_sheet_exists(spreadsheet, sheet_name, ...)` | Create a worksheet when missing |
 | `get_sheet_id(spreadsheet, sheet_name)` | Resolve worksheet title to numeric `sheetId` |
 | `set_frozen_rows(spreadsheet, sheet_name, count)` | Set frozen row count via batchUpdate |
@@ -837,7 +842,6 @@ should import them from `megaton_lib.gspread_lowlevel`.
 
 Notes:
 - `read_sheet_table(..., header_row=...)` can start from a non-zero header row when source sheets include title/comment rows
-- `read_sheet_df(..., strict=True)` is available when callers need header/shape validation instead of permissive fallback loading
 - sheet formatting in `save_sheet_table()` uses megaton's public API:
   `mg.sheet.resize()`, `mg.sheet.gridlines.hide()/show()`, and
   `mg.sheet.tab.color()`
@@ -955,11 +959,12 @@ a browser is opened. Install with `pip install -e ".[playwright]"` and run
 
 | Function | Description |
 |----------|-------------|
-| `browser_page(...)` | Context manager that yields a Playwright page using either a fresh context or a persistent `user_data_dir` profile; can load/save a `storage_state_path` JSON |
-| `async_browser_page(...)` | Async context manager with the same storage state, persistent profile, browser channel, launch args, downloads, device emulation, locale, timezone, and viewport options as `browser_page()` |
+| `browser_page(...)` | Context manager that yields a Playwright page using either a fresh context or a persistent `user_data_dir` profile; can load/save a `storage_state_path` JSON. Supports `stealth=` (default `False`), `slow_mo=`, and `locale=None` (omit locale) |
+| `async_browser_page(...)` | Async context manager with the same storage state, persistent profile, browser channel, launch args, `stealth`, `slow_mo`, downloads, device emulation, locale, timezone, and viewport options as `browser_page()` |
 | `scrape_with_playwright(url, handler=..., ...)` | Open a URL, optionally wait for a selector, and return `handler(page)` |
 | `save_page_storage_state(page, storage_state_path)` | Save the current page context storage state at a caller-controlled safe timing |
 | `async_save_page_storage_state(page, storage_state_path)` | Async variant of `save_page_storage_state()` |
+| `load_storage_state(storage_state_path)` | Read + validate a storage_state JSON file (exists + is an object) and return the parsed dict; read-side of `save_page_storage_state()` |
 | `wait_for_url_not_contains(page, url_part, ...)` | Poll until a login-provider URL disappears in headed handoff flows |
 | `async_wait_for_url_not_contains(page, url_part, ...)` | Async variant of `wait_for_url_not_contains()` |
 | `CanvasClipScreenshotter(...)` | Context manager for fixed-coordinate screenshots relative to a browser-rendered canvas |
@@ -967,6 +972,12 @@ a browser is opened. Install with `pip install -e ".[playwright]"` and run
 | `launch_chrome_with_debug_port(...)` | macOS-only helper that opens Google Chrome with `--remote-debugging-port` for CDP attach |
 | `find_or_open_page(context, url, ...)` | Reuse an existing page whose URL starts with `url`, or open and navigate a new page |
 | `connected_browser_page(cdp_url, ...)` | Context manager that attaches to an existing Chrome over CDP and yields a page |
+
+Note on stealth defaults: the AA/Tags validation wrappers in
+`megaton_lib.validation` default to `stealth=True`, but the generic
+`browser_page()` / `async_browser_page()` default to `stealth=False`. Pass
+`stealth=True` (and usually `user_agent=...`) when a scraping target screens
+for automation fingerprints.
 
 For Google Sheets captures, run headless only after `storage_state_path`
 contains a valid logged-in session. If login is required, run headful once and
