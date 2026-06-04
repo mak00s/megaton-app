@@ -11,7 +11,6 @@ from urllib.request import Request, urlopen
 from ...config import AdobeTagsConfig
 from .adobe_tags import _reactor_get, build_library, export_property, refresh_library_resources
 from .sync import (
-    StaleBaseConflictError,
     apply_exported_changes_tree,
     raise_for_stale_base_conflicts,
 )

@@ -1,7 +1,6 @@
 """Validation for input/params.json."""
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from megaton_lib.date_template import resolve_date, resolve_dates_in_params

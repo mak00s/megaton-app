@@ -25,7 +25,6 @@ Exit code 0 if all keys match, 1 if any NG.
 
 from __future__ import annotations
 
-import argparse
 import csv
 import sys
 from pathlib import Path
