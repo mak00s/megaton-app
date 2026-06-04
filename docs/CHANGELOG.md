@@ -4,7 +4,14 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+## 2026-06-04 (v0.15.0)
+
 - Hardened Box shared-link creation for invite-only dialogs: `invited` access now accepts Box UI states that show `Add names or email addresses` with `Shared link` but no access dropdown, and falls back to the Box item/folder URL when no copyable shared-link control is exposed.
+- Unified the Playwright launch path: `megaton_lib.validation` page sessions (`run_page`, `run_page_session`, `capture_storage_state`, `run_page_with_bootstrapped_state`) now build on `megaton_lib.playwright_browser.browser_page` instead of a parallel implementation. Behavior is preserved; `browser_page()` / `async_browser_page()` gained `stealth=` (default `False`), `slow_mo=`, and `locale=None` (omit locale) options.
+- `run_page_with_bootstrapped_state()` now accepts `cookies`, threaded to the bootstrap phase so the established session is captured into the reused storage state (matches the documented session options).
+- Added `megaton_lib.playwright_browser.load_storage_state(path)`, a validating read-side counterpart to `save_page_storage_state()`.
+- Added `megaton_lib.gspread_lowlevel.fetch_worksheet_values(spreadsheet, sheet_name, *, missing_ok=False)`; `sheets.read_sheet_table()` now reads through it instead of calling `get_all_values()` directly.
+- Added `megaton_lib.tz_utils.resolve_timezone()`, a shared timezone resolver used by `date_template` and `date_utils`.
 
 ## 2026-05-28 (v0.14.0)
 
