@@ -289,6 +289,37 @@ def test_request_builders():
     }
 
 
+def test_fetch_worksheet_values_returns_rows():
+    ws = SimpleNamespace(get_all_values=Mock(return_value=[["h1", "h2"], ["a", "b"]]))
+    spreadsheet = SimpleNamespace(worksheet=Mock(return_value=ws))
+
+    values = gspread_lowlevel.fetch_worksheet_values(spreadsheet, "Data")
+
+    assert values == [["h1", "h2"], ["a", "b"]]
+    spreadsheet.worksheet.assert_called_once_with("Data")
+
+
+def test_fetch_worksheet_values_missing_ok_returns_empty():
+    import gspread
+
+    spreadsheet = SimpleNamespace(
+        worksheet=Mock(side_effect=gspread.exceptions.WorksheetNotFound("nope"))
+    )
+
+    assert gspread_lowlevel.fetch_worksheet_values(spreadsheet, "Gone", missing_ok=True) == []
+
+
+def test_fetch_worksheet_values_raises_when_missing_and_not_ok():
+    import gspread
+
+    spreadsheet = SimpleNamespace(
+        worksheet=Mock(side_effect=gspread.exceptions.WorksheetNotFound("nope"))
+    )
+
+    with pytest.raises(gspread.exceptions.WorksheetNotFound):
+        gspread_lowlevel.fetch_worksheet_values(spreadsheet, "Gone")
+
+
 def test_sheets_module_reexports_lowlevel_gspread_helpers():
     assert sheets_module.add_sheet_request is add_sheet_request
     assert sheets_module.ensure_min_dimensions is ensure_min_dimensions
