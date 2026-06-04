@@ -21,7 +21,6 @@ import difflib
 import json
 import os
 from pathlib import Path
-import shutil
 import sys
 import time
 from typing import Any
@@ -47,7 +46,6 @@ from .baseline import (
     hash_normalized_text,
     hash_settings_object,
     load_apply_baseline_manifest,
-    stable_json_dumps,
 )
 from .build_workflow import (
     BUILD_SUCCESS_STATUSES,
@@ -56,7 +54,6 @@ from .build_workflow import (
 )
 from .sync import (
     apply_exported_changes_tree,
-    find_component_id,
     find_data_element_id,
     raise_for_stale_base_conflicts,
 )

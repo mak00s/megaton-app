@@ -53,7 +53,7 @@ from megaton_lib.megaton_client import (
     save_to_sheet,
     save_to_bq,
 )
-from megaton_lib.batch_runner import run_batch, collect_configs
+from megaton_lib.batch_runner import run_batch
 from megaton_lib.job_manager import JobStore, now_iso
 from megaton_lib.params_validator import validate_params
 from megaton_lib.result_inspector import read_head, build_summary, apply_pipeline
