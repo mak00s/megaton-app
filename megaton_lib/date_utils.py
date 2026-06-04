@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from megaton_lib.tz_utils import resolve_timezone
+
 
 def month_ranges_for_year(year: int) -> list[tuple[str, str]]:
     """Return ``(start, end)`` ISO-date pairs for each month of *year*.
@@ -73,11 +75,12 @@ def months_between(start, end) -> list[str]:
 
 
 def _resolve_tz(tz: str) -> ZoneInfo:
-    """Resolve timezone name with Asia/Tokyo fallback."""
-    try:
-        return ZoneInfo(str(tz).strip() or "Asia/Tokyo")
-    except Exception:
-        return ZoneInfo("Asia/Tokyo")
+    """Resolve timezone name with Asia/Tokyo fallback.
+
+    Thin wrapper over :func:`megaton_lib.tz_utils.resolve_timezone`, kept
+    for the module-internal call sites below.
+    """
+    return resolve_timezone(tz)
 
 
 def _as_datetime(value: dt.datetime | dt.date | None, *, tz: str) -> dt.datetime:

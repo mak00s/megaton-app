@@ -25,19 +25,16 @@ import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from megaton_lib.tz_utils import resolve_timezone
+
 
 # today±Nd pattern
 _RELATIVE_RE = re.compile(r"^today([+-])(\d+)d$")
-_DEFAULT_TZ = "Asia/Tokyo"
 
 
 def _resolve_timezone() -> ZoneInfo:
     """Resolve DATE_TEMPLATE_TZ (fallback to Asia/Tokyo on invalid value)."""
-    tz_name = os.getenv("DATE_TEMPLATE_TZ", _DEFAULT_TZ).strip() or _DEFAULT_TZ
-    try:
-        return ZoneInfo(tz_name)
-    except Exception:
-        return ZoneInfo(_DEFAULT_TZ)
+    return resolve_timezone(os.getenv("DATE_TEMPLATE_TZ"))
 
 
 def _current_date_in_configured_tz() -> date:

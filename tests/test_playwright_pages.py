@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import megaton_lib.playwright_browser as _pb
 from megaton_lib.validation.playwright_pages import (
     DEFAULT_STEALTH_USER_AGENT,
     GtmPreviewOverride,
@@ -198,6 +199,18 @@ class FakeChromium:
 class FakePlaywright:
     def __init__(self, chromium: FakeChromium) -> None:
         self.chromium = chromium
+        # browser_page() reads pw.devices when building context options.
+        self.devices: dict = {}
+
+
+def _patch_browser(monkeypatch, manager) -> None:
+    """Route browser_page()'s Playwright loader at the fake manager.
+
+    run_page_session now delegates its browser/context/page lifecycle to
+    megaton_lib.playwright_browser.browser_page, so tests intercept at that
+    layer's lazy loader instead of playwright_pages.sync_playwright.
+    """
+    monkeypatch.setattr(_pb, "_load_sync_playwright", lambda: (lambda: manager))
 
 
 class FakePlaywrightManager:
@@ -363,9 +376,8 @@ def test_run_with_basic_auth_page_opens_and_closes(monkeypatch):
     chromium = FakeChromium(browser)
     manager = FakePlaywrightManager(FakePlaywright(chromium))
 
-    import megaton_lib.validation.playwright_pages as mod
 
-    monkeypatch.setattr(mod, "sync_playwright", lambda: manager)
+    _patch_browser(monkeypatch, manager)
 
     result = run_with_basic_auth_page(
         "https://example.test/page",
@@ -601,9 +613,8 @@ def test_run_page_applies_override_before_callback(monkeypatch):
     chromium = FakeChromium(browser)
     manager = FakePlaywrightManager(FakePlaywright(chromium))
 
-    import megaton_lib.validation.playwright_pages as mod
 
-    monkeypatch.setattr(mod, "sync_playwright", lambda: manager)
+    _patch_browser(monkeypatch, manager)
 
     result = run_page(
         "https://example.test/page",
@@ -643,9 +654,8 @@ def test_run_page_passes_storage_state_and_viewport(monkeypatch):
     chromium = FakeChromium(browser)
     manager = FakePlaywrightManager(FakePlaywright(chromium))
 
-    import megaton_lib.validation.playwright_pages as mod
 
-    monkeypatch.setattr(mod, "sync_playwright", lambda: manager)
+    _patch_browser(monkeypatch, manager)
 
     result = run_page(
         "https://example.test/page",
@@ -665,9 +675,8 @@ def test_capture_storage_state_returns_context_state(monkeypatch):
     chromium = FakeChromium(browser)
     manager = FakePlaywrightManager(FakePlaywright(chromium))
 
-    import megaton_lib.validation.playwright_pages as mod
 
-    monkeypatch.setattr(mod, "sync_playwright", lambda: manager)
+    _patch_browser(monkeypatch, manager)
 
     state = capture_storage_state(
         ignore_https_errors=True,
@@ -687,9 +696,8 @@ def test_run_page_session_supports_cookies_and_launch_options(monkeypatch):
     chromium = FakeChromium(browser)
     manager = FakePlaywrightManager(FakePlaywright(chromium))
 
-    import megaton_lib.validation.playwright_pages as mod
 
-    monkeypatch.setattr(mod, "sync_playwright", lambda: manager)
+    _patch_browser(monkeypatch, manager)
 
     seen = []
 
@@ -724,9 +732,8 @@ def test_run_page_session_stealth_defaults_and_opt_out(monkeypatch):
     chromium = FakeChromium(browser)
     manager = FakePlaywrightManager(FakePlaywright(chromium))
 
-    import megaton_lib.validation.playwright_pages as mod
 
-    monkeypatch.setattr(mod, "sync_playwright", lambda: manager)
+    _patch_browser(monkeypatch, manager)
 
     run_page_session(callback=lambda opened_page: opened_page.url)
 
@@ -739,11 +746,7 @@ def test_run_page_session_stealth_defaults_and_opt_out(monkeypatch):
     page2 = FakePage()
     browser2 = FakeBrowser(page2)
     chromium2 = FakeChromium(browser2)
-    monkeypatch.setattr(
-        mod,
-        "sync_playwright",
-        lambda: FakePlaywrightManager(FakePlaywright(chromium2)),
-    )
+    _patch_browser(monkeypatch, FakePlaywrightManager(FakePlaywright(chromium2)))
 
     run_page_session(stealth=False, callback=lambda opened_page: opened_page.url)
 
@@ -758,9 +761,8 @@ def test_run_page_wrapper_accepts_user_agent_and_stealth_opt_out(monkeypatch):
     chromium = FakeChromium(browser)
     manager = FakePlaywrightManager(FakePlaywright(chromium))
 
-    import megaton_lib.validation.playwright_pages as mod
 
-    monkeypatch.setattr(mod, "sync_playwright", lambda: manager)
+    _patch_browser(monkeypatch, manager)
 
     run_page(
         "https://example.test/page",
@@ -829,9 +831,8 @@ def test_run_page_applies_gtm_preview_before_callback(monkeypatch):
     chromium = FakeChromium(browser)
     manager = FakePlaywrightManager(FakePlaywright(chromium))
 
-    import megaton_lib.validation.playwright_pages as mod
 
-    monkeypatch.setattr(mod, "sync_playwright", lambda: manager)
+    _patch_browser(monkeypatch, manager)
 
     result = run_page(
         "https://example.test/page",
@@ -891,9 +892,8 @@ def test_run_with_launch_override_keeps_legacy_wrapper_behavior(monkeypatch):
     chromium = FakeChromium(browser)
     manager = FakePlaywrightManager(FakePlaywright(chromium))
 
-    import megaton_lib.validation.playwright_pages as mod
 
-    monkeypatch.setattr(mod, "sync_playwright", lambda: manager)
+    _patch_browser(monkeypatch, manager)
 
     result = run_with_launch_override(
         "https://example.test/page",

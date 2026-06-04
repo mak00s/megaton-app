@@ -44,6 +44,7 @@ class FakeContext:
         self.closed = False
         self.kwargs: dict = {}
         self.saved_storage_state_path = ""
+        self.init_scripts: list[str] = []
 
     def new_page(self):
         return self._page
@@ -53,6 +54,9 @@ class FakeContext:
 
     def storage_state(self, *, path):
         self.saved_storage_state_path = path
+
+    def add_init_script(self, script: str):
+        self.init_scripts.append(script)
 
 
 class FakeBrowser:
@@ -187,6 +191,48 @@ def test_browser_page_passes_optional_context_options(monkeypatch):
         "viewport": {"width": 1280, "height": 720},
         "ignore_https_errors": True,
     }
+
+
+def test_browser_page_stealth_adds_launch_arg_and_init_script(monkeypatch):
+    pw = _install_fake_sync_playwright(monkeypatch)
+
+    with playwright_browser.browser_page(stealth=True):
+        pass
+
+    assert pw.chromium.launch_kwargs["args"] == [
+        "--disable-blink-features=AutomationControlled"
+    ]
+    assert pw.chromium.context.init_scripts == [
+        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    ]
+
+
+def test_browser_page_no_stealth_means_no_arg_or_init_script(monkeypatch):
+    pw = _install_fake_sync_playwright(monkeypatch)
+
+    with playwright_browser.browser_page():
+        pass
+
+    assert "args" not in pw.chromium.launch_kwargs
+    assert pw.chromium.context.init_scripts == []
+
+
+def test_browser_page_slow_mo_passed_to_launch(monkeypatch):
+    pw = _install_fake_sync_playwright(monkeypatch)
+
+    with playwright_browser.browser_page(slow_mo=250):
+        pass
+
+    assert pw.chromium.launch_kwargs["slow_mo"] == 250
+
+
+def test_browser_page_locale_none_omits_locale(monkeypatch):
+    pw = _install_fake_sync_playwright(monkeypatch)
+
+    with playwright_browser.browser_page(locale=None):
+        pass
+
+    assert "locale" not in pw.chromium.browser.new_context_kwargs
 
 
 def test_browser_page_passes_channel_args_accept_downloads_and_device(monkeypatch):
