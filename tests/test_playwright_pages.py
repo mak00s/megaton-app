@@ -785,7 +785,9 @@ def test_run_page_with_bootstrapped_state_reuses_captured_state(monkeypatch):
         mod,
         "capture_storage_state",
         lambda **kwargs: (
-            seen.append(("bootstrap", kwargs["ignore_https_errors"], kwargs["viewport"])),
+            seen.append(
+                ("bootstrap", kwargs["ignore_https_errors"], kwargs["viewport"], kwargs["cookies"])
+            ),
             {"cookies": [{"name": "session", "value": "boot"}]},
         )[1],
     )
@@ -802,6 +804,7 @@ def test_run_page_with_bootstrapped_state_reuses_captured_state(monkeypatch):
         "https://example.test/page",
         ignore_https_errors=True,
         viewport={"width": 1200, "height": 800},
+        cookies=[{"name": "seed", "value": "1"}],
         tags_override=TagsLaunchOverride(
             launch_url="https://assets.adobedtm.com/company/property/launch-dev.js",
             mode="launch_env",
@@ -812,7 +815,7 @@ def test_run_page_with_bootstrapped_state_reuses_captured_state(monkeypatch):
 
     assert result == "ok"
     assert seen == [
-        ("bootstrap", True, {"width": 1200, "height": 800}),
+        ("bootstrap", True, {"width": 1200, "height": 800}, [{"name": "seed", "value": "1"}]),
         (
             "run",
             "https://example.test/page",
