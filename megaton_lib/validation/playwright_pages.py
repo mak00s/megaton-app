@@ -698,6 +698,7 @@ def run_page_with_bootstrapped_state(
     slow_mo: int = 0,
     ignore_https_errors: bool = False,
     basic_auth: dict[str, str] | None = None,
+    cookies: list[Mapping[str, Any]] | None = None,
     viewport: Mapping[str, int] | None = None,
     gtm_preview: GtmPreviewOverride | None = None,
     tags_override: TagsLaunchOverride | None = None,
@@ -707,13 +708,19 @@ def run_page_with_bootstrapped_state(
     user_agent: str | None = None,
     stealth: bool = True,
 ) -> Any:
-    """Create storage state via ``bootstrap`` and reuse it for a second page run."""
+    """Create storage state via ``bootstrap`` and reuse it for a second page run.
+
+    ``cookies`` seed the bootstrap context so any session they establish is
+    captured into the reused storage state; they are not re-added to the
+    final run (the captured state already carries them).
+    """
     storage_state = capture_storage_state(
         headless=headless,
         channel=channel,
         slow_mo=slow_mo,
         ignore_https_errors=ignore_https_errors,
         basic_auth=basic_auth,
+        cookies=cookies,
         viewport=viewport,
         context_setup=context_setup,
         callback=bootstrap,
