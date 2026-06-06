@@ -457,6 +457,200 @@ def list_rule_components(config: AdobeTagsConfig, rule_id: str) -> list[dict[str
     return _paginated_list(config, f"/rules/{rule_id}/rule_components")
 
 
+def find_extension_by_name(config: AdobeTagsConfig, name: str) -> dict[str, Any]:
+    """Find one extension in the property by display_name or name.
+
+    Adobe Tags extension IDs are property-local. Callers should resolve the
+    extension instead of hardcoding IDs when provisioning rule components.
+    """
+    wanted = name.strip().lower()
+    for extension in list_extensions(config):
+        attrs = extension.get("attributes", {})
+        candidates = [
+            str(attrs.get("display_name") or "").strip().lower(),
+            str(attrs.get("name") or "").strip().lower(),
+        ]
+        if wanted in candidates:
+            return extension
+    raise RuntimeError(f"Adobe Tags extension not found in property {config.property_id}: {name!r}")
+
+
+def create_rule_component(
+    config: AdobeTagsConfig,
+    *,
+    rule_id: str,
+    extension_id: str,
+    name: str,
+    delegate_descriptor_id: str,
+    settings: Mapping[str, Any] | dict[str, Any] | None = None,
+    order: int = 0,
+    rule_order: float = 50.0,
+    timeout: int = 2000,
+    delay_next: bool = True,
+    negate: bool = False,
+) -> dict[str, Any]:
+    """Create a rule component via ``POST /properties/{property}/rule_components``.
+
+    Reactor creates rule components from the property endpoint, with the rule
+    linked through ``relationships.rules``. Some tenants reject
+    ``POST /rules/{rule}/rule_components`` with 405, so reusable provisioning
+    should use this endpoint.
+    """
+    payload = {
+        "data": {
+            "type": "rule_components",
+            "attributes": {
+                "name": name,
+                "delegate_descriptor_id": delegate_descriptor_id,
+                "settings": serialize_settings_object(settings or {}),
+                "order": order,
+                "rule_order": rule_order,
+                "timeout": timeout,
+                "delay_next": delay_next,
+                "negate": negate,
+            },
+            "relationships": {
+                "extension": {
+                    "data": {"id": extension_id, "type": "extensions"},
+                },
+                "rules": {
+                    "data": [{"id": rule_id, "type": "rules"}],
+                },
+            },
+        },
+    }
+    body = _reactor_post(config, f"/properties/{config.property_id}/rule_components", payload)
+    return body.get("data", {})
+
+
+def ensure_rule_component(
+    config: AdobeTagsConfig,
+    *,
+    rule_id: str,
+    extension_id: str,
+    name: str,
+    delegate_descriptor_id: str,
+    settings: Mapping[str, Any] | dict[str, Any] | None = None,
+    order: int = 0,
+    rule_order: float = 50.0,
+    timeout: int = 2000,
+    delay_next: bool = True,
+    negate: bool = False,
+    match_by: str = "name",
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """Create or update a rule component in an idempotent way.
+
+    ``match_by`` can be ``"name"`` or ``"delegate_descriptor_id"``. Existing
+    components are patched when their key attributes differ. The function is
+    dry-run by default for safe CLI use.
+    """
+    target_settings = serialize_settings_object(settings or {})
+    target_attrs = {
+        "name": name,
+        "delegate_descriptor_id": delegate_descriptor_id,
+        "settings": target_settings,
+        "order": order,
+        "rule_order": rule_order,
+        "timeout": timeout,
+        "delay_next": delay_next,
+        "negate": negate,
+    }
+    if match_by not in {"name", "delegate_descriptor_id"}:
+        raise ValueError("match_by must be 'name' or 'delegate_descriptor_id'")
+
+    existing = None
+    for component in list_rule_components(config, rule_id):
+        attrs = component.get("attributes", {})
+        if str(attrs.get(match_by) or "") == str(target_attrs[match_by]):
+            existing = component
+            break
+
+    if existing is None:
+        result: dict[str, Any] = {
+            "action": "create",
+            "changed": True,
+            "applied": False,
+            "component_id": None,
+            "rule_id": rule_id,
+            "name": name,
+            "delegate_descriptor_id": delegate_descriptor_id,
+            "changed_attributes": sorted(target_attrs),
+        }
+        if dry_run:
+            return result
+        created = create_rule_component(
+            config,
+            rule_id=rule_id,
+            extension_id=extension_id,
+            name=name,
+            delegate_descriptor_id=delegate_descriptor_id,
+            settings=settings or {},
+            order=order,
+            rule_order=rule_order,
+            timeout=timeout,
+            delay_next=delay_next,
+            negate=negate,
+        )
+        result["applied"] = True
+        result["component_id"] = created.get("id")
+        return result
+
+    component_id = str(existing.get("id") or "")
+    # A rule component's extension relationship is fixed at creation; this
+    # function only patches attributes. If the matched component belongs to a
+    # different extension than requested, refuse rather than silently leaving
+    # the relationship stale (or producing a delegate/extension mismatch).
+    # The relationship is absent in some payload shapes (e.g. minimal test
+    # fixtures); skip the check when it cannot be read.
+    existing_extension_id = str(
+        existing.get("relationships", {})
+        .get("extension", {})
+        .get("data", {})
+        .get("id")
+        or ""
+    )
+    if existing_extension_id and existing_extension_id != str(extension_id):
+        raise RuntimeError(
+            f"Rule component {component_id!r} (matched by {match_by}={target_attrs[match_by]!r}) "
+            f"belongs to extension {existing_extension_id!r}, not {str(extension_id)!r}. "
+            "A component's extension cannot be changed in place; delete and recreate it, "
+            "or target a different component."
+        )
+    attrs = existing.get("attributes", {})
+    patch_attrs = {}
+    for key, value in target_attrs.items():
+        if key == "settings":
+            if parse_settings_object(attrs.get("settings")) != parse_settings_object(value):
+                patch_attrs[key] = value
+            continue
+        if attrs.get(key) != value:
+            patch_attrs[key] = value
+    result = {
+        "action": "update" if patch_attrs else "unchanged",
+        "changed": bool(patch_attrs),
+        "applied": False,
+        "component_id": component_id,
+        "rule_id": rule_id,
+        "name": name,
+        "delegate_descriptor_id": delegate_descriptor_id,
+        "changed_attributes": sorted(patch_attrs),
+    }
+    if not patch_attrs or dry_run:
+        return result
+
+    payload = {
+        "data": {
+            "id": component_id,
+            "type": "rule_components",
+            "attributes": patch_attrs,
+        },
+    }
+    _reactor_patch(config, f"/rule_components/{component_id}", payload)
+    result["applied"] = True
+    return result
+
+
 def list_rule_revisions(config: AdobeTagsConfig, rule_id: str) -> list[dict[str, Any]]:
     """Fetch revision history for a rule.
 

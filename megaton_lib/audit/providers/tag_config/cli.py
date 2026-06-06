@@ -53,6 +53,20 @@ def _print_json_result(result: dict[str, Any]) -> None:
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
+def _load_json_arg(value: str) -> dict[str, Any]:
+    """Load a JSON object from inline text or ``@path`` syntax."""
+    raw = value.strip()
+    if not raw:
+        return {}
+    if raw.startswith("@"):
+        path = Path(raw[1:])
+        raw = path.read_text(encoding="utf-8")
+    parsed = json.loads(raw)
+    if not isinstance(parsed, dict):
+        raise ValueError("--settings must be a JSON object")
+    return parsed
+
+
 def tags_workspace_main(
     *,
     tags_config_factory: Callable[..., AdobeTagsConfig] | None = None,
@@ -91,6 +105,20 @@ def tags_workspace_main(
     build_p = sub.add_parser("build")
     build_p.add_argument("--verify-url", default="")
     build_p.add_argument("--marker", action="append", default=[])
+    ensure_rc_p = sub.add_parser("ensure-rule-component")
+    ensure_rc_p.add_argument("--rule-id", required=True)
+    ensure_rc_p.add_argument("--extension", default="Core", help="Extension display name/name used when --extension-id is omitted")
+    ensure_rc_p.add_argument("--extension-id", default="")
+    ensure_rc_p.add_argument("--name", required=True)
+    ensure_rc_p.add_argument("--delegate", required=True, help="Delegate descriptor id, e.g. core::actions::custom-code")
+    ensure_rc_p.add_argument("--settings", default="{}", help="Inline JSON object or @path/to/settings.json")
+    ensure_rc_p.add_argument("--order", type=int, default=0)
+    ensure_rc_p.add_argument("--rule-order", type=float, default=50.0)
+    ensure_rc_p.add_argument("--timeout", type=int, default=2000)
+    ensure_rc_p.add_argument("--delay-next", choices=("true", "false"), default="true")
+    ensure_rc_p.add_argument("--negate", choices=("true", "false"), default="false")
+    ensure_rc_p.add_argument("--match-by", choices=("name", "delegate_descriptor_id"), default="name")
+    ensure_rc_p.add_argument("--apply", action="store_true")
     full_export_p = sub.add_parser("full-export")
     full_export_p.add_argument("--output", required=True)
     full_export_p.add_argument("--resources", default="")
@@ -181,7 +209,7 @@ def tags_workspace_main(
     if not args.property_id.strip():
         print("ERROR: --property-id or TAGS_PROPERTY_ID is required", file=sys.stderr)
         raise SystemExit(1)
-    if args.command != "full-export" and not args.library_id.strip():
+    if args.command not in {"full-export", "ensure-rule-component"} and not args.library_id.strip():
         print("ERROR: --library-id or TAGS_DEV_LIBRARY_ID is required", file=sys.stderr)
         raise SystemExit(1)
 
@@ -190,70 +218,137 @@ def tags_workspace_main(
     config = factory(property_id=args.property_id, page_size=page_size)
     _ = account  # resolved for env side effects and wrapper diagnostics
 
-    if args.command == "checkout":
-        result = checkout_library_scope(
-            config,
-            root=root,
-            library_id=args.library_id,
-            force=args.force,
-            snapshot_workers=args.workers,
-        )
-    elif args.command == "pull":
-        result = pull_library_scope(
-            config,
-            root=root,
-            library_id=args.library_id,
-            snapshot_workers=args.workers,
-            summary_only=args.summary_only,
-            verbose=args.verbose,
-        )
-    elif args.command == "status":
-        result = status_library_scope(
-            config,
-            root=root,
-            library_id=args.library_id,
-            since_pull=args.since_pull,
-            summary_only=args.summary_only,
-            verbose=args.verbose,
-            snapshot_workers=args.workers,
-        )
-    elif args.command == "add":
-        result = add_to_library_scope(
-            config,
-            root=root,
-            library_id=args.library_id,
-            from_paths=args.from_path,
-            apply=args.apply,
-        )
-    elif args.command == "push":
-        if args.apply and not args.no_local_status_hooks:
-            status_library_scope(config, root=root, library_id=args.library_id, since_pull=True, summary_only=True)
-        result = push_library_scope(
-            config,
-            root=root,
-            library_id=args.library_id,
-            apply=args.apply,
-            verify_asset_url=args.verify_url or None,
-            allow_stale_base=args.allow_stale_base,
-            skip_build=args.skip_build,
-            markers=args.marker,
-            snapshot_workers=args.workers,
-        )
-        if args.apply and not args.no_local_status_hooks:
-            status_library_scope(config, root=root, library_id=args.library_id, since_pull=True, summary_only=True)
-    elif args.command == "build":
-        result = build_library_scope(
-            config,
-            library_id=args.library_id,
-            verify_asset_url=args.verify_url or None,
-            markers=args.marker,
-        )
-    else:
-        resources = [item.strip() for item in args.resources.split(",") if item.strip()] if args.resources else None
-        result = full_export_property(config, output_root=args.output, resources=resources)
+    # Single top-level guard so every Reactor-backed command surfaces API
+    # failures (auth, 4xx such as an unknown rule/extension) as a clean
+    # `ERROR: ...` line + exit 1 instead of a traceback. SystemExit raised
+    # for arg-validation below is a BaseException and passes through.
+    try:
+        if args.command == "checkout":
+            result = checkout_library_scope(
+                config,
+                root=root,
+                library_id=args.library_id,
+                force=args.force,
+                snapshot_workers=args.workers,
+            )
+        elif args.command == "pull":
+            result = pull_library_scope(
+                config,
+                root=root,
+                library_id=args.library_id,
+                snapshot_workers=args.workers,
+                summary_only=args.summary_only,
+                verbose=args.verbose,
+            )
+        elif args.command == "status":
+            result = status_library_scope(
+                config,
+                root=root,
+                library_id=args.library_id,
+                since_pull=args.since_pull,
+                summary_only=args.summary_only,
+                verbose=args.verbose,
+                snapshot_workers=args.workers,
+            )
+        elif args.command == "add":
+            result = add_to_library_scope(
+                config,
+                root=root,
+                library_id=args.library_id,
+                from_paths=args.from_path,
+                apply=args.apply,
+            )
+        elif args.command == "push":
+            if args.apply and not args.no_local_status_hooks:
+                status_library_scope(config, root=root, library_id=args.library_id, since_pull=True, summary_only=True)
+            result = push_library_scope(
+                config,
+                root=root,
+                library_id=args.library_id,
+                apply=args.apply,
+                verify_asset_url=args.verify_url or None,
+                allow_stale_base=args.allow_stale_base,
+                skip_build=args.skip_build,
+                markers=args.marker,
+                snapshot_workers=args.workers,
+            )
+            if args.apply and not args.no_local_status_hooks:
+                status_library_scope(config, root=root, library_id=args.library_id, since_pull=True, summary_only=True)
+        elif args.command == "build":
+            result = build_library_scope(
+                config,
+                library_id=args.library_id,
+                verify_asset_url=args.verify_url or None,
+                markers=args.marker,
+            )
+        elif args.command == "ensure-rule-component":
+            from .adobe_tags import ensure_rule_component, find_extension_by_name  # noqa: WPS433
+
+            try:
+                settings = _load_json_arg(args.settings)
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                print(f"ERROR: invalid --settings: {exc}", file=sys.stderr)
+                raise SystemExit(1) from exc
+
+            extension_id = args.extension_id.strip()
+            if not extension_id:
+                extension = find_extension_by_name(config, args.extension)
+                extension_id = str(extension.get("id") or "")
+            if not extension_id:
+                print("ERROR: extension id could not be resolved", file=sys.stderr)
+                raise SystemExit(1)
+
+            component = ensure_rule_component(
+                config,
+                rule_id=args.rule_id,
+                extension_id=extension_id,
+                name=args.name,
+                delegate_descriptor_id=args.delegate,
+                settings=settings,
+                order=args.order,
+                rule_order=args.rule_order,
+                timeout=args.timeout,
+                delay_next=args.delay_next == "true",
+                negate=args.negate == "true",
+                match_by=args.match_by,
+                dry_run=not args.apply,
+            )
+            # exit_code/severity below are envelope decoration only; the
+            # dispatcher derives the real exit code from `summary` via
+            # workspace_result_exit_code().
+            result = {
+                "schema_version": 1,
+                "command": "ensure-rule-component",
+                "mode": "apply" if args.apply else "dry_run",
+                "property_id": config.property_id,
+                "rule_id": args.rule_id,
+                "extension_id": extension_id,
+                "component": component,
+                "summary": {
+                    "changed": int(bool(component.get("changed"))),
+                    "applied": int(bool(component.get("applied"))),
+                },
+                "details": {},
+                "ok": True,
+                "exit_code": 0,
+                "severity": "ok",
+            }
+        else:
+            resources = [item.strip() for item in args.resources.split(",") if item.strip()] if args.resources else None
+            result = full_export_property(config, output_root=args.output, resources=resources)
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
 
     if args.format == "json":
         _print_json_result(result)
+    elif args.command == "ensure-rule-component":
+        component = result.get("component", {})
+        changed = ", ".join(component.get("changed_attributes") or []) or "-"
+        print(
+            f"ensure-rule-component: action={component.get('action')} "
+            f"changed=[{changed}] applied={component.get('applied')} ({result.get('mode')})"
+        )
     raise SystemExit(workspace_result_exit_code(result))
 
 
