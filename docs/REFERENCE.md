@@ -1144,13 +1144,14 @@ These helpers are intended for thin wrapper scripts in analysis repos.
 
 #### `tags_workspace_main(...)`
 
-- supports `checkout`, `pull`, `status`, `add`, `push`, `build`, `full-export`, and `conflict`
+- supports `checkout`, `pull`, `status`, `add`, `push`, `build`, `full-export`, `ensure-rule-component`, and `conflict`
 - global flags include `--account`, `--property-id`, `--library-id`, `--root`, `--workers`, `--summary-only`, `--verbose`, and `--format json`
 - `status --since-pull` uses only local baseline files and makes no Adobe API calls
 - `conflict --list`, `conflict --show <path>`, and `conflict --resolve <path> --use local|remote|baseline [--apply]` read `.tag-conflicts.json` and do not require Adobe credentials
 - `conflict --list --format json` emits the same workspace result envelope as other JSON commands, with conflict records under `details.conflicts`
 - conflict commands bootstrap `.env.<account>` before resolving the default workspace root unless `--root` is explicitly provided
 - `push --apply` runs local `status --since-pull --summary-only` before and after the push unless `--no-local-status-hooks` is used
+- `ensure-rule-component` idempotently creates or patches one rule component (dry-run unless `--apply`). It does not require `--library-id`. Flags: `--rule-id` (required), `--name` (required), `--delegate <descriptor>` (required), `--extension <display/name>` (default `Core`) or `--extension-id`, `--settings '<json>'` or `--settings @path.json`, `--order`, `--rule-order`, `--timeout`, `--delay-next {true,false}`, `--negate {true,false}`, and `--match-by {name,delegate_descriptor_id}`. Existing components are matched by `--match-by` and only changed attributes are patched; the JSON result reports `component.action` (`create`/`update`/`unchanged`) and `component.changed_attributes`. An unknown `--rule-id` or `--extension` exits `1` with a clean error message rather than a traceback.
 - wrapper entrypoint example:
 
 ```python

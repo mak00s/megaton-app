@@ -14,9 +14,12 @@ from megaton_lib.audit.providers.tag_config.adobe_tags import (
     apply_component_settings,
     apply_data_element_settings,
     build_library,
+    create_rule_component,
     deploy_library,
+    ensure_rule_component,
     export_property,
     extract_mapping_from_settings,
+    find_extension_by_name,
     find_dirty_origin_rules,
     get_component_settings,
     list_library_resources,
@@ -214,6 +217,260 @@ def test_apply_component_settings_patches_rule_component(tags_env, monkeypatch):
     assert patch_calls[0]["json"]["data"]["attributes"]["settings"] == (
         '{"customSetup":{"source":"new"}}'
     )
+
+
+def test_create_rule_component_posts_property_endpoint(tags_env, monkeypatch):
+    config = _make_config()
+    post_calls = []
+
+    def mock_request(method, url, **kw):
+        assert method == "POST"
+        post_calls.append({"url": url, "json": kw.get("json")})
+        return _Resp(201, {"data": {"id": "RCNEW", "type": "rule_components"}})
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        mock_request,
+    )
+
+    result = create_rule_component(
+        config,
+        rule_id="RL123",
+        extension_id="EXCORE",
+        name="FPID AA gate",
+        delegate_descriptor_id="core::actions::custom-code",
+        settings={"language": "javascript", "global": False, "source": "console.log('x')"},
+        order=0,
+        rule_order=50.0,
+    )
+
+    assert result["id"] == "RCNEW"
+    assert post_calls[0]["url"].endswith("/properties/PR123/rule_components")
+    payload = post_calls[0]["json"]["data"]
+    assert json.loads(payload["attributes"]["settings"]) == {
+        "language": "javascript",
+        "global": False,
+        "source": "console.log('x')",
+    }
+    assert payload["relationships"]["extension"]["data"] == {"id": "EXCORE", "type": "extensions"}
+    assert payload["relationships"]["rules"]["data"] == [{"id": "RL123", "type": "rules"}]
+
+
+def test_ensure_rule_component_dry_run_create(tags_env, monkeypatch):
+    config = _make_config()
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        lambda method, url, **kw: _Resp(200, {"data": []}),
+    )
+
+    result = ensure_rule_component(
+        config,
+        rule_id="RL123",
+        extension_id="EXCORE",
+        name="Core - Library Loaded (Page Top)",
+        delegate_descriptor_id="core::events::library-loaded",
+        settings={},
+        dry_run=True,
+    )
+
+    assert result["action"] == "create"
+    assert result["changed"] is True
+    assert result["applied"] is False
+    assert result["component_id"] is None
+    assert result["changed_attributes"]
+
+
+def test_ensure_rule_component_patches_existing_component(tags_env, monkeypatch):
+    config = _make_config()
+    patch_calls = []
+
+    def mock_request(method, url, **kw):
+        if method == "GET":
+            return _Resp(200, {
+                "data": [{
+                    "id": "RC123",
+                    "type": "rule_components",
+                    "attributes": {
+                    "name": "FPID AA gate",
+                    "delegate_descriptor_id": "core::actions::custom-code",
+                    "settings": '{"source":"old","global":false,"language":"javascript"}',
+                        "order": 0,
+                        "rule_order": 50.0,
+                        "timeout": 2000,
+                        "delay_next": True,
+                        "negate": False,
+                    },
+                }],
+            })
+        if method == "PATCH":
+            patch_calls.append({"url": url, "json": kw.get("json")})
+            return _Resp(200, {"data": {"id": "RC123"}})
+        raise AssertionError(method)
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        mock_request,
+    )
+
+    result = ensure_rule_component(
+        config,
+        rule_id="RL123",
+        extension_id="EXCORE",
+        name="FPID AA gate",
+        delegate_descriptor_id="core::actions::custom-code",
+        settings={"language": "javascript", "global": False, "source": "new"},
+        dry_run=False,
+    )
+
+    assert result["action"] == "update"
+    assert result["applied"] is True
+    assert result["changed_attributes"] == ["settings"]
+    assert patch_calls[0]["url"].endswith("/rule_components/RC123")
+    assert patch_calls[0]["json"]["data"]["attributes"] == {
+        "settings": '{"language":"javascript","global":false,"source":"new"}',
+    }
+
+
+def test_ensure_rule_component_ignores_settings_key_order(tags_env, monkeypatch):
+    config = _make_config()
+
+    def mock_request(method, url, **kw):
+        if method == "GET":
+            return _Resp(200, {
+                "data": [{
+                    "id": "RC123",
+                    "type": "rule_components",
+                    "attributes": {
+                        "name": "FPID AA gate",
+                        "delegate_descriptor_id": "core::actions::custom-code",
+                        "settings": '{"global":false,"source":"new","language":"javascript"}',
+                        "order": 0,
+                        "rule_order": 50.0,
+                        "timeout": 2000,
+                        "delay_next": True,
+                        "negate": False,
+                    },
+                }],
+            })
+        raise AssertionError(method)
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        mock_request,
+    )
+
+    result = ensure_rule_component(
+        config,
+        rule_id="RL123",
+        extension_id="EXCORE",
+        name="FPID AA gate",
+        delegate_descriptor_id="core::actions::custom-code",
+        settings={"language": "javascript", "global": False, "source": "new"},
+        dry_run=True,
+    )
+
+    assert result["action"] == "unchanged"
+    assert result["changed"] is False
+    assert result["changed_attributes"] == []
+
+
+def test_find_extension_by_name_matches_display_name(tags_env, monkeypatch):
+    config = _make_config()
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        lambda method, url, **kw: _Resp(200, {
+            "data": [{
+                "id": "EXCORE",
+                "attributes": {"name": "core", "display_name": "Core"},
+            }],
+        }),
+    )
+
+    result = find_extension_by_name(config, "Core")
+
+    assert result["id"] == "EXCORE"
+
+
+def test_ensure_rule_component_errors_on_extension_mismatch(tags_env, monkeypatch):
+    config = _make_config()
+
+    def mock_request(method, url, **kw):
+        if method == "GET":
+            return _Resp(200, {
+                "data": [{
+                    "id": "RC123",
+                    "type": "rule_components",
+                    "attributes": {
+                        "name": "FPID AA gate",
+                        "delegate_descriptor_id": "core::actions::custom-code",
+                        "settings": "{}",
+                    },
+                    "relationships": {
+                        "extension": {"data": {"id": "EX_OLD", "type": "extensions"}},
+                    },
+                }],
+            })
+        raise AssertionError(f"unexpected {method}")
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        mock_request,
+    )
+
+    with pytest.raises(RuntimeError, match="belongs to extension 'EX_OLD'"):
+        ensure_rule_component(
+            config,
+            rule_id="RL123",
+            extension_id="EXCORE",
+            name="FPID AA gate",
+            delegate_descriptor_id="core::actions::custom-code",
+            settings={},
+            dry_run=True,
+        )
+
+
+def test_ensure_rule_component_allows_matching_extension(tags_env, monkeypatch):
+    config = _make_config()
+
+    def mock_request(method, url, **kw):
+        if method == "GET":
+            return _Resp(200, {
+                "data": [{
+                    "id": "RC123",
+                    "type": "rule_components",
+                    "attributes": {
+                        "name": "FPID AA gate",
+                        "delegate_descriptor_id": "core::actions::custom-code",
+                        "settings": "{}",
+                        "order": 0,
+                        "rule_order": 50.0,
+                        "timeout": 2000,
+                        "delay_next": True,
+                        "negate": False,
+                    },
+                    "relationships": {
+                        "extension": {"data": {"id": "EXCORE", "type": "extensions"}},
+                    },
+                }],
+            })
+        raise AssertionError(f"unexpected {method}")
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
+        mock_request,
+    )
+
+    result = ensure_rule_component(
+        config,
+        rule_id="RL123",
+        extension_id="EXCORE",
+        name="FPID AA gate",
+        delegate_descriptor_id="core::actions::custom-code",
+        settings={},
+        dry_run=True,
+    )
+
+    assert result["action"] == "unchanged"
 
 
 def test_sync_data_elements_writes_settings_sidecar(tags_env, monkeypatch, tmp_path):
