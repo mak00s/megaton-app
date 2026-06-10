@@ -300,6 +300,7 @@ analysis repo 側では、薄い `python -m tags` wrapper から
 - `push --apply`: local の既存変更を PATCH -> library refresh -> build
 - `build`: build only
 - `full-export`: full property mirror を別出力先に取る
+- `ensure-rule-component --rule-id ... --name ... --delegate ...`: 単一 rule component を冪等に作成/更新する。dry-run が既定で `--apply` で実行。extension は `--extension <表示名>`（既定 `Core`）から解決するか `--extension-id` で明示。`--settings` は inline JSON か `@path`。`--library-id` は不要
 
 analysis repo の `tags/__main__.py` は共通 runner に委譲できる。repo 固有の credentials path や account 別 token cache は `analysis_tags_workspace_main()` に渡す。
 

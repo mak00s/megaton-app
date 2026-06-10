@@ -12,6 +12,7 @@ AI agents can drive the entire workflow through a simple JSON file, with no MCP 
 - **Audit CLI** — Reusable audits for GTM/Adobe Tags + GA4/AA (`scripts/audit.py`)
 - **Validation Helpers** — Shared Playwright / AA validation runners, auth profiles, and follow-up task helpers
 - **Adobe Helpers** — Shared OAuth, AA segment listing, classifications export/import/verify, and Data Warehouse scheduling helpers
+- **Browser Automation Helpers** — Shared Playwright sessions (ephemeral / persistent profile / CDP attach / stealth), Box web-UI upload & shared-link automation, and Gmail draft helpers
 - **Safer Adobe Tags apply flow** — Export writes `.apply-baseline.json`, apply stays dry-run by default, and stale-base conflicts are blocked before PATCH
 - **Library-scope Adobe Tags workflows** — Shared helpers for destructive `checkout`, non-destructive `pull`, fast local `status --since-pull`, explicit `add`, guarded `push`, build-only, and `full-export`
 - **Notebook** — Develop analyses interactively, then run them as scheduled jobs
@@ -117,6 +118,9 @@ megaton-app/
 │   ├── gsc_utils.py        # GSC aggregation helpers
 │   ├── sheets.py           # Megaton-instance Sheets helpers
 │   ├── gspread_lowlevel.py # Direct gspread / batchUpdate helpers
+│   ├── playwright_browser.py # Shared Playwright sessions (ephemeral/persistent/CDP/stealth)
+│   ├── box_ui.py           # Box web-UI upload & shared-link automation
+│   ├── gmail_client.py     # Gmail API wrapper (readonly lookup + drafts)
 │   ├── validation/         # JSON contract and Playwright capture helpers
 │   └── audit/              # Reusable audit framework
 │       ├── config.py           # Project config model & loader
