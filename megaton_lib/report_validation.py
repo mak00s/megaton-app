@@ -262,22 +262,27 @@ class ExecutionTracker:
         return out.loc[mask].reset_index(drop=True)
 
     def _with_retry(self, label: str, func, max_attempts: int = 4):
-        wait = 1.0
-        for attempt in range(1, max_attempts + 1):
-            try:
-                return func()
-            except Exception as exc:
-                if attempt >= max_attempts or not _is_quota_error(exc):
-                    raise
-                self.logger.warning(
-                    "%s hit Sheets quota; retrying in %.1fs (%s/%s)",
-                    label,
-                    wait,
-                    attempt,
-                    max_attempts,
-                )
-                time.sleep(wait)
-                wait *= 2
+        """Retry quota errors with exponential backoff (30s floor per 429 wait)."""
+        from megaton import retry_utils
+
+        quota_floor = 30.0
+
+        def _on_retry(attempt_no, max_retries, wait, exc):
+            self.logger.warning(
+                "%s hit Sheets quota; retrying in %.1fs (%s/%s)",
+                label, wait, attempt_no, max_retries,
+            )
+            if wait < quota_floor:
+                time.sleep(quota_floor - wait)
+
+        return retry_utils.expo_retry(
+            func,
+            max_retries=max_attempts,
+            backoff_factor=1.0,
+            exceptions=(Exception,),
+            is_retryable=_is_quota_error,
+            on_retry=_on_retry,
+        )
 
     def _select_sheet(self, mg, gs_url: str, sheet_name: str):
         if self.remote_state["url"] != gs_url:

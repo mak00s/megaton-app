@@ -1,18 +1,82 @@
-"""Low-level gspread and Google Sheets batchUpdate helpers."""
+"""Low-level gspread and Google Sheets batchUpdate helpers.
+
+All network calls in this module are wrapped with :func:`call_with_retry`
+(exponential backoff via ``megaton.retry_utils.expo_retry``; HTTP 429 quota
+errors wait at least 30 seconds before the next attempt).
+"""
 
 from __future__ import annotations
 
+import logging
+import time
 from pathlib import Path
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_SHEETS_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
 
+_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+_QUOTA_FLOOR_WAIT = 30.0  # HTTP 429 needs at least this many seconds
+
+
+def _get_status_code(exc: BaseException):
+    response = getattr(exc, "response", None)
+    return getattr(response, "status_code", None)
+
+
+def call_with_retry(
+    op: str,
+    func,
+    *,
+    max_retries: int = 4,
+    backoff_factor: float = 2.0,
+    sleep=time.sleep,
+):
+    """Run a gspread/Sheets network call with exponential-backoff retry.
+
+    Retries gspread ``APIError`` with status 429/5xx and ``requests``
+    transport errors. HTTP 429 quota retries add extra sleep so the wait
+    before the next attempt is at least 30 seconds. ``op`` is the log label.
+    """
+    import gspread
+    import requests
+
+    from megaton import retry_utils
+
+    def _is_retryable(exc: BaseException) -> bool:
+        if isinstance(exc, requests.exceptions.RequestException):
+            return True
+        return _get_status_code(exc) in _RETRYABLE_STATUS_CODES
+
+    def _on_retry(attempt_no: int, max_attempts: int, wait: float, exc: BaseException) -> None:
+        logger.warning(
+            "%s failed; retrying in %.1fs (%s/%s): %s",
+            op, wait, attempt_no, max_attempts, exc,
+        )
+        if _get_status_code(exc) == 429 and wait < _QUOTA_FLOOR_WAIT:
+            extra = _QUOTA_FLOOR_WAIT - wait
+            logger.info("Quota error: adding %.1fs extra wait", extra)
+            sleep(extra)
+
+    return retry_utils.expo_retry(
+        func,
+        max_retries=max_retries,
+        backoff_factor=backoff_factor,
+        exceptions=(gspread.exceptions.APIError, requests.exceptions.RequestException),
+        is_retryable=_is_retryable,
+        on_retry=_on_retry,
+        sleep=sleep,
+    )
+
+
 __all__ = [
     "DEFAULT_SHEETS_SCOPES",
+    "call_with_retry",
     "open_spreadsheet",
     "get_or_create_worksheet",
     "overwrite_worksheet",
@@ -52,7 +116,11 @@ def open_spreadsheet(
         str(path),
         scopes=list(scopes or DEFAULT_SHEETS_SCOPES),
     )
-    return gspread.authorize(creds).open_by_key(spreadsheet_id)
+    client = gspread.authorize(creds)
+    return call_with_retry(
+        f"open_spreadsheet {spreadsheet_id}",
+        lambda: client.open_by_key(spreadsheet_id),
+    )
 
 
 def get_or_create_worksheet(
@@ -66,12 +134,18 @@ def get_or_create_worksheet(
     import gspread
 
     try:
-        return spreadsheet.worksheet(sheet_name)
+        return call_with_retry(
+            f"worksheet {sheet_name}",
+            lambda: spreadsheet.worksheet(sheet_name),
+        )
     except gspread.exceptions.WorksheetNotFound:
-        return spreadsheet.add_worksheet(
-            title=sheet_name,
-            rows=max(int(rows), 1),
-            cols=max(int(cols), 1),
+        return call_with_retry(
+            f"add_worksheet {sheet_name}",
+            lambda: spreadsheet.add_worksheet(
+                title=sheet_name,
+                rows=max(int(rows), 1),
+                cols=max(int(cols), 1),
+            ),
         )
 
 
@@ -102,11 +176,14 @@ def overwrite_worksheet(
         rows=max(len(df) + 10, min_rows),
         cols=max(len(df.columns) + extra_cols, 1),
     )
-    ws.clear()
+    call_with_retry(f"clear {sheet_name}", ws.clear)
     values = [df.columns.tolist()] + df.astype(str).replace("nan", "").values.tolist()
-    ws.update(values, value_input_option=value_input_option)
+    call_with_retry(
+        f"update {sheet_name}",
+        lambda: ws.update(values, value_input_option=value_input_option),
+    )
     if freeze_header:
-        ws.freeze(rows=1)
+        call_with_retry(f"freeze {sheet_name}", lambda: ws.freeze(rows=1))
     return int(len(df))
 
 
@@ -133,9 +210,15 @@ def append_rows(
             cols=min_cols,
         )
     else:
-        ws = spreadsheet.worksheet(sheet_name)
+        ws = call_with_retry(
+            f"worksheet {sheet_name}",
+            lambda: spreadsheet.worksheet(sheet_name),
+        )
     if rows:
-        ws.append_rows(rows, value_input_option=value_input_option)
+        call_with_retry(
+            f"append_rows {sheet_name}",
+            lambda: ws.append_rows(rows, value_input_option=value_input_option),
+        )
     return len(rows)
 
 
@@ -158,12 +241,15 @@ def fetch_worksheet_values(
     import gspread
 
     try:
-        ws = spreadsheet.worksheet(sheet_name)
+        ws = call_with_retry(
+            f"worksheet {sheet_name}",
+            lambda: spreadsheet.worksheet(sheet_name),
+        )
     except gspread.exceptions.WorksheetNotFound:
         if missing_ok:
             return []
         raise
-    return ws.get_all_values()
+    return call_with_retry(f"get_all_values {sheet_name}", ws.get_all_values)
 
 
 def batch_update_spreadsheet(
@@ -177,20 +263,26 @@ def batch_update_spreadsheet(
         return {"dry_run": True, "requests": requests}
     if not requests:
         return {"replies": []}
-    return spreadsheet.batch_update({"requests": requests})
+    return call_with_retry(
+        "batch_update",
+        lambda: spreadsheet.batch_update({"requests": requests}),
+    )
 
 
 def fetch_sheet_properties(spreadsheet) -> dict[str, dict]:
     """Return worksheet properties keyed by title."""
     if hasattr(spreadsheet, "fetch_sheet_metadata"):
-        metadata = spreadsheet.fetch_sheet_metadata(
-            params={"fields": "sheets.properties"}
+        metadata = call_with_retry(
+            "fetch_sheet_metadata",
+            lambda: spreadsheet.fetch_sheet_metadata(
+                params={"fields": "sheets.properties"}
+            ),
         )
         sheets = metadata.get("sheets", [])
     else:
         sheets = [
             {"properties": {"title": ws.title, "sheetId": ws.id}}
-            for ws in spreadsheet.worksheets()
+            for ws in call_with_retry("worksheets", spreadsheet.worksheets)
         ]
     return {
         str(sheet.get("properties", {}).get("title", "")): sheet.get("properties", {})
