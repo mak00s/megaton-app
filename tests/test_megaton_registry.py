@@ -15,18 +15,39 @@ def _reset_registry():
 
 
 def _make_mock_megaton(accounts=None, sites=None):
-    """Create a mock Megaton instance."""
+    """Create a mock Megaton instance modeling the v1.4 public API."""
     mg = MagicMock()
-    # GA4
+    accounts = accounts or []
+    # Keep internal shape available for assertions on select() calls
     ga4 = MagicMock()
-    ga4.accounts = accounts or []
+    ga4.accounts = accounts
     mg.ga = {"4": ga4}
-    # GSC
-    search_get = MagicMock()
-    search_get.sites.return_value = sites or []
-    search = MagicMock()
-    search.get = search_get
-    mg.search = search
+
+    def _properties(ver=None):
+        out = []
+        for acc in accounts:
+            for prop in acc.get("properties", []):
+                out.append({
+                    "id": prop["id"],
+                    "name": prop["name"],
+                    "account_id": acc["id"],
+                    "account_name": acc.get("name"),
+                })
+        return out
+
+    def _use_property(property_id, ver=None, **kwargs):
+        target = str(property_id).strip()
+        for acc in accounts:
+            for prop in acc.get("properties", []):
+                if str(prop["id"]) == target:
+                    mg.ga["4"].account.select(acc["id"])
+                    mg.ga["4"].property.select(target)
+                    return mg
+        raise ValueError(f"GA4 property {target} is not accessible with this credential.")
+
+    mg.properties.side_effect = _properties
+    mg.sites.side_effect = lambda: list(sites or [])
+    mg.use_property.side_effect = _use_property
     return mg
 
 
@@ -104,19 +125,14 @@ class TestBuildRegistry(unittest.TestCase):
         mock_list.return_value = ["/creds/a.json", "/creds/b.json"]
 
         # a.json: GA4 only (no GSC access)
-        mg_a = MagicMock()
-        ga4_a = MagicMock()
-        ga4_a.accounts = [{"id": "acc1", "properties": [{"id": "P1", "name": "Prop1"}]}]
-        mg_a.ga = {"4": ga4_a}
-        mg_a.search.get.sites.side_effect = Exception("No GSC access")
+        mg_a = _make_mock_megaton(
+            accounts=[{"id": "acc1", "properties": [{"id": "P1", "name": "Prop1"}]}],
+        )
+        mg_a.sites.side_effect = Exception("No GSC access")
 
         # b.json: GSC only (no GA4 access)
-        mg_b = MagicMock()
-        mg_b.ga = {"4": MagicMock()}
-        mg_b.ga["4"].accounts.__iter__ = MagicMock(side_effect=Exception("No GA4 access"))
-        search_get_b = MagicMock()
-        search_get_b.sites.return_value = ["https://b.example.com/"]
-        mg_b.search.get = search_get_b
+        mg_b = _make_mock_megaton(sites=["https://b.example.com/"])
+        mg_b.properties.side_effect = Exception("No GA4 access")
 
         mock_megaton_cls.side_effect = [mg_a, mg_b]
 
@@ -366,11 +382,13 @@ class TestQueryRefactored(unittest.TestCase):
             accounts=[],
             sites=["https://example.com/"],
         )
-        mg_b.search.data = pd.DataFrame({
+        result = MagicMock()
+        result.df = pd.DataFrame({
             "query": ["test"],
             "clicks": [10],
             "impressions": [100],
         })
+        mg_b.search.run.return_value = result
         mock_megaton_cls.return_value = mg_b
 
         df = mc.query_gsc(

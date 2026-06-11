@@ -15,7 +15,7 @@ if not GSC_SITE_URL:
     print("=== Search Console Sites ===")
     print("(Set GSC_SITE_URL and re-run)\n")
     
-    sites = mg.search.get.sites()
+    sites = mg.sites()
     for site in sites:
         print(f"  - {site}")
     
@@ -33,12 +33,12 @@ mg.search.set.dates(start_date, end_date)
 print(f"Period: {start_date} - {end_date}\n")
 
 # Fetch query-level data
-mg.search.run(
+result = mg.search.run(
     dimensions=['query'],
     metrics=['clicks', 'impressions', 'ctr', 'position'],
 )
 
-df = mg.search.data
+df = result.df if result is not None else None
 
 TOP_N = 20  # number of rows to display
 

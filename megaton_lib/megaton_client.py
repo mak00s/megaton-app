@@ -229,15 +229,13 @@ def build_registry() -> None:
         mg = get_megaton(path)
         # GA4
         try:
-            for acc in mg.ga["4"].accounts:
-                for prop in acc.get("properties", []):
-                    _property_map[_normalize_key(prop["id"])] = path
+            for prop in mg.properties():
+                _property_map[_normalize_key(prop["id"])] = path
         except Exception as e:
             logger.debug("Skipping GA4 for %s: %s", path, e)
         # GSC
         try:
-            sites = mg.search.get.sites()
-            for site in sites:
+            for site in mg.sites():
                 for candidate in _site_url_candidates(site):
                     _site_map[_normalize_key(candidate)] = path
         except Exception as e:
@@ -317,15 +315,7 @@ def get_ga4(property_id: str):
     """
     property_id = _normalize_key(property_id)
     mg = get_megaton_for_property(property_id)
-    for acc in mg.ga["4"].accounts:
-        for prop in acc.get("properties", []):
-            if _normalize_key(prop["id"]) == property_id:
-                mg.ga["4"].account.select(acc["id"])
-                mg.ga["4"].property.select(property_id)
-                return mg
-    raise ValueError(
-        f"Property {property_id} found in registry but not in accounts"
-    )
+    return mg.use_property(property_id)
 
 
 def get_gsc(site_url: str):
@@ -357,16 +347,15 @@ def get_ga4_properties() -> list:
     seen_ids: set[str] = set()
     for path in dict.fromkeys(_property_map.values()):
         mg = get_megaton(path)
-        for acc in mg.ga["4"].accounts:
-            for prop in acc.get("properties", []):
-                if prop["id"] not in seen_ids:
-                    seen_ids.add(prop["id"])
-                    result.append({
-                        "id": prop["id"],
-                        "name": prop["name"],
-                        "account_id": acc["id"],
-                        "display": f"{prop['name']} ({prop['id']})"
-                    })
+        for prop in mg.properties():
+            if prop["id"] not in seen_ids:
+                seen_ids.add(prop["id"])
+                result.append({
+                    "id": prop["id"],
+                    "name": prop["name"],
+                    "account_id": prop["account_id"],
+                    "display": f"{prop['name']} ({prop['id']})"
+                })
     return result
 
 
@@ -441,7 +430,7 @@ def get_gsc_sites() -> list:
     result = []
     for path in dict.fromkeys(_site_map.values()):
         mg = get_megaton(path)
-        for site in mg.search.get.sites():
+        for site in mg.sites():
             if site not in seen:
                 seen.add(site)
                 result.append(site)
@@ -477,13 +466,13 @@ def query_gsc(
     dimension_filter_l = _normalize_gsc_dimension_filter(dimension_filter)
     mg = get_gsc(site_url)
     mg.search.set.dates(start_date, end_date)
-    mg.search.run(
+    result = mg.search.run(
         dimensions=dimensions_l,
         metrics=["clicks", "impressions", "ctr", "position"],
         limit=limit,
         dimension_filter=dimension_filter_l
     )
-    df = mg.search.data
+    df = result.df if result is not None else None
     if page_to_path and df is not None and "page" in df.columns:
         from urllib.parse import urlparse
         df["page"] = df["page"].apply(lambda u: urlparse(u).path)

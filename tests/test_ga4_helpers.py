@@ -121,7 +121,8 @@ class TestCollectSiteFrames:
 
         frames = collect_site_frames(mg, sites, fetch_fn=fetch_fn, warn_label="_x")
         assert len(frames) == 2
-        assert mg.ga["4"].property.id == "222"
+        mg.use_property.assert_any_call("111", refresh_metadata=False)
+        mg.use_property.assert_any_call("222", refresh_metadata=False)
 
     def test_skips_missing_property_and_skip_clinic(self):
         mg = MagicMock()
@@ -232,7 +233,7 @@ class TestFetchNamedClinicReportDataOrEmpty:
         )
         assert out.loc[0, "month"] == "202601"
         assert out.loc[0, "users"] == 10
-        assert mg.ga["4"].property.id == "999"
+        mg.use_property.assert_called_once_with("999", refresh_metadata=False)
         mg.report.set.dates.assert_called_once_with("2026-01-01", "2026-01-31")
         mg.report.run.assert_called_once_with(
             d=["month"],
