@@ -1,95 +1,30 @@
-"""Traffic/source normalization and channel classification helpers."""
+"""Traffic/source channel classification helpers (row-level, business rules).
+
+Generic primitives (``normalize_domain``, ``source_host``,
+``is_non_public_dev_source``, ``ensure_trailing_slash``,
+``apply_source_normalization``) moved to ``megaton.transform.traffic`` and are
+re-exported here for compatibility. For DataFrame-level channel
+classification with custom channels, prefer
+``megaton.transform.classify_source_channel`` / ``classify_channel``.
+"""
 
 from __future__ import annotations
 
-import ipaddress
 import re
 from typing import Mapping, Sequence
 
 import pandas as pd
 
+from megaton.transform.traffic import (  # noqa: F401
+    apply_source_normalization,
+    ensure_trailing_slash,
+    is_non_public_dev_source,
+    normalize_domain,
+    source_host,
+)
 
-def normalize_domain(value: str) -> str:
-    """Normalize domain text for grouping/compare."""
-    v = str(value).strip().lower()
-    v = re.sub(r"^https?://", "", v)
-    v = v.split("/")[0]
-    return v.replace("www.", "")
-
-
-def _source_host(value: object) -> str:
-    """Return the host-like part of a GA source value."""
-    text = str(value or "").strip().lower()
-    if not text or text in {"(not set)", "not set", "none", "nan"}:
-        return ""
-    text = re.sub(r"^[a-z][a-z0-9+.-]*://", "", text)
-    text = text.split("/", 1)[0].split("?", 1)[0].strip()
-    if "@" in text:
-        text = text.rsplit("@", 1)[1]
-    if text.startswith("["):
-        bracket_end = text.find("]")
-        if bracket_end != -1:
-            return text[1:bracket_end]
-    if text.count(":") == 1:
-        host, port = text.rsplit(":", 1)
-        if port.isdigit():
-            text = host
-    return re.sub(r"^www\.", "", text.strip("."))
-
-
-def is_non_public_dev_source(value: object) -> bool:
-    """Return True for localhost / non-public IP sources that should not be attribution."""
-    host = _source_host(value)
-    if not host:
-        return False
-    if host == "localhost" or host.endswith(".localhost"):
-        return True
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        return False
-    return not ip.is_global
-
-
-def ensure_trailing_slash(path: str, *, preserve_suffixes: tuple[str, ...] = (".html", "/")) -> str:
-    """Append ``/`` unless path already ends with known suffixes.
-
-    Args:
-        path: URL path text.
-        preserve_suffixes: suffixes considered already-normalized.
-    """
-    text = str(path or "")
-    if text.endswith(preserve_suffixes):
-        return text
-    return text + "/"
-
-
-def apply_source_normalization(
-    df: pd.DataFrame,
-    source_map: Mapping[str, str],
-    *,
-    source_col: str = "source",
-) -> pd.DataFrame:
-    """Normalize source column with regex map.
-
-    Input source values are lowercased before matching.
-    """
-    if source_col not in df.columns:
-        return df
-
-    def normalize(value: object) -> str:
-        src = str(value or "").lower().strip()
-        for pattern, normalized in source_map.items():
-            try:
-                if re.search(str(pattern), src):
-                    return str(normalized)
-            except re.error as exc:
-                print(f"[warn] invalid regex pattern in source_map: {pattern} ({exc})")
-        return src
-
-    out = df.copy()
-    out[source_col] = out[source_col].apply(normalize)
-    return out
+# Backward-compatible private alias (pre-promotion name).
+_source_host = source_host
 
 
 def classify_channel(
