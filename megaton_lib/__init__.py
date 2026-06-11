@@ -40,6 +40,7 @@ Sheets & output:
     docs_sites       : generated-markdown table helpers
 
 Reporting & delivery:
+    report_run       : start_report_run() scaffold (dates+client+tracker in one)
     report_validation: ExecutionTracker for report runs + sheet caching
     report_gmail_draft: build Gmail drafts from execution summaries
     gmail_client     : Gmail API client wrapper
