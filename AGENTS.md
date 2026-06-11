@@ -109,6 +109,7 @@ python -m pytest -q -m unit
 
 - `docs/USAGE.md`: setup and common workflows
 - `docs/REFERENCE.md`: schema, CLI options, pipeline, auth, and library APIs
+- `docs/PYTHON_API.md`: Python entry points (notebook facade, chain API, dates, report_run)
 - `docs/CHANGELOG.md`: change history
 
 Keep AGENTS short; keep detailed examples and full schema references in the docs.
