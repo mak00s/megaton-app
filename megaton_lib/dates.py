@@ -61,6 +61,7 @@ __all__ = [
     "previous_month_window",
     "month_before_window",
     "resolve_period_date",
+    "resolve_period_month",
     "previous_month_label",
     # month-range / DataFrame helpers
     "month_ranges_for_year",
@@ -125,6 +126,12 @@ def previous_month_label(today: date | None = None, *, timezone: str = "Asia/Tok
     """Return 'YYYY/MM/DD - YYYY/MM/DD' label for the previous month."""
     start, end = previous_month_window(today, timezone=timezone)
     return f"{start:%Y/%m/%d} - {end:%Y/%m/%d}"
+
+
+def resolve_period_month(value: str, *, today: date | None = None, timezone: str = "Asia/Tokyo") -> str:
+    """Resolve a month token to "YYYYMM" (date-object-API counterpart of resolve_month)."""
+    reference = today or today_in_timezone(timezone)
+    return resolve_month(value, reference=reference)
 
 
 # ----------------------------------------------------------------------
