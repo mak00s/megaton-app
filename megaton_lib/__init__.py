@@ -41,6 +41,8 @@ Sheets & output:
 
 Reporting & delivery:
     report_run       : start_report_run() scaffold (dates+client+tracker in one)
+    google_workspace : Sheets/Docs/Drive client builders (user OAuth + SA)
+    env_utils        : .env loading / required-env checks
     report_validation: ExecutionTracker for report runs + sheet caching
     report_gmail_draft: build Gmail drafts from execution summaries
     gmail_client     : Gmail API client wrapper
