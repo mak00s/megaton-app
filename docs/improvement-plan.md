@@ -7,11 +7,12 @@
 
 ## 残タスク(進行中)
 
-1. **デプロイ(承認済み: push + PyPI publish、順序厳守)**: ① megaton push + PyPI v1.4.0 → ② megaton-app push → ③ notebooks ピン更新 → ④ notebooks push。slqm検証パス後に実行
+1. [x] **デプロイ完了 (2026-06-11)**: ① megaton push + tag v1.4.0 + GitHub release + **PyPI 1.4.0 公開済み** → ② megaton-app push (f527e6f、report_runフック強化+fetch_for_sites fail_if_all_failed含む) → ③ notebooks ピンを f527e6f へ更新 → ④ notebooks push (31a9dd5)。pip dry-run で解決確認済み。※ユーザー判断で「全部今デプロイ」(slqm残り2タブの検証はGA4障害起因と特定済みのため)
 2. **slqm.py 実走検証(進行中 2026-06-11)**: 共有ドライブ「WITH Report」に一時コピー `_tmp_slqm_verify_20260611`(id 1K8drkU4cDN3SeTdJpe-izD1ecMt6E3FltmiVxKWQsAM)を作成し実走。
    - 1回目: `_page-d` / `_page-m` / `_info` は本番と**全セル一致**。`_page` / `_all-m` は列欠落 → 原因は移行ではなく **GA4 504 Deadline Exceeded → リトライ枯渇 → megatonが黙って空を返す**仕様(列が静かに消え、validationはpassed表示)。重いlinkUrlフィルタ系5クエリで発生
    - **megaton 2581e2f で修正**: リトライ枯渇はデフォルト例外送出(`on_exhausted='empty'`で旧挙動)、リトライ3→5回。docs/CHANGELOG更新済み
-   - 2回目を強化版で実行中 → 全タブ一致なら検証完了。**終了後に一時コピーを削除すること**
+   - 2〜3回目(強化版)はGA4障害継続により**うるさく失敗**(新挙動が正しく機能、部分書き込みなし)。GA4回復後に再実行→全タブ比較→**一致確認後に一時コピーと output/tmp_verify_slqm_compare.py を削除すること**
+   - 次回GHA: 金曜 08:45 JST の Daily Shibuya が新コード初実行 — 結果をモニタ
 3. [x] shibuya-line WIP合流(78a1f15)後の整理完了(0ef562a): bootstrap除去・pd_utils削除・report-catalog更新
 4. report_run の横展開(検証パス後: shibuya.py → 残り)。チェーンAPI(`wrap`/`.month_key()`)置換も同時に
 5. GHA `-e .` 初回実行モニタ / `output/tmp_verify_slqm_compare.py` は検証完了後に削除
