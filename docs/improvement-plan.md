@@ -3,7 +3,7 @@
 > **これは進行管理の正本。** AIセッションが切れたら、まずこのファイルを読んで「現在地」から再開すること。
 > 各ステップ完了時にこのファイルのチェックボックスと「現在地」を更新してコミットする。
 
-最終更新: 2026-06-11 / 状態: Step 1 着手
+最終更新: 2026-06-11 / 状態: Step 1 完了(megaton dcbb3b9 + app 8a1dd19)、Step 3 着手
 
 ## ゴール
 
@@ -34,12 +34,13 @@ adobe-md, minkabu は import なし。
 
 ## ステップ一覧と現在地
 
-- [ ] **Step 1: megaton v1.4 プログラム用公開API** ← 現在地
-  - [ ] `Megaton.for_property()` / `Megaton.for_site()` (headless自動判定)
-  - [ ] `mg.properties()` / `mg.sites()` 公開列挙API
-  - [ ] `report.run(order_by=...)` + 複合フィルタ(and/or)公開
-  - [ ] テスト・CHANGELOG・docs
-  - [ ] megaton_client.py の内部アクセス置換 (L216, 232-234, 239, 320-325, 358-370, 444, 486)
+- [x] **Step 1: megaton v1.4 プログラム用公開API** ✅ 完了 (2026-06-11)
+  - [x] `Megaton.for_property()` / `Megaton.for_site()` — headlessデフォルトtrue(自動判定は不採用: ファクトリ=プログラム用と整理)
+  - [x] `mg.properties()` / `mg.sites()` / `mg.use_property(id, refresh_metadata=)` — refresh_metadata=False は旧 `property.id=` 直代入ハックの正式版(多プロパティloop用)
+  - [x] 複合フィルタ dict形式 `{"and"/"or"/"not": ...}` (filter_d/filter_m)。order_byは既存 `sort=` が対応済みと判明、追加不要
+  - [x] tests/test_programmatic_api.py (18件)・CHANGELOG 1.4.0・api-reference.md
+  - [x] 下流置換: megaton_client.py(build_registry/get_ga4/get_ga4_properties/get_gsc_sites/query_gsc)、ga4_helpers.py×2、scripts/fetch_*_megaton.py×2。テストfake更新済
+  - 注: megatonはeditable installなのでapp側は即1.4を参照。PyPIへのpublishは未実施(全ステップ完了後にまとめて)
 - [ ] **Step 2: チェーンAPI正準化 + transform一本化** (megaton, megaton-app)
   - [ ] `_ResultBase` 共通基底、transform純関数への委譲完成
   - [ ] `megaton.wrap(df)` 公開
