@@ -11,7 +11,8 @@
 2. **slqm.py 実走検証(進行中 2026-06-11)**: 共有ドライブ「WITH Report」に一時コピー `_tmp_slqm_verify_20260611`(id 1K8drkU4cDN3SeTdJpe-izD1ecMt6E3FltmiVxKWQsAM)を作成し実走。
    - 1回目: `_page-d` / `_page-m` / `_info` は本番と**全セル一致**。`_page` / `_all-m` は列欠落 → 原因は移行ではなく **GA4 504 Deadline Exceeded → リトライ枯渇 → megatonが黙って空を返す**仕様(列が静かに消え、validationはpassed表示)。重いlinkUrlフィルタ系5クエリで発生
    - **megaton 2581e2f で修正**: リトライ枯渇はデフォルト例外送出(`on_exhausted='empty'`で旧挙動)、リトライ3→5回。docs/CHANGELOG更新済み
-   - 2〜4回目(強化版)はGA4障害継続(1.5時間超、対象property の重いクエリ全般)により**うるさく失敗**(新挙動が正しく機能、部分書き込みなし)。本日のリトライは打ち切り。GA4回復後に再実行→全タブ比較→**一致確認後に一時コピーと output/tmp_verify_slqm_compare.py を削除すること**
+   - 2〜4回目は「GA4障害」と誤診したが、ユーザー指摘で再調査 → **真因はクライアント側deadline**: 重いクエリがgRPCデフォルト(~60秒)を超過し、リトライ5回とも同じ60秒の壁で `DeadlineExceeded`(軽いクエリは常に正常 = API自体は生きていた)。timeout=300の単発probeで19秒成功により確定
+   - **megaton v1.4.1 で修正・PyPI公開済み**: `report.run(timeout=180)` デフォルト追加(run_reportへpass-through)。GA4回復後に再実行→全タブ比較→**一致確認後に一時コピーと output/tmp_verify_slqm_compare.py を削除すること**
    - 次回GHA: 金曜 08:45 JST の Daily Shibuya が新コード初実行 — 結果をモニタ
 3. [x] shibuya-line WIP合流(78a1f15)後の整理完了(0ef562a): bootstrap除去・pd_utils削除・report-catalog更新
 4. report_run の横展開(検証パス後: shibuya.py → 残り)。チェーンAPI(`wrap`/`.month_key()`)置換も同時に
