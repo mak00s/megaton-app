@@ -104,6 +104,20 @@ class TestReportRunLifecycle:
         assert seen == ["r1"]
 
     @patch("megaton_lib.report_run.finish_report_tracker")
+    def test_on_finish_failure_marks_summary_failed_and_reraises(self, mock_finish):
+        run = self._run()
+
+        def fail(_run):
+            raise RuntimeError("delivery failed")
+
+        run.on_finish(fail)
+        with pytest.raises(RuntimeError, match="delivery failed"):
+            run.finish()
+        kwargs = mock_finish.call_args.kwargs
+        assert kwargs["status"] == "failed"
+        assert any("on_finish fail failed" in e for e in kwargs["errors"])
+
+    @patch("megaton_lib.report_run.finish_report_tracker")
     def test_save_sheet_passes_mg(self, mock_finish):
         run = self._run()
         df = pd.DataFrame({"a": [1]})
@@ -179,5 +193,30 @@ class TestFetchForSites:
             self._sites(),
             dimensions=["query"],
             start_date="2026-05-01", end_date="2026-05-31",
+        )
+        assert out.empty
+
+    @patch("megaton_lib.megaton_client.query_gsc")
+    def test_warn_mode_raises_when_all_attempted_sites_fail(self, mock_query):
+        from megaton_lib.gsc_utils import fetch_for_sites
+
+        mock_query.side_effect = RuntimeError("api down")
+        with pytest.raises(RuntimeError, match="failed for all 2 attempted"):
+            fetch_for_sites(
+                self._sites(),
+                dimensions=["query"],
+                start_date="2026-05-01", end_date="2026-05-31",
+            )
+
+    @patch("megaton_lib.megaton_client.query_gsc")
+    def test_all_failed_guard_can_be_disabled(self, mock_query):
+        from megaton_lib.gsc_utils import fetch_for_sites
+
+        mock_query.side_effect = RuntimeError("api down")
+        out = fetch_for_sites(
+            self._sites(),
+            dimensions=["query"],
+            start_date="2026-05-01", end_date="2026-05-31",
+            fail_if_all_failed=False,
         )
         assert out.empty
