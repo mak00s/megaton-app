@@ -3,11 +3,21 @@
 > **これは進行管理の正本。** AIセッションが切れたら、まずこのファイルを読んで「現在地」から再開すること。
 > 各ステップ完了時にこのファイルのチェックボックスと「現在地」を更新してコミットする。
 
-最終更新: 2026-06-11 / 状態: **Step 1・3・4 完了。次は Step 2(チェーンAPI正準化)**
-- megaton: dcbb3b9 (v1.4.0)
-- megaton-app: 8a1dd19(Step1) → 253c0dd(Step3) → 40bd9e4+(Step4 dates facade)
-- megaton-notebooks: 09ba421(date_periods廃止)。**注意: notebooksのrequirements.txtピンは未更新** — megaton-appをGitHubへpush後にピンを新コミットへ更新してからnotebooksをpushすること(順序を守らないとGHAが壊れる)。notebooksにはユーザーのWIP(shibuya-line系+report-catalog.md)が未コミットで残っている — 触らないこと
-- report-catalog.md 内の date_periods 言及2箇所はユーザーWIPと衝突するため未更新(WIPコミット後に直す)
+最終更新: 2026-06-11 / 状態: **Step 1〜7 完了(8は基準のみ)。残タスクは下記**
+
+## 残タスク(次セッションの作業候補)
+
+1. **デプロイ(順序厳守)**: ① megaton を push(PyPI publish も可: v1.4.0) → ② megaton-app を push → ③ notebooks requirements.txt の megaton-app ピンを新コミットへ更新 → ④ notebooks を push。**③の前に②必須**(notebooks HEAD は megaton_lib.dates/report_run/env_utils 等を要求)
+2. **slqm.py の実走検証**(§9 sheet equality)— 本番Sheets書込みのため未実施。手動実行 or 7/1 定期実行前に確認
+3. shibuya-line WIP 合流後: bootstrap除去 + pd_utils import 置換 → lib/pd_utils.py 削除、report-catalog.md の date_periods/旧lib言及を更新
+4. report_run の横展開(slqm検証後に shibuya.py → 残り)。チェーンAPI(`wrap`/`.month_key()`)への置換も同時に
+5. GHA workflows の `pip install -r requirements.txt` が `-e .` を含むようになった — 初回実行をモニタ
+
+## 完了コミット一覧
+
+- megaton: dcbb3b9(公開API) → 89f687a(wrap/chain) → 2ec7364(traffic/_ResultBase) = **v1.4.0、508 tests**
+- megaton-app: 8a1dd19 → 253c0dd → 40bd9e4 → ccb49b1 → bc2da62 → 060bf12 → ea028a7 = **v0.15.0+、941 tests**
+- megaton-notebooks: 09ba421 → 53537c3 → 265a329 → 530eb9b = **96 tests**。ユーザーWIP(shibuya-line系+report-catalog.md)は未コミットのまま温存
 
 ## ゴール
 
@@ -69,13 +79,16 @@ adobe-md, minkabu は import なし。
   - [x] AGENTS.md にパラメータ命名+初期化規約を追記
   - [ ] **残**: shibuya-line.py のbootstrap(ユーザーWIP中のため未除去、次回改修時に)/ ops scripts のbootstrap(Step 7で)/ **slqm.py の実走検証(§9 sheet equality)は未実施** — 本番Sheetsへ書くため勝手に実行していない。次回の手動実行か7/1定期実行前に確認すること
   - [ ] 残: shibuya.py 等への report_run 横展開(slqm検証後)
-- [ ] **Step 6: facade + Python APIドキュメント** (megaton-app) ※Step 2後
-  - [ ] megaton_lib/notebook.py を PEP 562 遅延facadeに(12個: get_ga4, get_gsc, query_gsc, get_bq_client, query_bq, wrap, resolve_date, resolve_month, read_sheet_table, save_sheet_table, upsert, report_run, show)
-  - [ ] docs/PYTHON_API.md 新設
-- [ ] **Step 7: 昇格 + wrapper削除** (megaton-app, notebooks) ※Step 4/5後
-  - [ ] env_utils / google_workspace(credentialsと統合)/ sheets_utils+sheets_requests(gspread_lowlevelへ)昇格
-  - [ ] notebooks lib/report_validation.py(純再エクスポート)削除、box.py簡素化、notebook_paths解体
-- [ ] **Step 8: product固有抽出** — 2プロダクト以上で同型確認時のみ。先回りしない
+- [x] **Step 6: facade + Python APIドキュメント** ✅ 完了 (2026-06-11, app 060bf12)
+  - [x] megaton_lib/notebook.py = PEP 562 遅延facade(16個: get_ga4/get_gsc/get_bq_client/query_*/wrap/resolve_date/resolve_month/read_sheet_table/save_sheet_table/upsert_or_skip/start_report_run/fetch_for_sites/fillna_int/show)。旧init()も残置
+  - [x] docs/PYTHON_API.md 新設(正準形: チェーンAPI/dates/report_run/してはいけないこと)。README/AGENTS.mdからリンク
+- [x] **Step 7: 昇格 + wrapper削除** ✅ ほぼ完了 (2026-06-11, app ea028a7, notebooks 265a329+530eb9b)
+  - [x] env_utils / google_workspace → megaton_lib へ移動(credentialsとの統合はせず独立モジュールのまま — 発見と構築で役割が違うため)
+  - [x] sheets_utils + sheets_requests → gspread_lowlevel に統合(column_label/gs_serial_to_date/dimension_requests/copy_format_request)、テストも移管
+  - [x] notebooks lib/report_validation.py 削除(消費ゼロ)。pd_utils は shim 化(shibuya-line WIPが使用中のため、WIP合流後に削除)
+  - [x] ops scripts 6+1本の bootstrap も削除(corp-ppt の `_root` 参照は repo_root() へ)
+  - 判断: box.py は純再エクスポートではなく実ロジック(file-URL除外フィルタ)を持つため残置。notebook_paths は repo_root()新設・日付委譲済みで十分スリム(detect_workspace_rootsはまだ5ファイルが使用)
+- [ ] **Step 8: product固有抽出** — 基準のみ: 2プロダクト以上で同型確認時に昇格。先回りしない(現状対象なし)
 
 ## リリース・移行の運用
 
