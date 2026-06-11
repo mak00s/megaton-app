@@ -68,7 +68,7 @@ class ReportRun:
         self.errors.append(str(message))
 
     def on_finish(self, callback: Callable[["ReportRun"], None]) -> None:
-        """Register a delivery hook called after the tracker summary is final."""
+        """Register a delivery hook included in the final tracker status."""
         self._on_finish.append(callback)
 
     # --- tracker conveniences (mg is passed automatically) ------------------
@@ -91,18 +91,32 @@ class ReportRun:
         """
         if self._finished:
             return
-        self._finished = True
-        all_notes = self.notes + list(notes or [])
-        all_errors = self.errors + list(errors or [])
-        resolved_status = status or ("failed" if all_errors else "passed")
+        extra_notes = list(notes or [])
+        extra_errors = list(errors or [])
+        hook_exception: Exception | None = None
+        for callback in self._on_finish:
+            try:
+                callback(self)
+            except Exception as exc:
+                hook_exception = exc
+                callback_name = getattr(callback, "__name__", callback.__class__.__name__)
+                extra_errors.append(
+                    f"on_finish {callback_name} failed: {type(exc).__name__}: {exc}"
+                )
+                break
+
+        all_notes = self.notes + extra_notes
+        all_errors = self.errors + extra_errors
+        resolved_status = "failed" if hook_exception else status or ("failed" if all_errors else "passed")
         finish_report_tracker(
             self.tracker,
             status=resolved_status,
             notes=all_notes,
             errors=all_errors,
         )
-        for callback in self._on_finish:
-            callback(self)
+        self._finished = True
+        if hook_exception is not None:
+            raise hook_exception
 
     def __enter__(self) -> "ReportRun":
         return self

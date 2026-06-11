@@ -161,6 +161,7 @@ def fetch_for_sites(
     aggregate: bool = True,
     extra_columns: dict[str, object] | None = None,
     on_error: str = "warn",
+    fail_if_all_failed: bool = True,
 ) -> pd.DataFrame:
     """Fetch GSC data for every site row and return one combined DataFrame.
 
@@ -180,6 +181,9 @@ def fetch_for_sites(
         extra_columns: Constant columns added to every row
             (e.g. ``{"month": "202605"}``).
         on_error: "warn" prints and skips the failing site; "raise" re-raises.
+        fail_if_all_failed: With ``on_error="warn"``, raise when every attempted
+            site failed to fetch. Empty successful responses still return an
+            empty DataFrame.
 
     Returns:
         Combined DataFrame (empty when nothing was fetched).
@@ -190,11 +194,14 @@ def fetch_for_sites(
         raise ValueError("on_error must be 'warn' or 'raise'")
 
     frames: list[pd.DataFrame] = []
+    attempted = 0
+    failures: list[tuple[str, str, Exception]] = []
     for _, site in sites.iterrows():
         site_url = str(site.get(url_col, "") or "").strip()
         if not site_url:
             continue
         label = str(site.get(label_col, "") or "").strip() if label_col else None
+        attempted += 1
         try:
             df = query_gsc(
                 site_url=site_url,
@@ -208,6 +215,7 @@ def fetch_for_sites(
         except Exception as exc:
             if on_error == "raise":
                 raise
+            failures.append((label or site_url, site_url, exc))
             print(f"[warn] GSC fetch failed: {label or site_url} ({site_url}) {exc}")
             continue
         if df is None or df.empty:
@@ -219,6 +227,13 @@ def fetch_for_sites(
         for col, value in (extra_columns or {}).items():
             df[col] = value
         frames.append(df)
+
+    if fail_if_all_failed and attempted > 0 and len(failures) == attempted:
+        first_label, first_url, first_exc = failures[0]
+        raise RuntimeError(
+            f"GSC fetch failed for all {attempted} attempted site(s). "
+            f"First failure: {first_label} ({first_url}) {first_exc}"
+        ) from first_exc
 
     if not frames:
         return pd.DataFrame()
