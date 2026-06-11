@@ -8,7 +8,8 @@
 ## 残タスク(進行中)
 
 1. [x] **デプロイ完了 (2026-06-11)**: ① megaton push + tag v1.4.0 + GitHub release + **PyPI 1.4.0 公開済み** → ② megaton-app push (f527e6f、report_runフック強化+fetch_for_sites fail_if_all_failed含む) → ③ notebooks ピンを f527e6f へ更新 → ④ notebooks push (31a9dd5)。pip dry-run で解決確認済み。※ユーザー判断で「全部今デプロイ」(slqm残り2タブの検証はGA4障害起因と特定済みのため)
-2. **slqm.py 実走検証(進行中 2026-06-11)**: 共有ドライブ「WITH Report」に一時コピー `_tmp_slqm_verify_20260611`(id 1K8drkU4cDN3SeTdJpe-izD1ecMt6E3FltmiVxKWQsAM)を作成し実走。
+2. [x] **slqm.py 実走検証 ✅ 完了 (2026-06-11 夜)**: `_page`/`_page-d`/`_page-m`/`_all-m` は本番と**全セル一致**、`_info` は News一致+Voiceのみ新方式が精密(GA4カーディナリティ丸めの解消、ユーザー承認済みで採用)。詳細エビデンスは notebooks/reports/slqm.md「検証状況」に記録。**後始末1件: 一時コピー `_tmp_slqm_verify_20260611` はSA権限不足で削除不可 → WITH Report共有ドライブからユーザーが手動削除**。比較スクリプトは削除済み
+   - 経緯(旧記録): 共有ドライブ「WITH Report」に一時コピー `_tmp_slqm_verify_20260611`(id 1K8drkU4cDN3SeTdJpe-izD1ecMt6E3FltmiVxKWQsAM)を作成し実走。
    - 1回目: `_page-d` / `_page-m` / `_info` は本番と**全セル一致**。`_page` / `_all-m` は列欠落 → 原因は移行ではなく **GA4 504 Deadline Exceeded → リトライ枯渇 → megatonが黙って空を返す**仕様(列が静かに消え、validationはpassed表示)。重いlinkUrlフィルタ系5クエリで発生
    - **megaton 2581e2f で修正**: リトライ枯渇はデフォルト例外送出(`on_exhausted='empty'`で旧挙動)、リトライ3→5回。docs/CHANGELOG更新済み
    - 2〜4回目は「GA4障害」と誤診したが、ユーザー指摘で再調査 → **真因はクライアント側deadline**: 重いクエリがgRPCデフォルト(~60秒)を超過し、リトライ5回とも同じ60秒の壁で `DeadlineExceeded`(軽いクエリは常に正常 = API自体は生きていた)。timeout=300の単発probeで19秒成功により確定
@@ -16,8 +17,8 @@
    - 5〜6回目(v1.4.1): timeout修正で重いクエリ群は通過(_page/_page-d/_page-mまで書込到達)したが、後半で**間欠的な502 Bad Gateway(サーバー側)**が5リトライ続き失敗。本日は打ち切り。**翌日以降に再実行**(コピーは温存、`run_notebook.py slqm.py -p SHEET_URL=<コピー>` → `output/tmp_verify_slqm_compare.py` で比較 → 一致でコピー削除)GA4回復後に再実行→全タブ比較→**一致確認後に一時コピーと output/tmp_verify_slqm_compare.py を削除すること**
    - 次回GHA: 金曜 08:45 JST の Daily Shibuya が新コード初実行 — 結果をモニタ
 3. [x] shibuya-line WIP合流(78a1f15)後の整理完了(0ef562a): bootstrap除去・pd_utils削除・report-catalog更新
-4. report_run の横展開(検証パス後: shibuya.py → 残り)。チェーンAPI(`wrap`/`.month_key()`)置換も同時に
-5. GHA `-e .` 初回実行モニタ / `output/tmp_verify_slqm_compare.py` は検証完了後に削除
+4. **report_run の横展開(次の作業)**: shibuya.py → 残り8本。チェーンAPI(`wrap`/`.month_key()`)置換も同時に
+5. 金曜 08:45 JST Daily Shibuya GHA(新コード初回)の結果モニタ。7/1 の monthly-slqm で本番 _info が新方式の精密値に全上書きされる(これが本番修復を兼ねる)
 
 ## 完了コミット一覧
 
