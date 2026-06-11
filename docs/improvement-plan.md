@@ -3,7 +3,11 @@
 > **これは進行管理の正本。** AIセッションが切れたら、まずこのファイルを読んで「現在地」から再開すること。
 > 各ステップ完了時にこのファイルのチェックボックスと「現在地」を更新してコミットする。
 
-最終更新: 2026-06-11 / 状態: Step 1 完了(megaton dcbb3b9 + app 8a1dd19)、Step 3 着手
+最終更新: 2026-06-11 / 状態: **Step 1・3・4 完了。次は Step 2(チェーンAPI正準化)**
+- megaton: dcbb3b9 (v1.4.0)
+- megaton-app: 8a1dd19(Step1) → 253c0dd(Step3) → 40bd9e4+(Step4 dates facade)
+- megaton-notebooks: 09ba421(date_periods廃止)。**注意: notebooksのrequirements.txtピンは未更新** — megaton-appをGitHubへpush後にピンを新コミットへ更新してからnotebooksをpushすること(順序を守らないとGHAが壊れる)。notebooksにはユーザーのWIP(shibuya-line系+report-catalog.md)が未コミットで残っている — 触らないこと
+- report-catalog.md 内の date_periods 言及2箇所はユーザーWIPと衝突するため未更新(WIPコミット後に直す)
 
 ## ゴール
 
@@ -51,10 +55,11 @@ adobe-md, minkabu は import なし。
   - [x] gspread_lowlevel に公開 `call_with_retry(op, func)` 追加(expo_retry + 429に30秒フロア)、全ネットワーク呼び出し(open/worksheet/clear/update/freeze/append/get_all_values/batch_update/metadata)をラップ
   - [x] report_validation._with_retry を expo_retry ベース+30秒フロアへ(旧実装は最大7秒でquota窓に不足していた)
   - [x] tests/test_gspread_lowlevel_retry.py (5件)
-- [ ] **Step 4: 日付ファサード megaton_lib.dates** (megaton-app, notebooks) ※独立
-  - [ ] date_template に prev-prev-month-start/end + resolve_month() 追加
-  - [ ] megaton_lib/dates.py 新設(全日付APIの単一入口、resolve_effective_months_ago昇格込み)
-  - [ ] notebooks: lib/date_periods 削除、import置換
+- [x] **Step 4: 日付ファサード megaton_lib.dates** ✅ 完了 (2026-06-11)
+  - [x] date_template に prev-prev-month-start/end + resolve_month() 追加
+  - [x] megaton_lib/dates.py 新設: 文字列API(resolve_date/resolve_month)+ dateオブジェクトAPI(date_periods由来: today_in_timezone/previous_month_window/month_before_window/resolve_period_date/resolve_period_month/previous_month_label)+ pandas月ヘルパー + parse_summary_tokens + resolve_effective_months_ago(pandas依存を除去して昇格)
+  - [x] notebooks: date_periods削除、消費3ファイル(slqm_looker_export/build_with_summary/run_corp_bq_derivatives)をmegaton_lib.datesへ置換、notebook_paths.resolve_effective_months_agoは委譲化(レポートのimportは無変更)、lib-modules.md更新
+  - [x] tests: test_dates_facade.py 19件(UTC境界テスト移植込み)、notebooks 102件パス
 - [ ] **Step 5: report_run scaffold + bootstrap根絶** (megaton-app, notebooks) ※Step 4後
   - [ ] notebooks editable install化(pyproject packages=["lib"], requirements に -e .)→ bootstrap 8本×10行削除
   - [ ] megaton_lib/report_run.py (context manager: creds→期間→tracker→summary、on_finishフック)
