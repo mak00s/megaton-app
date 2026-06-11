@@ -5,13 +5,16 @@
 
 最終更新: 2026-06-11 / 状態: **Step 1〜7 完了(8は基準のみ)。残タスクは下記**
 
-## 残タスク(次セッションの作業候補)
+## 残タスク(進行中)
 
-1. **デプロイ(順序厳守)**: ① megaton を push(PyPI publish も可: v1.4.0) → ② megaton-app を push → ③ notebooks requirements.txt の megaton-app ピンを新コミットへ更新 → ④ notebooks を push。**③の前に②必須**(notebooks HEAD は megaton_lib.dates/report_run/env_utils 等を要求)
-2. **slqm.py の実走検証**(§9 sheet equality)— 本番Sheets書込みのため未実施。手動実行 or 7/1 定期実行前に確認
-3. shibuya-line WIP 合流後: bootstrap除去 + pd_utils import 置換 → lib/pd_utils.py 削除、report-catalog.md の date_periods/旧lib言及を更新
-4. report_run の横展開(slqm検証後に shibuya.py → 残り)。チェーンAPI(`wrap`/`.month_key()`)への置換も同時に
-5. GHA workflows の `pip install -r requirements.txt` が `-e .` を含むようになった — 初回実行をモニタ
+1. **デプロイ(承認済み: push + PyPI publish、順序厳守)**: ① megaton push + PyPI v1.4.0 → ② megaton-app push → ③ notebooks ピン更新 → ④ notebooks push。slqm検証パス後に実行
+2. **slqm.py 実走検証(進行中 2026-06-11)**: 共有ドライブ「WITH Report」に一時コピー `_tmp_slqm_verify_20260611`(id 1K8drkU4cDN3SeTdJpe-izD1ecMt6E3FltmiVxKWQsAM)を作成し実走。
+   - 1回目: `_page-d` / `_page-m` / `_info` は本番と**全セル一致**。`_page` / `_all-m` は列欠落 → 原因は移行ではなく **GA4 504 Deadline Exceeded → リトライ枯渇 → megatonが黙って空を返す**仕様(列が静かに消え、validationはpassed表示)。重いlinkUrlフィルタ系5クエリで発生
+   - **megaton 2581e2f で修正**: リトライ枯渇はデフォルト例外送出(`on_exhausted='empty'`で旧挙動)、リトライ3→5回。docs/CHANGELOG更新済み
+   - 2回目を強化版で実行中 → 全タブ一致なら検証完了。**終了後に一時コピーを削除すること**
+3. [x] shibuya-line WIP合流(78a1f15)後の整理完了(0ef562a): bootstrap除去・pd_utils削除・report-catalog更新
+4. report_run の横展開(検証パス後: shibuya.py → 残り)。チェーンAPI(`wrap`/`.month_key()`)置換も同時に
+5. GHA `-e .` 初回実行モニタ / `output/tmp_verify_slqm_compare.py` は検証完了後に削除
 
 ## 完了コミット一覧
 
