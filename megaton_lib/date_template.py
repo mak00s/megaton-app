@@ -3,18 +3,23 @@
 Allows relative date expressions in ``params.json`` date_range.start/end.
 
 Supported expressions:
-  today             -> execution date
-  today-Nd          -> N days ago
-  today+Nd          -> N days later
-  month-start       -> first day of current month
-  month-end         -> last day of current month
-  year-start        -> Jan 1 of current year
-  year-end          -> Dec 31 of current year
-  prev-month-start  -> first day of previous month
-  prev-month-end    -> last day of previous month
-  week-start        -> Monday of current week (ISO: Monday=0)
-  YYYY-MM-DD        -> pass through (absolute date)
-  YYYYMMDD          -> normalized to YYYY-MM-DD
+  today                  -> execution date
+  today-Nd               -> N days ago
+  today+Nd               -> N days later
+  month-start            -> first day of current month
+  month-end              -> last day of current month
+  year-start             -> Jan 1 of current year
+  year-end               -> Dec 31 of current year
+  prev-month-start       -> first day of previous month
+  prev-month-end         -> last day of previous month
+  prev-prev-month-start  -> first day of the month before previous
+  prev-prev-month-end    -> last day of the month before previous
+  week-start             -> Monday of current week (ISO: Monday=0)
+  YYYY-MM-DD             -> pass through (absolute date)
+  YYYYMMDD               -> normalized to YYYY-MM-DD
+
+Month expressions (``resolve_month``):
+  this-month / prev-month / prev-prev-month / YYYYMM -> "YYYYMM"
 """
 
 from __future__ import annotations
@@ -104,6 +109,14 @@ def resolve_date(expr: str, *, reference: date | None = None) -> str:
         first = ref.replace(day=1)
         return (first - timedelta(days=1)).isoformat()
 
+    if expr == "prev-prev-month-start":
+        prev_first = (ref.replace(day=1) - timedelta(days=1)).replace(day=1)
+        return (prev_first - timedelta(days=1)).replace(day=1).isoformat()
+
+    if expr == "prev-prev-month-end":
+        prev_first = (ref.replace(day=1) - timedelta(days=1)).replace(day=1)
+        return (prev_first - timedelta(days=1)).isoformat()
+
     if expr == "week-start":
         # ISO: Monday = 0
         return (ref - timedelta(days=ref.weekday())).isoformat()
@@ -111,7 +124,38 @@ def resolve_date(expr: str, *, reference: date | None = None) -> str:
     raise ValueError(
         f"Unknown date template: '{expr}'. "
         "Use today, today±Nd, month-start, month-end, year-start, year-end, "
-        "prev-month-start, prev-month-end, week-start, or YYYY-MM-DD."
+        "prev-month-start, prev-month-end, prev-prev-month-start, "
+        "prev-prev-month-end, week-start, or YYYY-MM-DD."
+    )
+
+
+def resolve_month(expr: str, *, reference: date | None = None) -> str:
+    """Resolve a month expression to "YYYYMM".
+
+    Args:
+        expr: "this-month", "prev-month", "prev-prev-month", or "YYYYMM".
+        reference: Reference date (default: execution date).
+
+    Raises:
+        ValueError: Unknown month expression.
+    """
+    ref = reference or _current_date_in_configured_tz()
+    token = str(expr).strip()
+
+    if token == "this-month":
+        return f"{ref:%Y%m}"
+    if token == "prev-month":
+        prev_end = ref.replace(day=1) - timedelta(days=1)
+        return f"{prev_end:%Y%m}"
+    if token == "prev-prev-month":
+        prev_first = (ref.replace(day=1) - timedelta(days=1)).replace(day=1)
+        prev_prev_end = prev_first - timedelta(days=1)
+        return f"{prev_prev_end:%Y%m}"
+    if len(token) == 6 and token.isdigit():
+        return token
+    raise ValueError(
+        f"Unknown month expression: '{expr}'. "
+        "Use this-month, prev-month, prev-prev-month, or YYYYMM."
     )
 
 

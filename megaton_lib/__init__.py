@@ -22,10 +22,13 @@ Params & config:
     cli_help         : argparse helpers for the script CLIs
 
 Dates:
-    date_template    : resolve_date() for relative date expressions
-    date_utils       : month ranges + month parsing/current-month helpers
-    periods          : month-window parsing (quarters/years/relative months)
-    tz_utils         : shared timezone resolution (stdlib-only)
+    dates            : SINGLE ENTRY POINT for all date/period helpers — import
+                       dates from here (resolve_date, resolve_month, windows,
+                       month ranges, parse_summary_tokens, ...)
+    date_template    : (impl) resolve_date()/resolve_month() template parsing
+    date_utils       : (impl) month ranges + month parsing/current-month helpers
+    periods          : (impl) month-window parsing (quarters/years/relative months)
+    tz_utils         : (impl) shared timezone resolution (stdlib-only)
 
 Sheets & output:
     sheets           : high-level save/read/upsert helpers for Google Sheets

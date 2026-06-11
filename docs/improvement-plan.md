@@ -47,9 +47,10 @@ adobe-md, minkabu は import なし。
   - [ ] `mg.save.to.*` がResult受け入れ
   - [ ] `.month_key()` 追加、transform.table に `fillna_int` 追加
   - [ ] megaton_lib table_utils/traffic → transform委譲エイリアス化(shibuya-analysisのimportは壊さない)
-- [ ] **Step 3: Sheets retry充当** (megaton-app) ※独立、いつでも可
-  - [ ] gspread_lowlevel に expo_retry ラップ(`_retrying()` デコレータ)
-  - [ ] report_validation._with_retry を expo_retry ベースへ
+- [x] **Step 3: Sheets retry充当** ✅ 完了 (2026-06-11, app 253c0dd)
+  - [x] gspread_lowlevel に公開 `call_with_retry(op, func)` 追加(expo_retry + 429に30秒フロア)、全ネットワーク呼び出し(open/worksheet/clear/update/freeze/append/get_all_values/batch_update/metadata)をラップ
+  - [x] report_validation._with_retry を expo_retry ベース+30秒フロアへ(旧実装は最大7秒でquota窓に不足していた)
+  - [x] tests/test_gspread_lowlevel_retry.py (5件)
 - [ ] **Step 4: 日付ファサード megaton_lib.dates** (megaton-app, notebooks) ※独立
   - [ ] date_template に prev-prev-month-start/end + resolve_month() 追加
   - [ ] megaton_lib/dates.py 新設(全日付APIの単一入口、resolve_effective_months_ago昇格込み)
