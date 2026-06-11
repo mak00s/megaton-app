@@ -17,7 +17,7 @@
    - 5〜6回目(v1.4.1): timeout修正で重いクエリ群は通過(_page/_page-d/_page-mまで書込到達)したが、後半で**間欠的な502 Bad Gateway(サーバー側)**が5リトライ続き失敗。本日は打ち切り。**翌日以降に再実行**(コピーは温存、`run_notebook.py slqm.py -p SHEET_URL=<コピー>` → `output/tmp_verify_slqm_compare.py` で比較 → 一致でコピー削除)GA4回復後に再実行→全タブ比較→**一致確認後に一時コピーと output/tmp_verify_slqm_compare.py を削除すること**
    - 次回GHA: 金曜 08:45 JST の Daily Shibuya が新コード初実行 — 結果をモニタ
 3. [x] shibuya-line WIP合流(78a1f15)後の整理完了(0ef562a): bootstrap除去・pd_utils削除・report-catalog更新
-4. **report_run の横展開(次の作業)**: shibuya.py → 残り8本。チェーンAPI(`wrap`/`.month_key()`)置換も同時に
+4. [x] **report_run 横展開 ✅ 完了 (2026-06-11, notebooks 51bec18)**: tracker使用6本(dei/shibuya/shibuya-couns/shibuya-line/shiseido-corp/shiseido-talks)を scaffold 化(slqm含め7本)。機械的なinit/finish置換のみで日付ロジック・クエリ・書込は不変。with-*系3本はtracker未使用のため対象外(追加は挙動変更になる)。**チェーンAPI(`wrap`/`.month_key()`)への深い置換は計算経路が変わり再検証が必要なため見送り** — 各レポートの次回改修時に PYTHON_API.md の正準形で書く方針
 5. 金曜 08:45 JST Daily Shibuya GHA(新コード初回)の結果モニタ。7/1 の monthly-slqm で本番 _info が新方式の精密値に全上書きされる(これが本番修復を兼ねる)
 
 ## 完了コミット一覧
