@@ -40,6 +40,19 @@ class TestResolveMonth:
 
 
 class TestDateObjectApi:
+    def test_today_in_timezone_at_utc_month_boundary(self):
+        # Ported from megaton-notebooks tests/test_date_periods.py:
+        # GHA runners are UTC; JST must roll over to the next day/month.
+        from datetime import UTC, datetime
+
+        utc_now = datetime(2026, 5, 31, 15, 30, tzinfo=UTC)
+        assert dates.today_in_timezone("UTC", now=utc_now) == date(2026, 5, 31)
+        assert dates.today_in_timezone("Asia/Tokyo", now=utc_now) == date(2026, 6, 1)
+
+    def test_resolve_period_month_compat(self):
+        assert dates.resolve_period_month("prev-month", today=REF) == "202602"
+        assert dates.resolve_period_month("202401", today=REF) == "202401"
+
     def test_previous_month_window(self):
         start, end = dates.previous_month_window(REF)
         assert (start, end) == (date(2026, 2, 1), date(2026, 2, 28))
