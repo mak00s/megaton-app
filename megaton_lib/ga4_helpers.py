@@ -102,7 +102,7 @@ def collect_site_frames(
             continue
 
         try:
-            mg.ga["4"].property.id = ga4_id
+            mg.use_property(ga4_id, refresh_metadata=False)
             df = fetch_fn(mg, site, clinic, ga4_id)
             if isinstance(df, pd.DataFrame) and not df.empty:
                 frames.append(df)
@@ -147,7 +147,7 @@ def fetch_named_clinic_report_data_or_empty(
         return pd.DataFrame(columns=expected_cols)
 
     try:
-        mg.ga["4"].property.id = ga4_id
+        mg.use_property(ga4_id, refresh_metadata=False)
         if set_dates is not None:
             mg.report.set.dates(set_dates[0], set_dates[1])
         return run_report_data_or_empty(

@@ -5,17 +5,12 @@ from megaton_lib.credentials import resolve_service_account_path
 
 # Configuration
 CREDS_PATH = resolve_service_account_path()
-GA4_ACCOUNT = "YOUR_GA4_ACCOUNT_ID"
 GA4_PROPERTY = "YOUR_GA4_PROPERTY_ID"
 
-# Initialize (explicit JSON credentials, headless mode)
-mg = start.Megaton(CREDS_PATH, headless=True)
+# Initialize with the property pre-selected (headless by default)
+mg = start.Megaton.for_property(GA4_PROPERTY, CREDS_PATH)
 
-# Select GA4 account and property
-mg.ga['4'].account.select(GA4_ACCOUNT)
-mg.ga['4'].property.select(GA4_PROPERTY)
-
-print(f"Account: {GA4_ACCOUNT}, Property: {GA4_PROPERTY}")
+print(f"Property: {GA4_PROPERTY}")
 
 # Date range (last 7 days)
 end_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')

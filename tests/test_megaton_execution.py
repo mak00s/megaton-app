@@ -27,12 +27,7 @@ class TestMegatonExecution(unittest.TestCase):
 
     def test_query_ga4_selects_account_and_property(self):
         mg = MagicMock()
-        ga4 = MagicMock()
-        ga4.accounts = [
-            {"id": "acc1", "properties": [{"id": "P1"}]},
-            {"id": "acc2", "properties": [{"id": "P2"}]},
-        ]
-        mg.ga = {"4": ga4}
+        mg.use_property.return_value = mg
         mg.report.run.return_value.df = pd.DataFrame([{"sessions": 10}])
 
         with patch("megaton_lib.megaton_client.get_megaton_for_property", return_value=mg):
@@ -47,8 +42,7 @@ class TestMegatonExecution(unittest.TestCase):
             )
 
         self.assertEqual(len(df), 1)
-        mg.ga["4"].account.select.assert_any_call("acc2")
-        mg.ga["4"].property.select.assert_any_call("P2")
+        mg.use_property.assert_called_once_with("P2")
         mg.report.set.dates.assert_called_once_with("2026-01-01", "2026-01-31")
         mg.report.run.assert_called_once()
 
@@ -64,7 +58,7 @@ class TestMegatonExecution(unittest.TestCase):
 
     def test_query_gsc_runs_with_dimension_filter(self):
         mg = MagicMock()
-        mg.search.data = pd.DataFrame([{"clicks": 1}])
+        mg.search.run.return_value.df = pd.DataFrame([{"clicks": 1}])
         with patch("megaton_lib.megaton_client.get_megaton_for_site", return_value=mg):
             df = mc.query_gsc(
                 site_url="sc-domain:example.com",
