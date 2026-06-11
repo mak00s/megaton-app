@@ -61,12 +61,14 @@ adobe-md, minkabu は import なし。
   - [x] megaton_lib/dates.py 新設: 文字列API(resolve_date/resolve_month)+ dateオブジェクトAPI(date_periods由来: today_in_timezone/previous_month_window/month_before_window/resolve_period_date/resolve_period_month/previous_month_label)+ pandas月ヘルパー + parse_summary_tokens + resolve_effective_months_ago(pandas依存を除去して昇格)
   - [x] notebooks: date_periods削除、消費3ファイル(slqm_looker_export/build_with_summary/run_corp_bq_derivatives)をmegaton_lib.datesへ置換、notebook_paths.resolve_effective_months_agoは委譲化(レポートのimportは無変更)、lib-modules.md更新
   - [x] tests: test_dates_facade.py 19件(UTC境界テスト移植込み)、notebooks 102件パス
-- [ ] **Step 5: report_run scaffold + bootstrap根絶** (megaton-app, notebooks) ※Step 4後
-  - [ ] notebooks editable install化(pyproject packages=["lib"], requirements に -e .)→ bootstrap 8本×10行削除
-  - [ ] megaton_lib/report_run.py (context manager: creds→期間→tracker→summary、on_finishフック)
-  - [ ] gsc_utils.fetch_for_sites() 追加
-  - [ ] パイロット: slqm.py → 検証 → shibuya.py → 残り
-  - [ ] パラメータ命名規約を notebooks AGENTS.md へ(既存の一括リネームはしない)
+- [x] **Step 5: report_run scaffold + bootstrap根絶** ✅ ほぼ完了 (2026-06-11, app bc2da62, notebooks 53537c3)
+  - [x] megaton_lib/report_run.py: `start_report_run()` — **notebookはセル構造でwithブロックを跨げないため begin/end ペアが主形**(`run = start_report_run(...)` → `run.finish()`)。scriptはcontext manager可。on_finishフック、save_sheet等のmg自動渡し。tests 16件
+  - [x] gsc_utils.fetch_for_sites()(マルチサイトGSCループの共通化)
+  - [x] notebooks editable install化(`-e .`)→ レポート9本のbootstrap削除。dei/with-kpi の PROJECT_ROOT は新設 `lib.notebook_paths.repo_root()` で代替
+  - [x] パイロット slqm.py を report_run 移行(444→426行)。slqm.md仕様書も更新(※reports/*.md は自動生成ではなく手書き仕様書なので注意)
+  - [x] AGENTS.md にパラメータ命名+初期化規約を追記
+  - [ ] **残**: shibuya-line.py のbootstrap(ユーザーWIP中のため未除去、次回改修時に)/ ops scripts のbootstrap(Step 7で)/ **slqm.py の実走検証(§9 sheet equality)は未実施** — 本番Sheetsへ書くため勝手に実行していない。次回の手動実行か7/1定期実行前に確認すること
+  - [ ] 残: shibuya.py 等への report_run 横展開(slqm検証後)
 - [ ] **Step 6: facade + Python APIドキュメント** (megaton-app) ※Step 2後
   - [ ] megaton_lib/notebook.py を PEP 562 遅延facadeに(12個: get_ga4, get_gsc, query_gsc, get_bq_client, query_bq, wrap, resolve_date, resolve_month, read_sheet_table, save_sheet_table, upsert, report_run, show)
   - [ ] docs/PYTHON_API.md 新設

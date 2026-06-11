@@ -95,6 +95,7 @@ python -m pytest -q
 |----------|----------|
 | [docs/USAGE.md](docs/USAGE.md) | Setup, quick start, recipes, and how-to for Notebook / CLI / Streamlit |
 | [docs/REFERENCE.md](docs/REFERENCE.md) | JSON schema, CLI options, audit/validation/AA DW helpers, Target helpers, and auth |
+| [docs/PYTHON_API.md](docs/PYTHON_API.md) | Python API quickstart: notebook facade, chain API, dates, report_run scaffold |
 | [docs/VALIDATION.md](docs/VALIDATION.md) | Shared-first validation policy, result schema, thin entrypoint template, follow-up task flow, and detection rule |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | Change history |
 
