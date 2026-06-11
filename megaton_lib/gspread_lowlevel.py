@@ -7,6 +7,7 @@ errors wait at least 30 seconds before the next attempt).
 
 from __future__ import annotations
 
+import datetime as _dt
 import logging
 import time
 from pathlib import Path
@@ -96,6 +97,10 @@ __all__ = [
     "set_frozen_rows",
     "set_frozen_columns",
     "ensure_min_dimensions",
+    "column_label",
+    "gs_serial_to_date",
+    "dimension_requests",
+    "copy_format_request",
 ]
 
 
@@ -553,3 +558,110 @@ delete_gspread_sheet_if_exists = delete_sheet_if_exists
 set_gspread_frozen_rows = set_frozen_rows
 set_gspread_frozen_columns = set_frozen_columns
 ensure_gspread_min_dimensions = ensure_min_dimensions
+
+
+# --- A1 / serial-date helpers (promoted from megaton-notebooks lib/sheets_utils.py) ---
+
+GS_EPOCH = _dt.datetime(1899, 12, 30)
+
+
+def column_label(index: int) -> str:
+    """1-based column index -> A1 letter (1 -> A, 27 -> AA)."""
+    if index < 1:
+        raise ValueError("Column index must be >= 1")
+    out = ""
+    n = index
+    while n:
+        n, rem = divmod(n - 1, 26)
+        out = chr(65 + rem) + out
+    return out
+
+
+def gs_serial_to_date(value: object) -> "_dt.datetime | None":
+    """Google Sheets serial number -> datetime (None for empty/invalid)."""
+    if value in ("", None):
+        return None
+    try:
+        return GS_EPOCH + _dt.timedelta(days=float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+# --- batchUpdate request builders (promoted from lib/sheets_requests.py) ---
+
+def dimension_requests(
+    sheet_id: int,
+    *,
+    col_widths: list[int],
+    row_count: int,
+    row_height_px: int | None = None,
+) -> list[dict]:
+    """Column-width (and optional row-height) updateDimensionProperties requests."""
+    requests: list[dict] = []
+    for idx, width in enumerate(col_widths):
+        requests.append(
+            {
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "dimension": "COLUMNS",
+                        "startIndex": idx,
+                        "endIndex": idx + 1,
+                    },
+                    "properties": {"pixelSize": width},
+                    "fields": "pixelSize",
+                }
+            }
+        )
+    if row_height_px is not None:
+        requests.append(
+            {
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "dimension": "ROWS",
+                        "startIndex": 0,
+                        "endIndex": row_count,
+                    },
+                    "properties": {"pixelSize": row_height_px},
+                    "fields": "pixelSize",
+                }
+            }
+        )
+    return requests
+
+
+def copy_format_request(
+    source_sheet_id: int,
+    target_sheet_id: int,
+    *,
+    src_start_row: int,
+    src_end_row: int,
+    src_start_col: int,
+    src_end_col: int,
+    dst_start_row: int,
+    dst_end_row: int,
+    dst_start_col: int,
+    dst_end_col: int,
+) -> dict:
+    """PASTE_FORMAT copyPaste request between sheet ranges."""
+    return {
+        "copyPaste": {
+            "source": {
+                "sheetId": source_sheet_id,
+                "startRowIndex": src_start_row,
+                "endRowIndex": src_end_row,
+                "startColumnIndex": src_start_col,
+                "endColumnIndex": src_end_col,
+            },
+            "destination": {
+                "sheetId": target_sheet_id,
+                "startRowIndex": dst_start_row,
+                "endRowIndex": dst_end_row,
+                "startColumnIndex": dst_start_col,
+                "endColumnIndex": dst_end_col,
+            },
+            "pasteType": "PASTE_FORMAT",
+            "pasteOrientation": "NORMAL",
+        }
+    }
