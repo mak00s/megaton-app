@@ -1,4 +1,11 @@
-"""DataFrame text/pattern mapping helpers."""
+"""DataFrame text/pattern mapping helpers.
+
+Note: for new code prefer the canonical chain/transform APIs in megaton --
+``megaton.wrap(df).categorize(...)`` or ``megaton.transform.map_by_regex`` /
+``classify_by_regex``. This module is kept for existing consumers because its
+matching semantics differ deliberately (case-sensitive, values stringified,
+invalid patterns warn instead of being skipped silently).
+"""
 
 from __future__ import annotations
 
