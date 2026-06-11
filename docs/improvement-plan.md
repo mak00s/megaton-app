@@ -45,12 +45,12 @@ adobe-md, minkabu は import なし。
   - [x] tests/test_programmatic_api.py (18件)・CHANGELOG 1.4.0・api-reference.md
   - [x] 下流置換: megaton_client.py(build_registry/get_ga4/get_ga4_properties/get_gsc_sites/query_gsc)、ga4_helpers.py×2、scripts/fetch_*_megaton.py×2。テストfake更新済
   - 注: megatonはeditable installなのでapp側は即1.4を参照。PyPIへのpublishは未実施(全ステップ完了後にまとめて)
-- [ ] **Step 2: チェーンAPI正準化 + transform一本化** (megaton, megaton-app)
-  - [ ] `_ResultBase` 共通基底、transform純関数への委譲完成
-  - [ ] `megaton.wrap(df)` 公開
-  - [ ] `mg.save.to.*` がResult受け入れ
-  - [ ] `.month_key()` 追加、transform.table に `fillna_int` 追加
-  - [ ] megaton_lib table_utils/traffic → transform委譲エイリアス化(shibuya-analysisのimportは壊さない)
+- [⏳] **Step 2: チェーンAPI正準化 + transform一本化** — megaton側完了(89f687a)、megaton_lib側が残り
+  - [x] `megaton.wrap(df, dimensions=None)` 公開(非数値列をdim推定、package rootから遅延export)
+  - [x] `mg.save/append/upsert.to.*` と `mg.sheet.save/append/upsert` がResult受け入れ(`_extract_df`)
+  - [x] `.month_key()` 追加、`transform.fillna_int` 追加(pd_utils昇格)。tests/test_wrap_and_chain.py 15件
+  - [ ] **残: megaton_lib table_utils/traffic → megaton.transform 委譲エイリアス化**(shibuya-analysisのimport `classify_by_pattern_map`/`classify_channel`/`apply_source_normalization`/`is_non_public_dev_source`/`normalize_domain` は壊さない)。traffic.classify_channel と transform.ga4.classify_channel の差分突合が必要
+  - [ ] 残(任意): `_ResultBase` で SearchResult/ReportResult の normalize/categorize/classify 重複統合(内部リファクタ、外部影響なし)
 - [x] **Step 3: Sheets retry充当** ✅ 完了 (2026-06-11, app 253c0dd)
   - [x] gspread_lowlevel に公開 `call_with_retry(op, func)` 追加(expo_retry + 429に30秒フロア)、全ネットワーク呼び出し(open/worksheet/clear/update/freeze/append/get_all_values/batch_update/metadata)をラップ
   - [x] report_validation._with_retry を expo_retry ベース+30秒フロアへ(旧実装は最大7秒でquota窓に不足していた)
