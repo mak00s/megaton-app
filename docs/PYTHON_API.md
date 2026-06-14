@@ -51,21 +51,34 @@ top = wrap(df).categorize("page", {"news": r"/information/"}).group("page_catego
 
 `groupby + sum(min_count=1) + fillna_int + [key_cols]` の定型は、そのまま等価置換できます:
 
+**順序が肝**: 元コードの `fillna_int` と `groupby` の**前後関係をそのまま再現**する（順序を変えると出力が変わる）。
+
+ケースA — coerce が groupby の**前**（shibuya `_ch-m` 型。実データで全セル一致を確認済み v1.4.3）:
 ```python
-# Before（手書き）
-fillna_int(df, ["users", "cv"])
-df = df.groupby(keys, dropna=False)[["users", "cv"]].sum(min_count=1).reset_index()
-fillna_int(df, ["users", "cv"])
+# Before
+fillna_int(df, ["users","cv","ad_cost"])
+df = df.groupby(keys, dropna=False)[["users","cv","ad_cost"]].sum(min_count=1).reset_index()
+fillna_int(df, ["users","cv","ad_cost"])
 df = df[key_cols].sort_values(keys).reset_index(drop=True)
 
-# After（チェーン、出力は全セル一致）
-df = wrap(df).group(keys, dropna=False, min_count=1).to_int(["users", "cv"]).sort(keys).select(key_cols).df
+# After（to_int を先に。object型 ad_cost も coerce され group() が落とさない）
+df = wrap(df).to_int(["users","cv","ad_cost"]).group(keys, dropna=False).sort(keys).select(key_cols).df
 ```
 
-- `dropna=False` / `min_count=1` を**省略しない**こと（省略すると NaNキー行の扱いや全NaN群の値が変わる）。
-- カテゴリ分類は `apply_pattern_map`/`classify_by_pattern_map` → `.categorize(col, map, into=, default=)` に置換可。
-- ただし `classify_channel` 等の**行レベルのビジネス分類は残す**（megaton_lib側のドメイン既定値を持つため）。
-- **置換後は必ず本番コピーへ実走して全タブ全セル一致を確認**（手順は §6）。計算経路が変わるため、テストだけでは不十分。
+ケースB — coerce が groupby の**後**（全NaN群を保持したい型）:
+```python
+# Before
+df = df.groupby(keys, dropna=False)[m].sum(min_count=1).reset_index()
+fillna_int(df, m)
+# After
+df = wrap(df).group(keys, dropna=False, min_count=1).to_int(m).select(key_cols).df
+```
+
+落とし穴（実データ検証で判明）:
+- **`group()` の自動metric検出は object dtype 列をスキップ**する。GA4の `advertiserAdCost` 等は object で来るので、**先に `.to_int()` で数値化**するか group に `metrics=` を明示する。
+- `dropna=False` / `min_count=` を**元コードに合わせて指定**（省略すると NaNキー行や全NaN群の値が変わる）。
+- カテゴリ分類は `apply_pattern_map`/`classify_by_pattern_map` → `.categorize(col, map, into=, default=)` に置換可。ただし `classify_channel` 等の**行レベルのビジネス分類は残す**（ドメイン既定値を持つため）。
+- **置換後は必ず本番コピーへ実走して全タブ全セル一致を確認**（手順は §6）。テストだけでは不十分。
 
 ## 2. 日付は `megaton_lib.dates` だけ覚える
 

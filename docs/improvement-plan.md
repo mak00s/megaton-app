@@ -14,6 +14,11 @@ Step 1〜7・実走検証・デプロイ(PyPI 1.4.1)・report_run横展開・doc
 `.group(...).to_int().select(...)` に等価置換可能に。PYTHON_API.md §1に移行レシピ、§6に検証手順を追記。
 実レポートへの適用は各改修時に(§6手順で本番コピー全タブ一致を確認してから)。
 
+### 2026-06-12 追加2: 実データ等価検証で to_int をロバスト化(megaton 1.4.3)
+shibuya `_ch-m` の**実GA4フレーム**(1141行)で旧idiom vs 新チェーンを assert_frame_equal → 当初2件の実問題を発見:
+(1) `advertiserAdCost` が object dtype で来る → `group()` の自動metric検出が落とす、(2) `to_int` の `.astype(int)` が object列で失敗。
+→ **`to_int` を `pd.to_numeric(coerce)` 化(v1.4.3)**。正しい変換順序は「coerceが元コードでgroupbyの前なら `.to_int().group()`、後なら `.group(min_count=1).to_int()`」。PYTHON_API §1 にケースA/Bと落とし穴(object列・順序)を明記。実データで全セル一致を確認済み。
+
 ## 残タスク(進行中)
 
 1. [x] **デプロイ完了 (2026-06-11)**: ① megaton push + tag v1.4.0 + GitHub release + **PyPI 1.4.0 公開済み** → ② megaton-app push (f527e6f、report_runフック強化+fetch_for_sites fail_if_all_failed含む) → ③ notebooks ピンを f527e6f へ更新 → ④ notebooks push (31a9dd5)。pip dry-run で解決確認済み。※ユーザー判断で「全部今デプロイ」(slqm残り2タブの検証はGA4障害起因と特定済みのため)
