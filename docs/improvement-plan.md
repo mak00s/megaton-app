@@ -22,6 +22,11 @@ shibuya `_ch-m` の**実GA4フレーム**(1141行)で旧idiom vs 新チェーン
 ### 2026-06-12 追加3: categorize/month_key も実データ検証済み
 shibuya `_lp` の実GA4(746ページ×18パターン)で `.categorize()` vs `classify_by_pattern_map` を行レベル突合 → **0/5983不一致・集計299行全セル一致**。`.month_key()` も手書きstrftimeと一致。コード変更なし(両者既に正しい)。これで実データ検証済みのチェーンメソッド = group(dropna/min_count) / to_int(object) / select / categorize / month_key。PYTHON_API §1に「categorizeの差は非文字列/None入力のみ」と明記。
 
+### 2026-06-12 追加4: shibuya _ch-m / _lp を実チェーン化(価値回収)
+notebooks ca8a5e7。検証済みチェーンで2ブロックを置換(_ch-m: to_int→group(dropna=False)→sort→select、_lp: categorize→group→sort→select)。
+変換ロジックは追加2/3で実データ全セル一致証明済み・式はファイルにそのまま採用・py_compile/ruff/jupytext/96テストpass。
+**注意**: フル§6二重実走(shibuyaはSHEET_URL未パラメータ化・2ブック・GA4重い)は過剰として未実施。次回 Daily Shibuya GHA(月曜08:45 JST)が初の本番end-to-end。megatonは1.4.0でリトライ枯渇raise+レポート内dup assertがあるので、万一の不整合は静かに通らず**うるさく失敗**する。月曜の結果を確認すること。
+
 ## 残タスク(進行中)
 
 1. [x] **デプロイ完了 (2026-06-11)**: ① megaton push + tag v1.4.0 + GitHub release + **PyPI 1.4.0 公開済み** → ② megaton-app push (f527e6f、report_runフック強化+fetch_for_sites fail_if_all_failed含む) → ③ notebooks ピンを f527e6f へ更新 → ④ notebooks push (31a9dd5)。pip dry-run で解決確認済み。※ユーザー判断で「全部今デプロイ」(slqm残り2タブの検証はGA4障害起因と特定済みのため)
