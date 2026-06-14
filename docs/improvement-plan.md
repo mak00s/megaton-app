@@ -8,6 +8,12 @@ Step 1〜7・実走検証・デプロイ(PyPI 1.4.1)・report_run横展開・doc
 2026-06-12 09:10 JST の Daily Shibuya GHA(新コード初回定期実行)が success / validation passed で運用面もクローズ。
 以後の改善は「使う側が正準形(PYTHON_API.md)へ乗り換えていく」段階 — 残余地の棚卸しは下記とセッション記録参照(チェーンAPI実利用浸透、shibuya GSCループのfetch_for_sites化、Step 8抽出、Sheets正本一本化など、いずれも各コード改修時に実施)。
 
+### 2026-06-12 追加: チェーンAPIギャップ充当(megaton 1.4.2)
+チェーン化を機械的にするための3メソッドを先行実装・PyPI公開済み(v1.4.2):
+`group(dropna=False, min_count=1)` + `select(cols)` で、旧 `groupby+sum(min_count=1)+fillna_int+[key_cols]` が
+`.group(...).to_int().select(...)` に等価置換可能に。PYTHON_API.md §1に移行レシピ、§6に検証手順を追記。
+実レポートへの適用は各改修時に(§6手順で本番コピー全タブ一致を確認してから)。
+
 ## 残タスク(進行中)
 
 1. [x] **デプロイ完了 (2026-06-11)**: ① megaton push + tag v1.4.0 + GitHub release + **PyPI 1.4.0 公開済み** → ② megaton-app push (f527e6f、report_runフック強化+fetch_for_sites fail_if_all_failed含む) → ③ notebooks ピンを f527e6f へ更新 → ④ notebooks push (31a9dd5)。pip dry-run で解決確認済み。※ユーザー判断で「全部今デプロイ」(slqm残り2タブの検証はGA4障害起因と特定済みのため)
