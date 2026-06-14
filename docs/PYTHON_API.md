@@ -47,6 +47,26 @@ top = wrap(df).categorize("page", {"news": r"/information/"}).group("page_catego
 
 チェーンメソッド一覧は megaton の [api-reference.md](../../megaton/docs/api-reference.md)（ReportResult メソッドチェーン節）。
 
+### 既存レポートの手書きpandasをチェーンへ移すとき（v1.4.2+）
+
+`groupby + sum(min_count=1) + fillna_int + [key_cols]` の定型は、そのまま等価置換できます:
+
+```python
+# Before（手書き）
+fillna_int(df, ["users", "cv"])
+df = df.groupby(keys, dropna=False)[["users", "cv"]].sum(min_count=1).reset_index()
+fillna_int(df, ["users", "cv"])
+df = df[key_cols].sort_values(keys).reset_index(drop=True)
+
+# After（チェーン、出力は全セル一致）
+df = wrap(df).group(keys, dropna=False, min_count=1).to_int(["users", "cv"]).sort(keys).select(key_cols).df
+```
+
+- `dropna=False` / `min_count=1` を**省略しない**こと（省略すると NaNキー行の扱いや全NaN群の値が変わる）。
+- カテゴリ分類は `apply_pattern_map`/`classify_by_pattern_map` → `.categorize(col, map, into=, default=)` に置換可。
+- ただし `classify_channel` 等の**行レベルのビジネス分類は残す**（megaton_lib側のドメイン既定値を持つため）。
+- **置換後は必ず本番コピーへ実走して全タブ全セル一致を確認**（手順は §6）。計算経路が変わるため、テストだけでは不十分。
+
 ## 2. 日付は `megaton_lib.dates` だけ覚える
 
 ```python
@@ -94,3 +114,16 @@ upsert_or_skip(mg, "monthly", df, keys=["month"])
 - `mg.ga["4"]...` / `mg.search.get...` 等の **内部アクセス禁止** — `mg.properties()` / `mg.sites()` / `mg.use_property()` を使う（megaton 1.4+）
 - 例外は `except Exception` でなく `megaton.errors`（`BadRequest`, `ApiDisabled`, `BadPermission`...）を優先的にcatch
 - 日付・正規表現分類・月フォーマットの**手書き再実装**（このページの正準形を使う）
+
+## 6. レポート改修時の検証手順（出力が変わりうる変更）
+
+チェーン化など計算経路を変える改修は、本番シートのコピーで全タブ一致を確認してから入れる:
+
+1. 本番シートを共有ドライブ（例: WITH Report）へコピー
+2. 改修**前**のコードで `python <app>/scripts/run_notebook.py <report>.py -p SHEET_URL=<コピー>` → 基準を取る
+   （※ GA4は時間帯で値が動くため、基準取得と検証実行は近い時刻に。理想は改修前後で同一コピーへ連続実行）
+3. 改修を適用 → 同じコピーへ再実行
+4. 全タブ全セル比較（`fetch_worksheet_values` で読み比較するスクリプトを使う）。**一致**を確認
+5. 一致でコミット、コピー削除
+
+slqm 移行（2026-06）はこの手順で `_page`/`_page-d`/`_page-m`/`_all-m` 全セル一致を確認済み。
