@@ -19,6 +19,9 @@ shibuya `_ch-m` の**実GA4フレーム**(1141行)で旧idiom vs 新チェーン
 (1) `advertiserAdCost` が object dtype で来る → `group()` の自動metric検出が落とす、(2) `to_int` の `.astype(int)` が object列で失敗。
 → **`to_int` を `pd.to_numeric(coerce)` 化(v1.4.3)**。正しい変換順序は「coerceが元コードでgroupbyの前なら `.to_int().group()`、後なら `.group(min_count=1).to_int()`」。PYTHON_API §1 にケースA/Bと落とし穴(object列・順序)を明記。実データで全セル一致を確認済み。
 
+### 2026-06-12 追加3: categorize/month_key も実データ検証済み
+shibuya `_lp` の実GA4(746ページ×18パターン)で `.categorize()` vs `classify_by_pattern_map` を行レベル突合 → **0/5983不一致・集計299行全セル一致**。`.month_key()` も手書きstrftimeと一致。コード変更なし(両者既に正しい)。これで実データ検証済みのチェーンメソッド = group(dropna/min_count) / to_int(object) / select / categorize / month_key。PYTHON_API §1に「categorizeの差は非文字列/None入力のみ」と明記。
+
 ## 残タスク(進行中)
 
 1. [x] **デプロイ完了 (2026-06-11)**: ① megaton push + tag v1.4.0 + GitHub release + **PyPI 1.4.0 公開済み** → ② megaton-app push (f527e6f、report_runフック強化+fetch_for_sites fail_if_all_failed含む) → ③ notebooks ピンを f527e6f へ更新 → ④ notebooks push (31a9dd5)。pip dry-run で解決確認済み。※ユーザー判断で「全部今デプロイ」(slqm残り2タブの検証はGA4障害起因と特定済みのため)

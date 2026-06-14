@@ -77,7 +77,8 @@ df = wrap(df).group(keys, dropna=False, min_count=1).to_int(m).select(key_cols).
 落とし穴（実データ検証で判明）:
 - **`group()` の自動metric検出は object dtype 列をスキップ**する。GA4の `advertiserAdCost` 等は object で来るので、**先に `.to_int()` で数値化**するか group に `metrics=` を明示する。
 - `dropna=False` / `min_count=` を**元コードに合わせて指定**（省略すると NaNキー行や全NaN群の値が変わる）。
-- カテゴリ分類は `apply_pattern_map`/`classify_by_pattern_map` → `.categorize(col, map, into=, default=)` に置換可。ただし `classify_channel` 等の**行レベルのビジネス分類は残す**（ドメイン既定値を持つため）。
+- カテゴリ分類は `apply_pattern_map`/`classify_by_pattern_map` → `.categorize(col, map, into=, default=)` に置換可（実GA4ページ746種×18パターンで全セル一致を確認済み 2026-06-12）。両者とも大小文字を区別。差が出るのは **非文字列/None 入力のみ**（`classify_by_pattern_map` は `str(v or "")` で空文字化、`.categorize()` は NaN→default）—GA4のページ列のような文字列列では一致。`classify_channel`/`reclassify_source_channel` 等の**行レベルのビジネス分類は残す**（ドメイン既定値を持つため）。
+- `.month_key(col, into=, fmt=)` は手書き `pd.to_datetime(...).dt.strftime(...)` と等価（実データ確認済み）。
 - **置換後は必ず本番コピーへ実走して全タブ全セル一致を確認**（手順は §6）。テストだけでは不十分。
 
 ## 2. 日付は `megaton_lib.dates` だけ覚える
