@@ -2,9 +2,10 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-## Unreleased
+## 2026-06-29 (v0.17.0)
 
 - Promoted `megaton_lib.gspread_lowlevel.cell_value()` as the public helper for building Sheets API `userEnteredValue` dicts; the previous private `_cell_value()` remains as a compatibility alias.
+- Added a robust CDP tab-cleanup helper to `connected_browser_page()` (`match`/`cleanup_host`/`keep_open_on_success`): priority-ordered tab match, same-host stale-tab pruning before and after the block, and interrupt-safe best-effort close. `target_url`-only callers keep the historical startswith behavior.
 
 ## 2026-06-28 (v0.16.0)
 
