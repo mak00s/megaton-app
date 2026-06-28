@@ -4,6 +4,8 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+## 2026-06-28 (v0.16.0)
+
 - Added a `tags ensure-rule-component` workspace CLI command to idempotently create or patch a single Adobe Tags rule component (dry-run unless `--apply`; resolves the extension by name when `--extension-id` is omitted; `--settings` accepts inline JSON or `@path`). Refuses to update a matched component that belongs to a different extension instead of silently leaving the relationship stale.
 - Added `find_extension_by_name`, `create_rule_component`, and `ensure_rule_component` to `megaton_lib.audit.providers.tag_config`.
 - Unified the Adobe Tags workspace CLI error handling so Reactor API failures (auth, unknown rule/extension) print a clean `ERROR:` line and exit 1 across all commands instead of a traceback.
