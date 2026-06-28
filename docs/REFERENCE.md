@@ -1455,6 +1455,40 @@ Notes:
 - daily operations should prefer a fixed template UUID; search mode is mainly for bootstrap and investigation
 - `--describe-template` accepts either `--scheduled-request-uuid` or an `--rsid` plus search filters
 
+### Adobe Analytics Cloud Locations (`megaton_lib.audit.providers.analytics.cloud_locations`)
+
+Provision and inspect Adobe Analytics Cloud Accounts / Locations (the GCS
+export targets used by Data Warehouse). The `ensure_*` helpers are idempotent
+and refuse to mutate a resource whose key fields differ from the request.
+
+| Symbol | Description |
+|---|---|
+| `AdobeCloudLocationsClient(auth, company_id, ...)` | REST client for Cloud Accounts and Locations (retry/backoff, 401 refresh) |
+| `build_cloud_locations_client(company_id, ...)` | Build the client from Adobe credential inputs (reuses `dw.runtime` auth) |
+| `create_gcp_account(client, ...)` / `create_gcp_location(client, ...)` | Create one GCP Cloud Account / Location |
+| `ensure_gcp_account(client, ..., dry_run=False)` | Reuse a matching GCP account or create one; errors on project_id mismatch |
+| `ensure_gcp_dw_location(client, ..., dry_run=False)` | Ensure a GCP account + DATA_WAREHOUSE location; errors on bucket/prefix mismatch |
+| `build_gcs_iam_command(bucket, service_account_email, ...)` | Build (never run) the `gcloud` IAM-binding command granting Adobe write access |
+
+CLI (`python -m megaton_lib.audit.providers.analytics.cloud_locations.cli`):
+
+```bash
+# list (read-only)
+... --company-id omronc0 --list-accounts --type gcp
+... --company-id omronc0 --list-locations --application DATA_WAREHOUSE
+
+# ensure a GCP account + DW location (dry-run by default; --apply to create)
+... --company-id omronc0 --ensure-gcp-dw-location \
+  --account-name 'Shimizu GCS' --gcp-project-id ajuma-8 \
+  --location-name 'DMS AA DW' --bucket dms-aa --prefix cx-v2/dw/ --apply
+```
+
+Notes:
+
+- `--ensure-gcp-dw-location` is **dry-run by default**; pass `--apply` to perform the create. The JSON result reports `mode`, `applied`, and `account_created` / `location_created`.
+- In dry-run, if the account does not exist yet the location cannot be checked without it, so both are reported as planned creates (`note` explains the two-step flow).
+- The IAM command is only **printed**, never executed; run it separately to grant the Adobe service account write access to the bucket.
+
 ---
 
 ## megaton API
