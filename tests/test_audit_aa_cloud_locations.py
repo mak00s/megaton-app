@@ -103,6 +103,51 @@ def test_ensure_gcp_account_reuses_matching_account():
     assert client.created_accounts == []
 
 
+class _PagedAccountsClient:
+    """List client that paginates accounts in fixed-size pages."""
+
+    def __init__(self, accounts, *, page_size=100):
+        self._accounts = accounts
+        self._page_size = page_size
+        self.created_accounts = []
+
+    def list_accounts(self, *, limit, page, **kwargs):
+        start = page * self._page_size
+        return {"content": self._accounts[start : start + self._page_size]}
+
+    def create_account(self, body):
+        self.created_accounts.append(body)
+        return {**body, "uuid": "account-created"}
+
+
+def test_ensure_gcp_account_finds_match_on_later_page():
+    filler = [
+        {
+            "type": "gcp",
+            "name": f"Filler {i}",
+            "uuid": f"f-{i}",
+            "deleted": False,
+            "accountProperties": {"projectId": "x"},
+        }
+        for i in range(100)
+    ]
+    target = {
+        "type": "gcp",
+        "name": "Shimizu GCS",
+        "uuid": "account-page2",
+        "deleted": False,
+        "accountProperties": {"projectId": "ajuma-8"},
+    }
+    client = _PagedAccountsClient(filler + [target])
+
+    result = ensure_gcp_account(client, name="Shimizu GCS", project_id="ajuma-8")
+
+    # the match is on page 1; the helper must not re-create it
+    assert result["created"] is False
+    assert result["account"]["uuid"] == "account-page2"
+    assert client.created_accounts == []
+
+
 def test_ensure_gcp_account_rejects_same_name_different_project():
     client = _DummyClient(
         accounts=[
