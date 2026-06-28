@@ -18,6 +18,8 @@ class FakePage:
         self.goto_calls: list[dict] = []
         self.wait_selector_calls: list[dict] = []
         self.brought_to_front = 0
+        self.closed = False
+        self.close_error: BaseException | None = None
 
     def goto(self, url, *, wait_until, timeout):
         self.url = url
@@ -34,6 +36,11 @@ class FakePage:
 
     def bring_to_front(self):
         self.brought_to_front += 1
+
+    def close(self):
+        if self.close_error is not None:
+            raise self.close_error
+        self.closed = True
 
 
 class FakeContext:
@@ -982,6 +989,23 @@ def test_connected_browser_page_uses_target_url_match(monkeypatch):
     assert browser.closed is True
 
 
+def test_connected_browser_page_target_url_keeps_startswith_semantics(monkeypatch):
+    embedded = FakePage(url="https://other.test/?next=https://example.test/account")
+    ctx = FakeCDPContext([embedded])
+    _install_fake_cdp(monkeypatch, [ctx])
+
+    with playwright_browser.connected_browser_page(
+        "http://127.0.0.1:9231",
+        target_url="https://example.test/account",
+    ) as page:
+        assert page is not embedded
+        assert page.goto_calls == [
+            {"url": "https://example.test/account", "wait_until": "domcontentloaded", "timeout": 30_000}
+        ]
+
+    assert ctx._new_pages_created == 1
+
+
 def test_connected_browser_page_falls_back_to_last_page_when_no_target(monkeypatch):
     p1 = FakePage(url="https://a.test/")
     p2 = FakePage(url="https://b.test/")
@@ -1012,6 +1036,56 @@ def test_connected_browser_page_respects_bring_to_front_false(monkeypatch):
         bring_to_front=False,
     ) as page:
         assert page.brought_to_front == 0
+
+
+def test_connected_browser_page_priority_match_closes_same_host_duplicates(monkeypatch):
+    login = FakePage(url="https://broker.example/login")
+    holdings = FakePage(url="https://broker.example/member/holdings")
+    help_page = FakePage(url="https://broker.example/help")
+    other = FakePage(url="https://other.example/")
+    ctx = FakeCDPContext([login, holdings, help_page, other])
+    _install_fake_cdp(monkeypatch, [ctx])
+
+    with playwright_browser.connected_browser_page(
+        "http://127.0.0.1:9231",
+        target_url="https://broker.example/login",
+        match=["member/holdings", "broker.example"],
+        cleanup_host="broker.example",
+    ) as page:
+        assert page is holdings
+        assert holdings.closed is False
+
+    assert login.closed is True
+    assert help_page.closed is True
+    assert other.closed is False
+    assert holdings.closed is False
+
+
+def test_connected_browser_page_prunes_kept_page_on_failure(monkeypatch):
+    page = FakePage(url="https://broker.example/member/holdings")
+    ctx = FakeCDPContext([page])
+    _install_fake_cdp(monkeypatch, [ctx])
+
+    with pytest.raises(RuntimeError):
+        with playwright_browser.connected_browser_page(
+            "http://127.0.0.1:9231",
+            match="member/holdings",
+            cleanup_host="broker.example",
+        ):
+            raise RuntimeError("boom")
+
+    assert page.closed is True
+
+
+def test_close_cdp_pages_reraises_interrupt_after_best_effort_cleanup():
+    interrupted = FakePage(url="https://broker.example/interrupt")
+    interrupted.close_error = KeyboardInterrupt()
+    later = FakePage(url="https://broker.example/later")
+
+    with pytest.raises(KeyboardInterrupt):
+        playwright_browser._close_cdp_pages([interrupted, later])
+
+    assert later.closed is True
 
 
 def test_connected_browser_page_closes_browser_on_exception(monkeypatch):

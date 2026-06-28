@@ -767,11 +767,122 @@ def find_or_open_page(
     return page
 
 
+def _norm_cdp_hosts(host: str | list[str] | tuple[str, ...] | None) -> list[str]:
+    if not host:
+        return []
+    return [host] if isinstance(host, str) else list(host)
+
+
+def _cdp_host_match(url: str, hosts: list[str]) -> bool:
+    return any(h in (url or "") for h in hosts)
+
+
+def _plan_cdp_active_and_dups(
+    urls: list[str],
+    match: str | list[str],
+    cleanup_host: str | list[str] | None,
+) -> tuple[int | None, list[int]]:
+    """Pick the best CDP tab and same-site duplicates to close.
+
+    ``match`` may be priority ordered. This avoids attaching to a stale broad
+    domain tab when a more specific authenticated page is already open.
+    """
+    hosts = _norm_cdp_hosts(cleanup_host)
+    patterns = [match] if isinstance(match, str) else list(match)
+    active: int | None = None
+    for pattern in patterns:
+        hits = [i for i, url in enumerate(urls) if pattern in (url or "")]
+        if hits:
+            active = hits[0]
+            break
+    if active is None:
+        return None, []
+    matching_any = {i for i, url in enumerate(urls) if any(pattern in (url or "") for pattern in patterns)}
+    close = matching_any - {active}
+    if hosts:
+        close |= {i for i, url in enumerate(urls) if i != active and _cdp_host_match(url, hosts)}
+    return active, sorted(close)
+
+
+def _cdp_host_pages(
+    pages: list[Any],
+    cleanup_host: str | list[str] | None,
+    *,
+    kept_page: Any | None = None,
+    keep_kept: bool = True,
+) -> list[Any]:
+    hosts = _norm_cdp_hosts(cleanup_host)
+    if not hosts:
+        return []
+    return [
+        page
+        for page in pages
+        if (not keep_kept or page is not kept_page) and _cdp_host_match(getattr(page, "url", "") or "", hosts)
+    ]
+
+
+def _close_cdp_pages(pages: list[Any]) -> int:
+    closed = 0
+    interrupt: BaseException | None = None
+    for page in pages:
+        try:
+            page.close()
+            closed += 1
+        except (KeyboardInterrupt, SystemExit) as exc:
+            interrupt = exc
+        except Exception:  # noqa: BLE001 - tab cleanup must be best-effort
+            logger.debug("[cdp] could not close tab %s", getattr(page, "url", "?"), exc_info=True)
+    if interrupt is not None:
+        raise interrupt
+    return closed
+
+
+def _find_or_open_cdp_page(
+    browser: Any,
+    *,
+    target_url: str | None,
+    match: str | list[str] | None,
+    cleanup_host: str | list[str] | None,
+    wait_until: str = "domcontentloaded",
+    timeout_ms: int = 30_000,
+) -> tuple[Page, int]:
+    contexts = browser.contexts
+    context = contexts[0] if contexts else browser.new_context()
+    pages = [page for ctx in contexts for page in ctx.pages]
+    if not pages:
+        pages = list(context.pages)
+    if match is not None:
+        urls = [getattr(page, "url", "") or "" for page in pages]
+        active_i, dup_i = _plan_cdp_active_and_dups(urls, match, cleanup_host)
+        if active_i is not None:
+            active = pages[active_i]
+            closed = _close_cdp_pages([pages[i] for i in dup_i])
+            return active, closed
+    elif target_url is not None:
+        for existing_page in pages:
+            if (getattr(existing_page, "url", "") or "").startswith(target_url):
+                return existing_page, 0
+    if target_url is not None:
+        page = context.new_page()
+        page.goto(target_url, wait_until=wait_until, timeout=timeout_ms)
+        stale = _cdp_host_pages(pages, cleanup_host, keep_kept=False)
+        closed = _close_cdp_pages(stale)
+        return page, closed
+    if pages:
+        return pages[-1], 0
+    return context.new_page(), 0
+
+
 @contextmanager
 def connected_browser_page(
     cdp_url: str,
     *,
     target_url: str | None = None,
+    match: str | list[str] | None = None,
+    cleanup_host: str | list[str] | None = None,
+    keep_open_on_success: bool = True,
+    wait_until: str = "domcontentloaded",
+    timeout_ms: int = 30_000,
     bring_to_front: bool = True,
 ) -> Iterator[Page]:
     """Connect to an existing Chrome via CDP and yield a ``Page``.
@@ -781,6 +892,12 @@ def connected_browser_page(
         target_url: If set, locate or open a page whose URL starts with
             this value. Otherwise yield the last page in the first
             context (matches expense's historical behavior).
+        match: URL substring or priority-ordered substrings used to pick an
+            existing tab. Defaults to ``target_url`` for backward compatibility.
+        cleanup_host: Host/domain substring(s) whose duplicate/stale tabs should
+            be closed before and after the yielded block.
+        keep_open_on_success: Keep the yielded same-host tab after successful
+            completion; on exceptions it is also pruned.
         bring_to_front: Call ``page.bring_to_front()`` after attaching.
 
     On exit, the Playwright Browser handle is closed — this only
@@ -790,14 +907,35 @@ def connected_browser_page(
     sync_playwright = _load_sync_playwright()
     with sync_playwright() as pw:
         browser = pw.chromium.connect_over_cdp(cdp_url)
+        page = None
+        success = False
         try:
-            context = browser.contexts[0]
-            if target_url is not None:
-                page = find_or_open_page(context, target_url)
-            else:
-                page = context.pages[-1] if context.pages else context.new_page()
+            page, closed = _find_or_open_cdp_page(
+                browser,
+                target_url=target_url,
+                match=match,
+                cleanup_host=cleanup_host,
+                wait_until=wait_until,
+                timeout_ms=timeout_ms,
+            )
             if bring_to_front:
                 page.bring_to_front()
+            if closed:
+                logger.info("[cdp] closed %d stale tab(s)", closed)
             yield page
+            success = True
         finally:
+            try:
+                pages = [pg for ctx in browser.contexts for pg in ctx.pages]
+                stale = _cdp_host_pages(
+                    pages,
+                    cleanup_host,
+                    kept_page=page,
+                    keep_kept=success and keep_open_on_success,
+                )
+                closed = _close_cdp_pages(stale)
+                if closed:
+                    logger.info("[cdp] cleanup: closed %d stale tab(s)", closed)
+            except Exception:  # noqa: BLE001 - cleanup must not mask caller errors
+                logger.debug("[cdp] cleanup failed", exc_info=True)
             browser.close()
