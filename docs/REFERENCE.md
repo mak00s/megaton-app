@@ -839,6 +839,10 @@ should import them from `megaton_lib.gspread_lowlevel`.
 | `get_sheet_id(spreadsheet, sheet_name)` | Resolve worksheet title to numeric `sheetId` |
 | `set_frozen_rows(spreadsheet, sheet_name, count)` | Set frozen row count via batchUpdate |
 | `ensure_min_dimensions(spreadsheet, sheet_name, ...)` | Append rows/columns to reach minimum dimensions |
+| `cell_data(value, *, date_format=, datetime_format=)` | Build one Sheets API `CellData` (ISO date/datetime → serial + format; strings stay strings) |
+| `dataframe_update_cells_rows(df)` | Convert a DataFrame (with header row) to Sheets API row records |
+| `contiguous_runs(values)` | Yield `(value, start, end)` for maximal equal-value runs (e.g. per-row number formats) |
+| `atomic_replace_dataframe_requests(sheet_id, df, ...)` | Build batchUpdate requests for atomic clear→resize→write→format DataFrame replacement |
 
 Notes:
 - `read_sheet_table(..., header_row=...)` can start from a non-zero header row when source sheets include title/comment rows

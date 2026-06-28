@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import shlex
+from collections.abc import Callable
 from typing import Any
 
 from .api import AdobeCloudLocationsClient
+
+_PAGE_SIZE = 100
+_MAX_PAGES = 1000
 
 
 def _items(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -13,6 +17,44 @@ def _items(payload: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(raw, list):
         raise RuntimeError(f"Unexpected Adobe Cloud Locations payload: {payload}")
     return [item for item in raw if isinstance(item, dict)]
+
+
+def _is_last_page(payload: dict[str, Any], page_items: list[Any], *, limit: int) -> bool:
+    """Decide whether a list response is the final page.
+
+    Uses explicit pagination metadata when present (``lastPage`` /
+    ``totalPages`` + ``number``); otherwise falls back to a short page
+    (fewer than ``limit`` items) meaning no more results follow.
+    """
+    if not page_items:
+        return True
+    if payload.get("lastPage") is True:
+        return True
+    total_pages = payload.get("totalPages")
+    number = payload.get("number")
+    if isinstance(total_pages, int) and isinstance(number, int):
+        return number >= total_pages - 1
+    return len(page_items) < limit
+
+
+def _collect_all(
+    fetch_page: Callable[..., dict[str, Any]],
+    *,
+    limit: int = _PAGE_SIZE,
+) -> list[dict[str, Any]]:
+    """Page through a Cloud Locations list endpoint and return all items.
+
+    ``ensure_*`` helpers must see every existing resource to stay idempotent;
+    checking only page 0 would miss resources on later pages and re-create them.
+    """
+    collected: list[dict[str, Any]] = []
+    for page in range(_MAX_PAGES):
+        payload = fetch_page(limit=limit, page=page)
+        page_items = _items(payload)
+        collected.extend(page_items)
+        if _is_last_page(payload, page_items, limit=limit):
+            break
+    return collected
 
 
 def _active(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -89,10 +131,12 @@ def ensure_gcp_account(
     the create was actually performed. In ``dry_run`` mode a needed create is
     not performed and ``account`` is ``None`` (it does not exist yet).
     """
-    payload = client.list_accounts(account_type="gcp", limit=100, page=0)
+    accounts = _collect_all(
+        lambda **kw: client.list_accounts(account_type="gcp", **kw)
+    )
     matches = [
         item
-        for item in _active(_items(payload))
+        for item in _active(accounts)
         if _text(item.get("name")) == name
     ]
     if len(matches) > 1:
@@ -207,12 +251,11 @@ def ensure_gcp_dw_location(
         raise RuntimeError(f"Adobe Cloud Account response did not include uuid: {account}")
 
     locations = _active(
-        _items(
-            client.list_locations(
+        _collect_all(
+            lambda **kw: client.list_locations(
                 account_uuid=account_uuid,
                 application=application,
-                limit=100,
-                page=0,
+                **kw,
             )
         )
     )
