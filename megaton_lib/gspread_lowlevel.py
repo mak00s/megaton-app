@@ -104,6 +104,7 @@ __all__ = [
     "gs_serial_to_date",
     "dimension_requests",
     "copy_format_request",
+    "cell_value",
     "cell_data",
     "contiguous_runs",
     "dataframe_update_cells_rows",
@@ -126,7 +127,7 @@ def _is_missing_scalar(value: Any) -> bool:
         return False
 
 
-def _cell_value(value: Any) -> dict:
+def cell_value(value: Any) -> dict:
     """Build ``userEnteredValue`` for a Python value.
 
     Strings intentionally stay strings so IDs/codes with leading zeroes are not
@@ -150,6 +151,11 @@ def _cell_value(value: Any) -> dict:
             return {"formulaValue": s}
         return {"stringValue": s}
     return {"stringValue": str(value)}
+
+
+def _cell_value(value: Any) -> dict:
+    """Backward-compatible private alias for callers that imported it before."""
+    return cell_value(value)
 
 
 def _datetime_serial(value: str) -> float | None:
@@ -192,12 +198,12 @@ def cell_data(
             try:
                 serial = (_dt.date.fromisoformat(s) - _SHEETS_EPOCH_DATE).days
             except ValueError:
-                return {"userEnteredValue": _cell_value(value)}
+                return {"userEnteredValue": cell_value(value)}
             return {
                 "userEnteredValue": {"numberValue": float(serial)},
                 "userEnteredFormat": {"numberFormat": {"type": "DATE", "pattern": date_format}},
             }
-    return {"userEnteredValue": _cell_value(value)}
+    return {"userEnteredValue": cell_value(value)}
 
 
 def contiguous_runs(values: list[Any]):
