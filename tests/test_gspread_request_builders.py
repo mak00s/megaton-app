@@ -5,10 +5,22 @@ import pandas as pd
 from megaton_lib.gspread_lowlevel import (
     atomic_replace_dataframe_requests,
     cell_data,
+    cell_value,
     contiguous_runs,
     copy_format_request,
     dimension_requests,
 )
+
+
+def test_cell_value_preserves_string_codes() -> None:
+    assert cell_value("03311187") == {"stringValue": "03311187"}
+
+
+def test_cell_value_builds_scalar_user_entered_values() -> None:
+    assert cell_value(True) == {"boolValue": True}
+    assert cell_value(1000) == {"numberValue": 1000.0}
+    assert cell_value("=SUM(A:A)") == {"formulaValue": "=SUM(A:A)"}
+    assert cell_value(pd.NA) == {"stringValue": ""}
 
 
 def test_cell_data_preserves_string_codes() -> None:
