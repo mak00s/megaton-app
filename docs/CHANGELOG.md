@@ -7,6 +7,8 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 - Added a `tags ensure-rule-component` workspace CLI command to idempotently create or patch a single Adobe Tags rule component (dry-run unless `--apply`; resolves the extension by name when `--extension-id` is omitted; `--settings` accepts inline JSON or `@path`). Refuses to update a matched component that belongs to a different extension instead of silently leaving the relationship stale.
 - Added `find_extension_by_name`, `create_rule_component`, and `ensure_rule_component` to `megaton_lib.audit.providers.tag_config`.
 - Unified the Adobe Tags workspace CLI error handling so Reactor API failures (auth, unknown rule/extension) print a clean `ERROR:` line and exit 1 across all commands instead of a traceback.
+- Added `megaton_lib.audit.providers.analytics.cloud_locations`: a REST client, idempotent `ensure_gcp_account` / `ensure_gcp_dw_location` helpers (refuse to mutate on project_id / bucket / prefix mismatch), a `build_gcs_iam_command` helper, and a CLI. The ensure command is **dry-run by default** and only prints (never runs) the GCS IAM command; pass `--apply` to create Adobe resources.
+- Added low-level DataFrame-to-Sheets request builders to `megaton_lib.gspread_lowlevel` (`cell_data`, `dataframe_update_cells_rows`, `contiguous_runs`, `atomic_replace_dataframe_requests`) for atomic clear→resize→write→format sheet replacement.
 
 ## 2026-06-04 (v0.15.0)
 

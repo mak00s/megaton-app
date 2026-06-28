@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import datetime as _dt
 import logging
+import math
+import re
 import time
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -101,7 +104,272 @@ __all__ = [
     "gs_serial_to_date",
     "dimension_requests",
     "copy_format_request",
+    "cell_data",
+    "contiguous_runs",
+    "dataframe_update_cells_rows",
+    "atomic_replace_dataframe_requests",
 ]
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_DATETIME_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?(\.\d+)?([+-]\d{2}:?\d{2}|Z)?$"
+)
+_SHEETS_EPOCH_DATE = _dt.date(1899, 12, 30)
+
+
+def _is_missing_scalar(value: Any) -> bool:
+    if value is None:
+        return True
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _cell_value(value: Any) -> dict:
+    """Build ``userEnteredValue`` for a Python value.
+
+    Strings intentionally stay strings so IDs/codes with leading zeroes are not
+    coerced to numbers by Sheets.
+    """
+    if _is_missing_scalar(value):
+        return {"stringValue": ""}
+    if isinstance(value, bool):
+        return {"boolValue": value}
+    if isinstance(value, int):
+        return {"numberValue": float(value)}
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return {"stringValue": ""}
+        return {"numberValue": value}
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return {"stringValue": ""}
+        if s.startswith("="):
+            return {"formulaValue": s}
+        return {"stringValue": s}
+    return {"stringValue": str(value)}
+
+
+def _datetime_serial(value: str) -> float | None:
+    try:
+        dt = _dt.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    # Timezone-aware strings are left as text. Callers that care about timezone
+    # semantics should normalize before writing; silently stripping offsets can
+    # shift the displayed date.
+    if dt.tzinfo is not None:
+        return None
+    epoch = _dt.datetime(1899, 12, 30)
+    return (dt - epoch).total_seconds() / 86400.0
+
+
+def cell_data(
+    value: Any,
+    *,
+    date_format: str = "yyyy-mm-dd",
+    datetime_format: str = "yyyy-mm-dd hh:mm",
+) -> dict:
+    """Build Sheets API ``CellData`` for a value.
+
+    ISO date and naive ISO datetime strings are written as real Sheets serials
+    with a display format. Other strings stay strings.
+    """
+    if isinstance(value, str):
+        s = value.strip()
+        if _DATETIME_RE.match(s):
+            serial = _datetime_serial(s)
+            if serial is not None:
+                return {
+                    "userEnteredValue": {"numberValue": serial},
+                    "userEnteredFormat": {
+                        "numberFormat": {"type": "DATE_TIME", "pattern": datetime_format}
+                    },
+                }
+        elif _DATE_RE.match(s):
+            try:
+                serial = (_dt.date.fromisoformat(s) - _SHEETS_EPOCH_DATE).days
+            except ValueError:
+                return {"userEnteredValue": _cell_value(value)}
+            return {
+                "userEnteredValue": {"numberValue": float(serial)},
+                "userEnteredFormat": {"numberFormat": {"type": "DATE", "pattern": date_format}},
+            }
+    return {"userEnteredValue": _cell_value(value)}
+
+
+def contiguous_runs(values: list[Any]):
+    """Yield ``(value, start, end)`` for maximal contiguous equal-value runs."""
+    i, n = 0, len(values)
+    while i < n:
+        j = i + 1
+        while j < n and values[j] == values[i]:
+            j += 1
+        yield values[i], i, j
+        i = j
+
+
+def dataframe_update_cells_rows(df: pd.DataFrame | None) -> list[dict]:
+    """Convert a DataFrame to Sheets API row records including the header row."""
+    if df is None:
+        values: list[list[Any]] = [[]]
+    elif df.empty:
+        values = [[str(c) for c in df.columns]]
+    else:
+        values = [[str(c) for c in df.columns]]
+        values.extend([list(row) for row in df.itertuples(index=False, name=None)])
+    return [{"values": [cell_data(v) for v in row]} for row in values]
+
+
+def atomic_replace_dataframe_requests(
+    sheet_id: int,
+    df: pd.DataFrame | None,
+    *,
+    number_formats: dict[int, dict] | None = None,
+    cell_number_formats: dict[int, list[dict | None]] | None = None,
+    cell_format: dict | None = None,
+    column_widths: list[int] | None = None,
+    clear_format: bool = True,
+    header_format: dict | None = None,
+    freeze_header: bool = True,
+) -> list[dict]:
+    """Build batchUpdate requests for atomic DataFrame sheet replacement.
+
+    The request sequence is clear → resize → write values → durable formats.
+    It is intentionally low-level and side-effect free so application-specific
+    workbook facades can use it without adopting megaton's higher-level sheet
+    abstractions.
+    """
+    rows = dataframe_update_cells_rows(df)
+    n_rows = max(len(rows), 2)
+    n_cols = max(
+        max((len(r.get("values", [])) for r in rows), default=1),
+        1,
+    )
+    clear_fields = "userEnteredValue,userEnteredFormat" if clear_format else "userEnteredValue"
+    requests: list[dict] = [
+        {
+            "updateCells": {
+                "range": {"sheetId": int(sheet_id)},
+                "fields": clear_fields,
+            }
+        },
+        update_grid_properties_request(
+            int(sheet_id),
+            row_count=n_rows,
+            column_count=n_cols,
+        ),
+        {
+            "updateCells": {
+                "start": {"sheetId": int(sheet_id), "rowIndex": 0, "columnIndex": 0},
+                "rows": rows,
+                "fields": "userEnteredValue,userEnteredFormat",
+            }
+        },
+    ]
+
+    if header_format is None:
+        header_format = {
+            "textFormat": {"bold": True},
+            "backgroundColor": {"red": 0.94, "green": 0.94, "blue": 0.97},
+        }
+    if header_format:
+        fields = "userEnteredFormat(" + ",".join(header_format.keys()) + ")"
+        requests.append({
+            "repeatCell": {
+                "range": {"sheetId": int(sheet_id), "startRowIndex": 0, "endRowIndex": 1},
+                "cell": {"userEnteredFormat": header_format},
+                "fields": fields,
+            }
+        })
+
+    if freeze_header:
+        requests.append(update_grid_properties_request(int(sheet_id), frozen_rows=1))
+    else:
+        requests.append(update_grid_properties_request(int(sheet_id), frozen_rows=0))
+
+    for col, nf in (number_formats or {}).items():
+        if 0 <= col < n_cols:
+            requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": int(sheet_id),
+                        "startRowIndex": 1,
+                        "startColumnIndex": col,
+                        "endColumnIndex": col + 1,
+                    },
+                    "cell": {"userEnteredFormat": {"numberFormat": nf}},
+                    "fields": "userEnteredFormat.numberFormat",
+                }
+            })
+    for col, row_formats in (cell_number_formats or {}).items():
+        if not (0 <= col < n_cols):
+            continue
+        for nf, start, end in contiguous_runs(row_formats):
+            if nf is None:
+                continue
+            requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": int(sheet_id),
+                        "startRowIndex": 1 + start,
+                        "endRowIndex": 1 + end,
+                        "startColumnIndex": col,
+                        "endColumnIndex": col + 1,
+                    },
+                    "cell": {"userEnteredFormat": {"numberFormat": nf}},
+                    "fields": "userEnteredFormat.numberFormat",
+                }
+            })
+
+    numeric_cols = set(number_formats or {}) | set(cell_number_formats or {})
+    for col in sorted(numeric_cols):
+        if 0 <= col < n_cols:
+            requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": int(sheet_id),
+                        "startRowIndex": 0,
+                        "endRowIndex": 1,
+                        "startColumnIndex": col,
+                        "endColumnIndex": col + 1,
+                    },
+                    "cell": {"userEnteredFormat": {"horizontalAlignment": "RIGHT"}},
+                    "fields": "userEnteredFormat.horizontalAlignment",
+                }
+            })
+
+    if cell_format:
+        requests.append({
+            "repeatCell": {
+                "range": {
+                    "sheetId": int(sheet_id),
+                    "startRowIndex": 0,
+                    "endRowIndex": n_rows,
+                    "startColumnIndex": 0,
+                    "endColumnIndex": n_cols,
+                },
+                "cell": {"userEnteredFormat": cell_format},
+                "fields": "userEnteredFormat(" + ",".join(cell_format.keys()) + ")",
+            }
+        })
+    for col, px in enumerate(column_widths or []):
+        if 0 <= col < n_cols and px:
+            requests.append({
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": int(sheet_id),
+                        "dimension": "COLUMNS",
+                        "startIndex": col,
+                        "endIndex": col + 1,
+                    },
+                    "properties": {"pixelSize": int(px)},
+                    "fields": "pixelSize",
+                }
+            })
+    return requests
 
 
 def open_spreadsheet(
