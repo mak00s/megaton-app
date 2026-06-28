@@ -4,6 +4,8 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+- Promoted `megaton_lib.gspread_lowlevel.cell_value()` as the public helper for building Sheets API `userEnteredValue` dicts; the previous private `_cell_value()` remains as a compatibility alias.
+
 ## 2026-06-28 (v0.16.0)
 
 - Added a `tags ensure-rule-component` workspace CLI command to idempotently create or patch a single Adobe Tags rule component (dry-run unless `--apply`; resolves the extension by name when `--extension-id` is omitted; `--settings` accepts inline JSON or `@path`). Refuses to update a matched component that belongs to a different extension instead of silently leaving the relationship stale.
