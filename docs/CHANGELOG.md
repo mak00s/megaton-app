@@ -2,6 +2,10 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-07-01 (v0.17.2)
+
+- Added `megaton_lib.google_workspace.build_service()` for callers that prepare or validate Google credentials themselves but still need service construction to go through the shared Google Workspace helper.
+
 ## 2026-07-01 (v0.17.1)
 
 - Hardened Box shared-link creation when Box UI wording drifts: `invited` links can still return the already-enabled URL when the default access cannot be re-confirmed, while broader `company` / `open` links now fail loudly instead of returning a potentially mis-scoped invite-only URL.
