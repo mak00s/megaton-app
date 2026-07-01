@@ -5,6 +5,7 @@ from typing import Any
 
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
+from google.auth.credentials import Credentials as BaseCredentials
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
@@ -86,6 +87,22 @@ def build_user_service(
         expected_email=expected_email,
     )
     return build(api_name, version, credentials=creds, cache_discovery=False, **build_kwargs)
+
+
+def build_service(
+    api_name: str,
+    version: str,
+    *,
+    credentials: BaseCredentials,
+    **build_kwargs: Any,
+):
+    """Build a Google API service from already prepared credentials.
+
+    Use this when callers need custom credential loading or validation before
+    service construction, while still keeping googleapiclient creation behind
+    the shared workspace helper.
+    """
+    return build(api_name, version, credentials=credentials, cache_discovery=False, **build_kwargs)
 
 
 def build_service_account_credentials(
