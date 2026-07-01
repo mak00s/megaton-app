@@ -2,6 +2,10 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-07-01 (v0.17.1)
+
+- Hardened Box shared-link creation when Box UI wording drifts: `invited` links can still return the already-enabled URL when the default access cannot be re-confirmed, while broader `company` / `open` links now fail loudly instead of returning a potentially mis-scoped invite-only URL.
+
 ## 2026-06-29 (v0.17.0)
 
 - Promoted `megaton_lib.gspread_lowlevel.cell_value()` as the public helper for building Sheets API `userEnteredValue` dicts; the previous private `_cell_value()` remains as a compatibility alias.
