@@ -1594,18 +1594,11 @@ mg.report.run(d=["date"], m=["sessions"], sort="-sessions", show=False)  # Desce
 
 #### ReportResult Methods
 
-| Method | Description |
-|--------|-------------|
-| `.clean_url(dim)` | Normalize URL (decode, strip query, lowercase) |
-| `.group(by, method='sum')` | Group and aggregate |
-| `.sort(by, ascending=True)` | Sort |
-| `.fill(to='(not set)')` | Fill missing values |
-| `.to_int(metrics)` | Convert metrics to int |
-| `.replace(dim, by)` | Replace values |
-| `.normalize(dim, by)` | Normalize values (overwrite) |
-| `.categorize(dim, by, into)` | Add category column |
-| `.classify(dim, by)` | Normalize + aggregate |
-| `.df` | Get final DataFrame |
+The chainable `ReportResult` method reference (`.group`, `.to_int`, `.categorize`,
+`.month_key`, `.select`, …) is maintained in megaton itself — see the
+[ReportResult メソッドチェーン](../../megaton/docs/api-reference.md#reportresult-メソッドチェーン)
+section of `megaton/docs/api-reference.md` (single source of truth). For the
+notebook-facing idiom and equivalence recipes, see [PYTHON_API.md](PYTHON_API.md).
 
 ### Search Console
 
@@ -1641,22 +1634,10 @@ mg.search.run(
 
 #### SearchResult Methods
 
-| Method | Description |
-|--------|-------------|
-| `.decode()` | URL decode (%xx → char) |
-| `.clean_url(dim='page')` | Normalize URL |
-| `.remove_params(keep=None)` | Remove URL query params |
-| `.normalize_queries()` | Normalize query whitespace, merge duplicates |
-| `.filter_clicks(min, max)` | Filter by clicks |
-| `.filter_impressions(min, max)` | Filter by impressions |
-| `.filter_ctr(min, max)` | Filter by CTR |
-| `.filter_position(min, max)` | Filter by position |
-| `.aggregate(by)` | Manual aggregation |
-| `.normalize(dim, by)` | Normalize values |
-| `.categorize(dim, by, into)` | Add category column |
-| `.classify(dim, by)` | Normalize + aggregate |
-| `.apply_if(cond, method)` | Conditional method application |
-| `.df` | Get final DataFrame |
+The chainable `SearchResult` method reference (`.decode`, `.clean_url`,
+`.filter_clicks`, `.categorize`, …) is maintained in megaton itself — see the
+[SearchResult メソッドチェーン](../../megaton/docs/api-reference.md#searchresult-メソッドチェーン)
+section of `megaton/docs/api-reference.md` (single source of truth).
 
 ### Google Sheets
 

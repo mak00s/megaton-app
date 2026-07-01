@@ -351,7 +351,7 @@ START_DATE = "2026-01-01"
 END_DATE = "2026-01-31"
 
 from megaton_lib.notebook import init; init()  # noqa: E702
-from megaton_lib.megaton_client import get_ga4
+from megaton_lib.notebook import get_ga4
 from megaton_lib.analysis import show
 
 # %% データ取得
@@ -368,6 +368,11 @@ show(result.df)
 ---
 
 ## やりたいこと別レシピ
+
+> Python から直接使う際の入口・チェーンAPI・日付・レポートscaffold の正準形は
+> [PYTHON_API.md](PYTHON_API.md) を参照。以下のレシピは `megaton_lib.notebook` /
+> `megaton_lib.dates` ファサードからの import を優先し、ファサード未搭載の関数
+> （`ga4_helpers.merge_dataframes`、`traffic` の行レベル分類など）だけ深いパスで import する。
 
 ### GA4 のトラフィック推移を見る
 
@@ -446,7 +451,7 @@ python scripts/query.py --params output/corp_company_spike.json --output output/
 
 ```python
 import pandas as pd
-from megaton_lib.date_utils import parse_year_month_series, select_recent_months, drop_current_month_rows
+from megaton_lib.dates import parse_year_month_series, select_recent_months, drop_current_month_rows
 
 df = pd.DataFrame({"month_raw": [202401, "2024-02", "2024年3月"], "value": [10, 12, 9]})
 df["month_dt"] = parse_year_month_series(df["month_raw"])          # 月初 datetime へ統一
@@ -511,7 +516,7 @@ CLI の場合（params.json）:
 
 Notebook の場合:
 ```python
-from megaton_lib.megaton_client import query_bq
+from megaton_lib.notebook import query_bq
 df = query_bq("my-gcp-project", "SELECT ...", location="asia-northeast1")
 
 # Force native BigQuery client when you need explicit location handling
@@ -562,7 +567,7 @@ import sys; sys.path.insert(0, "..")  # noqa: E702  ← reports/ 等サブディ
 from megaton_lib.notebook import init; init()  # noqa: E702
 
 import pandas as pd
-from megaton_lib.megaton_client import get_ga4, get_gsc
+from megaton_lib.notebook import get_ga4, get_gsc
 from megaton_lib.analysis import show
 ```
 
