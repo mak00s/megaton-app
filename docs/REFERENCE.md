@@ -1,6 +1,8 @@
 # Technical Reference
 
-For setup and how-to, see [USAGE.md](USAGE.md).
+For setup and how-to, see [USAGE.md](USAGE.md). For the Python usage idiom
+(notebook facade, chain API, dates, report scaffold), see
+[PYTHON_API.md](PYTHON_API.md) — this file is the CLI + spec reference.
 
 ---
 
@@ -1498,34 +1500,31 @@ Notes:
 
 ## megaton API
 
+This is the terse **reference** for the megaton query API — operator tables,
+common dimension/metric names, and behavioral caveats. For the Python **usage
+idiom** (notebook facade imports, chain recipes, report scaffold) see
+[PYTHON_API.md](PYTHON_API.md); the full `mg.*` method and chain-method
+reference lives in
+[megaton/docs/api-reference.md](../../megaton/docs/api-reference.md).
+
 ### Initialization
 
-```python
-from megaton_lib.megaton_client import get_ga4, get_gsc
+High-level entry (`get_ga4()` / `get_gsc()`, auto credential + property/site
+routing) is documented in [PYTHON_API.md](PYTHON_API.md). Low-level init when a
+caller needs an explicit service-account path:
 
-mg = get_ga4("PROPERTY_ID")     # Auto-selects credentials + account/property
-mg = get_gsc("https://example.com/")  # Auto-selects credentials + site
-```
-
-`get_ga4()` / `get_gsc()` return a megaton instance.
-`mg.report.run()` → `ReportResult`, `mg.search.run()` → `SearchResult` (chainable).
-
-**Low-level init:**
 ```python
 from megaton import start
 from megaton_lib.credentials import resolve_service_account_path
 mg = start.Megaton(resolve_service_account_path(), headless=True)
 ```
 
-### GA4
+### GA4 query spec
 
-```python
-mg = get_ga4("PROPERTY_ID")
-mg.report.set.dates("2026-01-01", "2026-01-31")
-result = mg.report.run(d=["date"], m=["sessions"], filter_d="...", show=False)
-result.clean_url("landingPage").group("date").sort("date")
-df = result.df
-```
+`mg.report.run(d=[...], m=[...], filter_d=..., sort=..., show=False)` returns a
+chainable `ReportResult` (`.df` for the DataFrame). See PYTHON_API.md for the
+chain idiom; the dimension/metric names, filter, and sort spec below apply to
+both the Python call and params-style configs.
 
 #### Dimensions / Metrics
 
@@ -1600,15 +1599,12 @@ The chainable `ReportResult` method reference (`.group`, `.to_int`, `.categorize
 section of `megaton/docs/api-reference.md` (single source of truth). For the
 notebook-facing idiom and equivalence recipes, see [PYTHON_API.md](PYTHON_API.md).
 
-### Search Console
+### Search Console query spec
 
-```python
-mg = get_gsc("https://example.com/")
-mg.search.set.dates("2026-01-01", "2026-01-31")
-result = mg.search.run(dimensions=["query", "page"], limit=25000)
-result.decode().clean_url().normalize_queries().filter_impressions(min=10)
-df = result.df
-```
+`mg.search.run(dimensions=[...], limit=25000, dimension_filter=[...])` returns a
+chainable `SearchResult` (`.df` for the DataFrame). See PYTHON_API.md /
+megaton api-reference for the chain idiom; the filter operators and
+dimension/metric names below are the reference.
 
 **Filter:**
 ```python
@@ -1641,29 +1637,13 @@ section of `megaton/docs/api-reference.md` (single source of truth).
 
 ### Google Sheets
 
-```python
-mg.open.sheet("https://docs.google.com/spreadsheets/d/xxxxx")
-
-# Read
-mg.sheets.select("sheet_name")
-df = mg.sheet.df()
-
-# Write (overwrite)
-mg.save.to.sheet("sheet_name", df, sort_by="date", auto_width=True)
-
-# Append
-mg.append.to.sheet("sheet_name", df)
-
-# Upsert (merge by key)
-mg.upsert.to.sheet("sheet_name", df, keys=["date", "channel"])
-
-# Cell operations
-mg.sheet.cell.set("A1", "value")
-mg.sheet.range.set("A1:C3", [["a", "b", "c"], ...])
-mg.sheet.clear()
-```
-
-Sheet management: `mg.sheets.list()`, `mg.sheets.create("name")`, `mg.sheets.delete("name")`
+- Notebook facade helpers (`read_sheet_table` / `save_sheet_table` /
+  `upsert_or_skip`) — see [PYTHON_API.md](PYTHON_API.md) §4.
+- The native `mg.*` Sheets methods (`mg.save.to.sheet`, `mg.append.to.sheet`,
+  `mg.upsert.to.sheet`, `mg.sheet.cell/range`, `mg.sheets.list/create/delete`)
+  are documented in [megaton/docs/api-reference.md](../../megaton/docs/api-reference.md).
+- Low-level batchUpdate request builders live in `megaton_lib.gspread_lowlevel`
+  (see the Direct-gspread helpers table above).
 
 ### BigQuery
 
