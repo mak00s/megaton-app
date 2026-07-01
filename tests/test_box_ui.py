@@ -152,6 +152,125 @@ def test_box_text_implies_invited_shared_link_rejects_broader_access():
     )
 
 
+class _FakeComboLocator:
+    """Minimal locator stub: get_by_role(...).first.count() -> 0."""
+
+    def __init__(self, count: int = 0):
+        self._count = count
+
+    def get_by_role(self, *args, **kwargs):
+        return self
+
+    @property
+    def first(self):
+        return self
+
+    async def count(self):
+        return self._count
+
+
+def test_set_box_shared_link_access_returns_false_without_raising(monkeypatch):
+    # Simulate a Box dialog where no access control matches (UI wording drift):
+    # the function must warn and return False, NOT raise, so the caller can
+    # still read the already-enabled link URL.
+    async def _false(*args, **kwargs):
+        return False
+
+    async def _empty(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(box_ui, "_box_access_text_visible", _false)
+    monkeypatch.setattr(box_ui, "_click_box_access_option", _false)
+    monkeypatch.setattr(box_ui, "_box_dialog_implies_invited_shared_link", _false)
+    monkeypatch.setattr(box_ui, "_box_shared_link_access_menu_openers", _empty)
+    monkeypatch.setattr(box_ui, "_box_dialog_control_labels", _empty)
+
+    result = asyncio.run(
+        box_ui._set_box_shared_link_access(
+            page=object(), dialog=_FakeComboLocator(count=0), access="invited", timeout_ms=1_000
+        )
+    )
+    assert result is False
+
+
+def test_set_box_shared_link_access_returns_true_when_confirmed(monkeypatch):
+    async def _true(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(box_ui, "_box_access_text_visible", _true)
+
+    result = asyncio.run(
+        box_ui._set_box_shared_link_access(
+            page=object(), dialog=object(), access="invited", timeout_ms=1_000
+        )
+    )
+    assert result is True
+
+
+class _FakeGrantContext:
+    async def grant_permissions(self, *args, **kwargs):
+        return None
+
+
+class _FakeBoxPage:
+    def __init__(self):
+        self.context = _FakeGrantContext()
+        self.url = ""
+
+    def locator(self, *args, **kwargs):
+        return _FakeComboLocator()
+
+
+def _patch_folder_share_helpers(monkeypatch, *, access_confirmed, shared_url=""):
+    async def _noop(*args, **kwargs):
+        return None
+
+    async def _dialog(*args, **kwargs):
+        return object()
+
+    async def _set_access(*args, **kwargs):
+        return access_confirmed
+
+    async def _read(*args, **kwargs):
+        return shared_url
+
+    monkeypatch.setattr(box_ui, "_click_box_share_button", _noop)
+    monkeypatch.setattr(box_ui, "_box_active_dialog", _dialog)
+    monkeypatch.setattr(box_ui, "_ensure_box_shared_link_enabled", _noop)
+    monkeypatch.setattr(box_ui, "_set_box_shared_link_access", _set_access)
+    monkeypatch.setattr(box_ui, "_read_box_shared_link_from_dialog", _read)
+
+
+def test_folder_shared_link_raises_when_broad_access_unconfirmed(monkeypatch):
+    # company/open must NOT be returned as a success when the access could not be
+    # confirmed: the link may still be the "invited" default and unusable by the
+    # recipient. Fail loudly instead.
+    for access in ("company", "open"):
+        _patch_folder_share_helpers(
+            monkeypatch, access_confirmed=False, shared_url="https://app.box.com/s/should-not-return"
+        )
+        with pytest.raises(RuntimeError, match="mis-scoped"):
+            asyncio.run(
+                box_ui._create_or_get_current_box_folder_shared_link(
+                    page=_FakeBoxPage(), access=access, timeout_ms=1_000
+                )
+            )
+
+
+def test_folder_shared_link_continues_for_invited_when_unconfirmed(monkeypatch):
+    # invited is Box's default; failing to positively re-confirm it must still
+    # return the (already enabled) link URL.
+    _patch_folder_share_helpers(
+        monkeypatch, access_confirmed=False, shared_url="https://app.box.com/s/inv123"
+    )
+    url = asyncio.run(
+        box_ui._create_or_get_current_box_folder_shared_link(
+            page=_FakeBoxPage(), access="invited", timeout_ms=1_000
+        )
+    )
+    assert url == "https://app.box.com/s/inv123"
+
+
 def test_upload_file_to_box_folder_via_ui_sync_forwards_kwargs(monkeypatch, tmp_path):
     captured = {}
 

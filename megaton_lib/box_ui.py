@@ -1069,7 +1069,15 @@ async def _create_or_get_box_shared_link(
 
     dialog = await _box_active_dialog(page=page)
     await _ensure_box_shared_link_enabled(page=page, dialog=dialog, timeout_ms=timeout_ms)
-    await _set_box_shared_link_access(page=page, dialog=dialog, access=access, timeout_ms=timeout_ms)
+    access_confirmed = await _set_box_shared_link_access(page=page, dialog=dialog, access=access, timeout_ms=timeout_ms)
+    if not access_confirmed and access != "invited":
+        # Best-effort continuation is only safe for "invited" (Box's default for a
+        # newly created link). For a broader scope we must not hand back a link that
+        # may still be "invited": fail loudly so it is recorded as a failed link.
+        raise RuntimeError(
+            f"Could not set Box shared link access to '{access}'; refusing to return a "
+            "potentially mis-scoped link (Box default is 'invited')"
+        )
 
     shared_url = await _read_box_shared_link_from_dialog(page=page, dialog=dialog)
     if shared_url:
@@ -1104,7 +1112,15 @@ async def _create_or_get_current_box_folder_shared_link(
     await _click_box_share_button(page=page, timeout_ms=timeout_ms)
     dialog = await _box_active_dialog(page=page)
     await _ensure_box_shared_link_enabled(page=page, dialog=dialog, timeout_ms=timeout_ms)
-    await _set_box_shared_link_access(page=page, dialog=dialog, access=access, timeout_ms=timeout_ms)
+    access_confirmed = await _set_box_shared_link_access(page=page, dialog=dialog, access=access, timeout_ms=timeout_ms)
+    if not access_confirmed and access != "invited":
+        # Best-effort continuation is only safe for "invited" (Box's default for a
+        # newly created link). For a broader scope we must not hand back a link that
+        # may still be "invited": fail loudly so it is recorded as a failed link.
+        raise RuntimeError(
+            f"Could not set Box shared link access to '{access}'; refusing to return a "
+            "potentially mis-scoped link (Box default is 'invited')"
+        )
 
     shared_url = await _read_box_shared_link_from_dialog(page=page, dialog=dialog)
     if shared_url:
@@ -1180,14 +1196,22 @@ async def _ensure_box_shared_link_enabled(*, page, dialog, timeout_ms: int) -> N
                 continue
 
 
-async def _set_box_shared_link_access(*, page, dialog, access: str, timeout_ms: int) -> None:
+async def _set_box_shared_link_access(*, page, dialog, access: str, timeout_ms: int) -> bool:
+    """Best-effort: set the shared-link access to ``access``.
+
+    Returns ``True`` when the requested access is confirmed/applied. When it
+    cannot be confirmed, logs a warning and returns ``False`` instead of
+    raising, so the caller can still read the (already enabled) link URL. A
+    freshly created Box shared link defaults to "invited people only", so
+    failing to positively re-apply that default must not abort link retrieval.
+    """
     patterns = BOX_SHARED_LINK_ACCESS_PATTERNS[access]
     if await _box_access_text_visible(scope=dialog, patterns=patterns):
-        return
+        return True
     if await _click_box_access_option(page=page, scope=dialog, patterns=patterns, timeout_ms=2_000):
-        return
+        return True
     if access == "invited" and await _box_dialog_implies_invited_shared_link(dialog=dialog):
-        return
+        return True
 
     clicked_any = False
     for opener in await _box_shared_link_access_menu_openers(dialog=dialog):
@@ -1198,9 +1222,9 @@ async def _set_box_shared_link_access(*, page, dialog, access: str, timeout_ms: 
             clicked_any = True
             await page.wait_for_timeout(500)
             if await _click_box_access_option(page=page, scope=page.locator("body"), patterns=patterns, timeout_ms=5_000):
-                return
+                return True
             if await _box_access_text_visible(scope=dialog, patterns=patterns):
-                return
+                return True
             try:
                 await page.keyboard.press("Escape")
             except Exception:
@@ -1212,12 +1236,13 @@ async def _set_box_shared_link_access(*, page, dialog, access: str, timeout_ms: 
     if await combo.count() > 0:
         await combo.click(timeout=timeout_ms)
         if await _click_box_access_option(page=page, scope=page.locator("body"), patterns=patterns, timeout_ms=5_000):
-            return
+            return True
 
     debug_labels = await _box_dialog_control_labels(dialog=dialog)
     hint = f"; visible controls: {', '.join(debug_labels[:12])}" if debug_labels else ""
     clicked = " after opening access controls" if clicked_any else ""
-    raise RuntimeError(f"Could not set Box shared link access: {access}{clicked}{hint}")
+    print(f"[warn] Could not confirm Box shared link access: {access}{clicked}{hint}")
+    return False
 
 
 def _box_text_implies_invited_shared_link(text: str, labels: list[str] | None = None) -> bool:
