@@ -2,6 +2,15 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-07-02 (v0.18.0)
+
+- Added scraping-pipeline utility modules, promoted from consumer repos (minkabu/poimak4) so the shared plumbing lives in one place:
+  - `megaton_lib.tz_utils.JST`: shared fixed +09:00 offset constant (unnamed, byte-compatible with the inline `timezone(timedelta(hours=9))` consumers used to define).
+  - `megaton_lib.jptext`: number parsing for Japanese financial text — `NUM_RE` / `MONEY_RE` / `YEAR_RATE_RE` / `AMT_RATE_RE` regexes, `parse_number()` / `parse_money()` / `strip_currency()`, and pandas `coerce_numeric()` that strips currency symbols (`¥￥$€£,%％`) before `to_numeric` so formatted Sheets cells survive a read-modify-write round trip.
+  - `megaton_lib.http_fetch`: requests-based `fetch_text` / `fetch_html` / `fetch_json` (+ `safe_*` variants returning None) with one shared retry policy (3 attempts, exponential backoff), one User-Agent, and one timeout. BeautifulSoup is imported lazily; new `scrape` extra installs `beautifulsoup4` + `lxml`.
+  - `megaton_lib.json_cache`: JSON-file cache with atomic writes and per-entry `fetched_at` TTL checks (`load_cache` / `save_cache` / `is_fresh` / `stamp`), JST-stamped, resilient to missing/corrupt files.
+  - `megaton_lib.notify.post_webhook()`: stdlib-only, never-raising JSON POST for fire-and-forget webhook notifications (Make.com, Slack, …).
+
 ## 2026-07-01 (v0.17.2)
 
 - Added `megaton_lib.google_workspace.build_service()` for callers that prepare or validate Google credentials themselves but still need service construction to go through the shared Google Workspace helper.
