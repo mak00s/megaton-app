@@ -2,6 +2,11 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-07-02 (v0.21.0)
+
+- Added `megaton_lib.run_journal`, generic worksheet journal maintenance helpers for caller-owned schemas: header/migration driving, append-triggered row trimming, and date-based retention.
+- Added `megaton_lib.scrape_errors.ScrapeError`, a shared scrape failure vocabulary for future consumer retry/notification policy.
+
 ## 2026-07-02 (v0.20.0)
 
 - Hardened `connected_browser_page()` CDP attach for scraping consumers (promoted from minkabu's `CDPAttachSession`): when `match` is given but nothing matches and there is no `target_url` to open, it now RAISES instead of silently yielding the last tab (a stale/unrelated tab parsed as fresh is the exact failure CDP scrapers guard against); `bring_to_front()` failures are suppressed (best-effort foregrounding); a failed `connect_over_cdp` raises a `RuntimeError` with an actionable `--remote-debugging-port` hint; attach/open now logs the tab URL and stale-tab close count.
