@@ -2,6 +2,12 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-07-02 (v0.18.1)
+
+- `megaton_lib.notify.post_webhook()` now honors its never-raises contract for unserializable payloads too: JSON serialization happens inside the guard, so a circular reference (`ValueError`) or non-str dict key (`TypeError`) fails the notification (returns False, logged) instead of the run that produced it.
+- Added `megaton_lib.http_fetch.safe_fetch_text()` to complete the `fetch_*` / `safe_fetch_*` pairing.
+- Added `beautifulsoup4` / `lxml` to the all-in `local` extra so `pip install -e ".[local]"` environments can use `fetch_html()` without also installing the `scrape` extra.
+
 ## 2026-07-02 (v0.18.0)
 
 - Added scraping-pipeline utility modules, promoted from consumer repos (minkabu/poimak4) so the shared plumbing lives in one place:

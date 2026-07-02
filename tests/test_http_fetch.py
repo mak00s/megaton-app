@@ -94,3 +94,16 @@ def test_safe_fetch_json_returns_none_on_error(monkeypatch):
     monkeypatch.setattr(http_fetch.requests, "get", fake_get)
     monkeypatch.setattr(http_fetch.time, "sleep", lambda _s: None)
     assert safe_fetch_json("https://example.com/api") is None
+
+
+def test_safe_fetch_text_success_and_failure(monkeypatch):
+    monkeypatch.setattr(
+        http_fetch.requests, "get", lambda url, headers=None, timeout=None: _Resp(text="body")
+    )
+    assert http_fetch.safe_fetch_text("https://example.com/x") == "body"
+
+    monkeypatch.setattr(
+        http_fetch.requests, "get", lambda url, headers=None, timeout=None: _Resp(status=503)
+    )
+    monkeypatch.setattr(http_fetch.time, "sleep", lambda _s: None)
+    assert http_fetch.safe_fetch_text("https://example.com/x") is None
