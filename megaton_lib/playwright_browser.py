@@ -24,8 +24,8 @@ extras group and run ``playwright install chromium`` before use.
 
 from __future__ import annotations
 
-import datetime as dt
 import contextlib
+import datetime as dt
 import json
 import logging
 import socket
@@ -36,6 +36,8 @@ from collections.abc import Awaitable, Callable, Iterator, Mapping
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+
+from megaton_lib.tz_utils import JST
 
 if TYPE_CHECKING:
     from playwright.async_api import Page as AsyncPage
@@ -211,6 +213,14 @@ async def goto_with_retries(
     timeouts: tuple[int, ...] = (30_000,),
     wait_until: WaitUntil | None = "domcontentloaded",
 ) -> bool:
+    """Try ``url`` once per entry in ``timeouts``.
+
+    With a ``goto`` callback (a wrapper returning bool, e.g. one that swallows
+    transient errors) a failed attempt returns False after the last timeout.
+    Without one, ``page.goto`` is called directly and a navigation failure
+    RAISES instead of returning False — the two modes are intentionally
+    asymmetric.
+    """
     for timeout in timeouts:
         if goto is not None:
             ok = await goto(url, timeout=timeout, wait_until=wait_until)
@@ -288,19 +298,24 @@ async def wait_for_url_change(page: AsyncPage, previous_url: str, *, timeout: in
 
 
 async def save_failure_artifact(page: AsyncPage | None, label: str, dir: str | Path) -> Path | None:
-    """Save a screenshot + HTML + URL on failure for post-mortem."""
+    """Save a screenshot + HTML + URL on failure for post-mortem.
+
+    The timestamp is JST (not runner-local) so CI artifacts sort with the
+    operator's timezone. Filenames are built by string concatenation, not
+    ``with_suffix``: labels can legitimately contain dots (e.g. an object
+    repr) and ``with_suffix`` would replace everything after the last one.
+    """
     try:
         if page is None:
             return None
         out_dir = Path(dir)
         out_dir.mkdir(parents=True, exist_ok=True)
-        name = f"{label}-{dt.datetime.now().strftime('%m%d_%H%M%S')}"
-        base = out_dir / name
-        await page.screenshot(path=str(base.with_suffix(".png")), timeout=5000)
+        name = f"{label}-{dt.datetime.now(JST).strftime('%m%d_%H%M%S')}"
+        await page.screenshot(path=str(out_dir / f"{name}.png"), timeout=5000)
         with contextlib.suppress(Exception):
-            base.with_suffix(".html").write_text(await page.content())
-        base.with_suffix(".url.txt").write_text(page.url)
-        return base
+            (out_dir / f"{name}.html").write_text(await page.content())
+        (out_dir / f"{name}.url.txt").write_text(page.url)
+        return out_dir / name
     except Exception:
         return None
 
