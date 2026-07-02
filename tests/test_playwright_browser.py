@@ -1213,6 +1213,98 @@ def test_save_failure_artifact_keeps_dotted_labels_and_jst_timestamp(tmp_path, m
     assert (parsed.month, parsed.day) == (now_jst.month, now_jst.day)
 
 
+def test_save_failure_artifact_sync_writes_png_html_url_and_keeps_dotted_label(tmp_path):
+    import datetime as real_dt
+
+    class Page:
+        url = "https://example.test/sync-fail"
+
+        def __init__(self):
+            self.full_page = None
+
+        def screenshot(self, *, path: str, full_page: bool, timeout: int):
+            self.full_page = full_page
+            Path(path).write_bytes(b"sync-png")
+
+        def content(self):
+            return "<html>sync fail</html>"
+
+    page = Page()
+    label = "expense.provider.with.dot"
+    base = playwright_browser.save_failure_artifact_sync(page, label, tmp_path)
+
+    assert base is not None
+    assert base.name.startswith(label + "-")
+    assert page.full_page is True
+    assert Path(f"{base}.png").read_bytes() == b"sync-png"
+    assert Path(f"{base}.html").read_text() == "<html>sync fail</html>"
+    assert Path(f"{base}.url.txt").read_text() == "https://example.test/sync-fail"
+
+    from megaton_lib.tz_utils import JST
+
+    ts = base.name.removeprefix(label + "-")
+    parsed = real_dt.datetime.strptime(ts, "%m%d_%H%M%S")
+    now_jst = real_dt.datetime.now(JST)
+    assert (parsed.month, parsed.day) == (now_jst.month, now_jst.day)
+
+
+def test_save_failure_artifact_sync_returns_none_on_screenshot_failure(tmp_path):
+    class Page:
+        url = "https://example.test/sync-fail"
+
+        def screenshot(self, *, path: str, full_page: bool, timeout: int):
+            raise RuntimeError("screen failed")
+
+        def content(self):  # pragma: no cover - screenshot failure aborts capture
+            return "<html>sync fail</html>"
+
+    assert playwright_browser.save_failure_artifact_sync(Page(), "sync.case", tmp_path) is None
+
+
+def test_activate_app_runs_osascript_on_darwin(monkeypatch):
+    calls = []
+    monkeypatch.setattr(playwright_browser.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        playwright_browser.subprocess,
+        "run",
+        lambda cmd, **kw: calls.append((cmd, kw)),
+    )
+
+    playwright_browser.activate_app("Calculator")
+
+    assert calls == [
+        (
+            ["osascript", "-e", 'tell application "Calculator" to activate'],
+            {"check": False},
+        )
+    ]
+
+
+def test_activate_app_noops_off_darwin(monkeypatch):
+    calls = []
+    monkeypatch.setattr(playwright_browser.sys, "platform", "linux")
+    monkeypatch.setattr(
+        playwright_browser.subprocess,
+        "run",
+        lambda cmd, **kw: calls.append((cmd, kw)),
+    )
+
+    playwright_browser.activate_app("Google Chrome")
+
+    assert calls == []
+
+
+def test_activate_app_suppresses_osascript_failures(monkeypatch):
+    monkeypatch.setattr(playwright_browser.sys, "platform", "darwin")
+
+    def fail(*_a, **_kw):
+        raise RuntimeError("osascript failed")
+
+    monkeypatch.setattr(playwright_browser.subprocess, "run", fail)
+
+    assert playwright_browser.activate_app("Google Chrome") is None
+
+
 def test_connected_browser_page_raises_when_match_misses_without_target(monkeypatch):
     """match指定+ヒットなし+target_urlなし → 任意タブへのfallbackではなくraise。
     stale/無関係タブを新鮮なページとして解析する事故を防ぐ (minkabu semantics)."""
