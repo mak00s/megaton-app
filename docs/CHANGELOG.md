@@ -2,6 +2,11 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-07-02 (v0.22.0)
+
+- Added `megaton_lib.playwright_browser.save_failure_artifact_sync()` for sync Playwright consumers, matching the async failure artifact capture behavior with JST timestamps, dotted-label-safe filenames, screenshot/HTML/URL outputs, and never-raise failure handling.
+- Added `megaton_lib.playwright_browser.activate_app()` for best-effort macOS app foregrounding.
+
 ## 2026-07-02 (v0.21.0)
 
 - Added `megaton_lib.run_journal`, generic worksheet journal maintenance helpers for caller-owned schemas: header/migration driving, append-triggered row trimming, and date-based retention.

@@ -182,6 +182,24 @@ async def async_wait_for_url_not_contains(
 WaitUntil = Literal["commit", "domcontentloaded", "load", "networkidle"]
 
 
+def _failure_artifact_base(label: str, dir: str | Path) -> Path:
+    out_dir = Path(dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    name = f"{label}-{dt.datetime.now(JST).strftime('%m%d_%H%M%S')}"
+    return out_dir / name
+
+
+def activate_app(app_name: str = "Google Chrome") -> None:
+    """Best-effort foregrounding for a macOS app; no-op elsewhere."""
+    if sys.platform != "darwin":
+        return
+    with contextlib.suppress(Exception):
+        subprocess.run(
+            ["osascript", "-e", f'tell application "{app_name}" to activate'],
+            check=False,
+        )
+
+
 def _async_timeout_error():
     try:
         from playwright.async_api import TimeoutError as PWTimeoutError
@@ -308,14 +326,37 @@ async def save_failure_artifact(page: AsyncPage | None, label: str, dir: str | P
     try:
         if page is None:
             return None
-        out_dir = Path(dir)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        name = f"{label}-{dt.datetime.now(JST).strftime('%m%d_%H%M%S')}"
-        await page.screenshot(path=str(out_dir / f"{name}.png"), timeout=5000)
+        base = _failure_artifact_base(label, dir)
+        await page.screenshot(path=f"{base}.png", timeout=5000)
         with contextlib.suppress(Exception):
-            (out_dir / f"{name}.html").write_text(await page.content())
-        (out_dir / f"{name}.url.txt").write_text(page.url)
-        return out_dir / name
+            Path(f"{base}.html").write_text(await page.content())
+        Path(f"{base}.url.txt").write_text(page.url)
+        return base
+    except Exception:
+        return None
+
+
+def save_failure_artifact_sync(
+    page: Page | None,
+    label: str,
+    dir: str | Path,
+    *,
+    full_page: bool = True,
+) -> Path | None:
+    """Sync variant of :func:`save_failure_artifact`.
+
+    ``full_page`` defaults to True to preserve consumer repos that used full
+    page diagnostic screenshots before this helper existed.
+    """
+    try:
+        if page is None:
+            return None
+        base = _failure_artifact_base(label, dir)
+        page.screenshot(path=f"{base}.png", full_page=full_page, timeout=5000)
+        with contextlib.suppress(Exception):
+            Path(f"{base}.html").write_text(page.content())
+        Path(f"{base}.url.txt").write_text(page.url)
+        return base
     except Exception:
         return None
 
