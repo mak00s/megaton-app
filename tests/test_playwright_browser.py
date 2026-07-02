@@ -1211,3 +1211,100 @@ def test_save_failure_artifact_keeps_dotted_labels_and_jst_timestamp(tmp_path, m
     parsed = real_dt.datetime.strptime(ts, "%m%d_%H%M%S")
     now_jst = real_dt.datetime.now(JST)
     assert (parsed.month, parsed.day) == (now_jst.month, now_jst.day)
+
+
+def test_connected_browser_page_raises_when_match_misses_without_target(monkeypatch):
+    """match指定+ヒットなし+target_urlなし → 任意タブへのfallbackではなくraise。
+    stale/無関係タブを新鮮なページとして解析する事故を防ぐ (minkabu semantics)."""
+    p1 = FakePage(url="https://unrelated.test/")
+    ctx = FakeCDPContext([p1])
+    _install_fake_cdp(monkeypatch, [ctx])
+
+    with pytest.raises(RuntimeError, match="no open tab matching"):
+        with playwright_browser.connected_browser_page(
+            "http://127.0.0.1:9231", match=["holdings", "member."]
+        ):
+            pass
+    assert not p1.closed
+
+
+def test_connected_browser_page_suppresses_bring_to_front_errors(monkeypatch):
+    page = FakePage(url="https://a.test/holdings")
+
+    def boom():
+        raise RuntimeError("no window")
+
+    page.bring_to_front = boom
+    ctx = FakeCDPContext([page])
+    _install_fake_cdp(monkeypatch, [ctx])
+
+    with playwright_browser.connected_browser_page(
+        "http://127.0.0.1:9231", match="holdings"
+    ) as got:
+        assert got is page  # bring_to_front failure must not abort the attach
+
+
+def test_connected_browser_page_wraps_connect_failure_with_hint(monkeypatch):
+    class FailingChromium:
+        def connect_over_cdp(self, cdp_url):
+            raise ConnectionError("refused")
+
+    class FakePw:
+        chromium = FailingChromium()
+
+    @contextmanager
+    def cm():
+        yield FakePw()
+
+    monkeypatch.setattr(playwright_browser, "_load_sync_playwright", lambda: cm)
+
+    with pytest.raises(RuntimeError, match="remote-debugging-port"):
+        with playwright_browser.connected_browser_page("http://127.0.0.1:9299"):
+            pass
+
+
+def test_ensure_chrome_cdp_reuses_running_instance(monkeypatch, tmp_path):
+    monkeypatch.setattr(playwright_browser, "_cdp_ready", lambda url: True)
+
+    def must_not_launch(*a, **k):  # pragma: no cover
+        raise AssertionError("Chrome must not be launched when CDP is already up")
+
+    monkeypatch.setattr(playwright_browser.subprocess, "Popen", must_not_launch)
+    url = playwright_browser.ensure_chrome_cdp(port=9222, user_data_dir=tmp_path / "p")
+    assert url == "http://127.0.0.1:9222"
+
+
+def test_ensure_chrome_cdp_launches_and_polls_until_ready(monkeypatch, tmp_path):
+    calls = {"popen": [], "ready": 0}
+
+    def fake_ready(url):
+        calls["ready"] += 1
+        return calls["ready"] >= 3  # 2回目まで未起動、3回目でready
+
+    monkeypatch.setattr(playwright_browser, "_cdp_ready", fake_ready)
+    monkeypatch.setattr(
+        playwright_browser.subprocess, "Popen",
+        lambda cmd, **kw: calls["popen"].append(cmd),
+    )
+    monkeypatch.setattr(playwright_browser.time, "sleep", lambda s: None)
+
+    url = playwright_browser.ensure_chrome_cdp(
+        port=9250, user_data_dir=tmp_path / "profile", start_url="about:blank"
+    )
+    assert url == "http://127.0.0.1:9250"
+    assert len(calls["popen"]) == 1
+    cmd = calls["popen"][0]
+    assert "--remote-debugging-port=9250" in cmd
+    assert "--no-first-run" in cmd
+    assert (tmp_path / "profile").exists()
+
+
+def test_ensure_chrome_cdp_raises_when_port_never_ready(monkeypatch, tmp_path):
+    monkeypatch.setattr(playwright_browser, "_cdp_ready", lambda url: False)
+    monkeypatch.setattr(playwright_browser.subprocess, "Popen", lambda cmd, **kw: None)
+    monkeypatch.setattr(playwright_browser.time, "sleep", lambda s: None)
+    times = iter([0.0, 0.1, 11.0, 12.0])
+    monkeypatch.setattr(playwright_browser.time, "time", lambda: next(times))
+
+    with pytest.raises(RuntimeError, match="did not become ready"):
+        playwright_browser.ensure_chrome_cdp(port=9251, user_data_dir=tmp_path / "p", timeout=10.0)

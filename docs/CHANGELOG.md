@@ -2,6 +2,11 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-07-02 (v0.20.0)
+
+- Hardened `connected_browser_page()` CDP attach for scraping consumers (promoted from minkabu's `CDPAttachSession`): when `match` is given but nothing matches and there is no `target_url` to open, it now RAISES instead of silently yielding the last tab (a stale/unrelated tab parsed as fresh is the exact failure CDP scrapers guard against); `bring_to_front()` failures are suppressed (best-effort foregrounding); a failed `connect_over_cdp` raises a `RuntimeError` with an actionable `--remote-debugging-port` hint; attach/open now logs the tab URL and stale-tab close count.
+- Added `ensure_chrome_cdp(port, user_data_dir, start_url, timeout)`, promoted from poimak4: idempotent "reuse the running debug Chrome or launch one without automation flags and poll `/json/version` until ready". Complements `launch_chrome_with_debug_port()` (fire-and-forget) for sites that reject Playwright-launched Chrome.
+
 ## 2026-07-02 (v0.19.0)
 
 - Added `megaton_lib.login_gate`, promoted from minkabu broker/bank login helpers: runtime notices, login/ready gates, generic login error detection, and shared login form JS helpers. Consumer repos can pass their own exception class to preserve existing error handling.
