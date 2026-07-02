@@ -7,9 +7,17 @@ this, so it must not add heavy imports to the lighter module's chain.
 
 from __future__ import annotations
 
+from datetime import timedelta, timezone
 from zoneinfo import ZoneInfo
 
 DEFAULT_TZ = "Asia/Tokyo"
+
+# Fixed +09:00 offset for scrapers/pipelines that stamp and compare JST
+# datetimes. A fixed offset (not ZoneInfo) keeps equality/pickling trivial and
+# is exactly what consumer repos historically defined inline (unnamed, so
+# tzname()/%Z output stays identical for them); Japan has no DST so ZoneInfo
+# and this offset are interchangeable in practice.
+JST = timezone(timedelta(hours=9))
 
 
 def resolve_timezone(name: str | None = None) -> ZoneInfo:

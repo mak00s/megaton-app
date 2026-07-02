@@ -1,6 +1,6 @@
 [project]
 name = "megaton-app"
-version = "0.17.2"
+version = "0.18.0"
 requires-python = ">=3.11"
 dependencies = [
     "megaton>=1.4.0",
@@ -33,6 +33,10 @@ notebook = [
 ]
 playwright = [
     "playwright>=1.40",
+]
+scrape = [
+    "beautifulsoup4",
+    "lxml",
 ]
 ui = [
     "plotly",
