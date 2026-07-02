@@ -1175,6 +1175,39 @@ def test_save_failure_artifact_writes_png_html_and_url(tmp_path):
     base = asyncio.run(playwright_browser.save_failure_artifact(Page(), "Case-x", tmp_path))
 
     assert base is not None
-    assert base.with_suffix(".png").read_bytes() == b"png"
-    assert base.with_suffix(".html").read_text() == "<html>fail</html>"
-    assert base.with_suffix(".url.txt").read_text() == "https://example.test/fail"
+    assert Path(f"{base}.png").read_bytes() == b"png"
+    assert Path(f"{base}.html").read_text() == "<html>fail</html>"
+    assert Path(f"{base}.url.txt").read_text() == "https://example.test/fail"
+
+
+def test_save_failure_artifact_keeps_dotted_labels_and_jst_timestamp(tmp_path, monkeypatch):
+    """Labels can contain dots (e.g. an object repr like
+    ``Forest-<tests.gendama.Gendama object at 0x1>``); the filename must keep
+    the full label + timestamp instead of letting with_suffix eat everything
+    after the last dot. The timestamp is JST regardless of runner timezone."""
+    import asyncio
+    import datetime as real_dt
+
+    class Page:
+        url = "https://example.test/fail"
+
+        async def screenshot(self, *, path: str, timeout: int):
+            Path(path).write_bytes(b"png")
+
+        async def content(self):
+            return "<html>fail</html>"
+
+    label = "Forest-<tests.gendama.Gendama object at 0x1>"
+    base = asyncio.run(playwright_browser.save_failure_artifact(Page(), label, tmp_path))
+
+    assert base is not None
+    assert base.name.startswith(label + "-")
+    ts = base.name.removeprefix(label + "-")
+    assert Path(f"{base}.png").exists()
+    assert Path(f"{base}.url.txt").read_text() == "https://example.test/fail"
+    # timestamp parses and is JST-now (not naive runner-local)
+    from megaton_lib.tz_utils import JST
+
+    parsed = real_dt.datetime.strptime(ts, "%m%d_%H%M%S")
+    now_jst = real_dt.datetime.now(JST)
+    assert (parsed.month, parsed.day) == (now_jst.month, now_jst.day)
