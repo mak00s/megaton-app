@@ -890,6 +890,60 @@ def launch_chrome_with_debug_port(
         time.sleep(wait_seconds)
 
 
+def ensure_chrome_cdp(
+    *,
+    port: int,
+    user_data_dir: str | Path,
+    start_url: str = "about:blank",
+    timeout: float = 10.0,
+) -> str:
+    """Ensure a normal Chrome instance is reachable over CDP; return its URL.
+
+    Idempotent: if ``http://127.0.0.1:<port>`` already answers ``/json/version``
+    the running instance is reused. Otherwise Chrome is launched WITHOUT
+    Playwright automation flags (for sites that reject automated Chrome) and
+    polled until the debug port is ready, raising after ``timeout`` seconds.
+    """
+    url = f"http://127.0.0.1:{port}"
+    if _cdp_ready(url):
+        return url
+
+    profile_dir = Path(user_data_dir).resolve()
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    subprocess.Popen(
+        [
+            chrome,
+            "--remote-debugging-address=127.0.0.1",
+            f"--remote-debugging-port={port}",
+            f"--user-data-dir={profile_dir}",
+            "--no-first-run",
+            "--new-window",
+            start_url,
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _cdp_ready(url):
+            return url
+        time.sleep(0.25)
+    raise RuntimeError(f"Chrome CDP did not become ready: {url}")
+
+
+def _cdp_ready(url: str) -> bool:
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"{url}/json/version", timeout=0.5) as res:
+            return res.status == 200
+    except (OSError, urllib.error.URLError):
+        return False
+
+
 def find_or_open_page(
     context: BrowserContext,
     url: str,
@@ -1002,7 +1056,17 @@ def _find_or_open_cdp_page(
         if active_i is not None:
             active = pages[active_i]
             closed = _close_cdp_pages([pages[i] for i in dup_i])
+            logger.info("[cdp] attached to tab %s%s", getattr(active, "url", "?"),
+                        f" (closed {closed} stale tab(s))" if closed else "")
             return active, closed
+        if target_url is None:
+            # A caller that asked for a match and gave no URL to open must not
+            # be handed an arbitrary tab — a stale/wrong tab parsed as if fresh
+            # is exactly the failure mode CDP scrapers guard against.
+            raise RuntimeError(
+                f"no open tab matching {match!r}. Open the target site and log "
+                "in, then re-run (or pass target_url to open it automatically)."
+            )
     elif target_url is not None:
         for existing_page in pages:
             if (getattr(existing_page, "url", "") or "").startswith(target_url):
@@ -1012,6 +1076,8 @@ def _find_or_open_cdp_page(
         page.goto(target_url, wait_until=wait_until, timeout=timeout_ms)
         stale = _cdp_host_pages(pages, cleanup_host, keep_kept=False)
         closed = _close_cdp_pages(stale)
+        logger.info("[cdp] no matching tab; opened %s%s", target_url,
+                    f" (closed {closed} stale tab(s))" if closed else "")
         return page, closed
     if pages:
         return pages[-1], 0
@@ -1051,7 +1117,13 @@ def connected_browser_page(
     """
     sync_playwright = _load_sync_playwright()
     with sync_playwright() as pw:
-        browser = pw.chromium.connect_over_cdp(cdp_url)
+        try:
+            browser = pw.chromium.connect_over_cdp(cdp_url)
+        except Exception as exc:  # noqa: BLE001 - surface an actionable hint
+            raise RuntimeError(
+                f"could not attach to Chrome at {cdp_url}. Launch it with "
+                "--remote-debugging-port and log in first."
+            ) from exc
         page = None
         success = False
         try:
@@ -1064,9 +1136,8 @@ def connected_browser_page(
                 timeout_ms=timeout_ms,
             )
             if bring_to_front:
-                page.bring_to_front()
-            if closed:
-                logger.info("[cdp] closed %d stale tab(s)", closed)
+                with contextlib.suppress(Exception):  # foregrounding is best-effort
+                    page.bring_to_front()
             yield page
             success = True
         finally:
