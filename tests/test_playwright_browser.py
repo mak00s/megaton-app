@@ -5,6 +5,7 @@ import importlib
 import socket
 import sys
 from contextlib import asynccontextmanager, contextmanager
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -1097,3 +1098,83 @@ def test_connected_browser_page_closes_browser_on_exception(monkeypatch):
             raise RuntimeError("boom")
 
     assert browser.closed is True
+
+
+def test_is_transient_playwright_error_matches_existing_tokens():
+    assert playwright_browser.is_transient_playwright_error(RuntimeError("Frame was detached"))
+    assert playwright_browser.is_transient_playwright_error(RuntimeError("net::ERR_ABORTED"))
+    assert not playwright_browser.is_transient_playwright_error(RuntimeError("selector missing"))
+
+
+def test_click_with_retries_runs_retry_hook_then_succeeds():
+    import asyncio
+    from playwright.async_api import TimeoutError as PWTimeoutError
+
+    calls: list[str] = []
+
+    class Locator:
+        attempts = 0
+
+        async def click(self, **_kw):
+            self.attempts += 1
+            if self.attempts == 1:
+                raise PWTimeoutError("timeout")
+            calls.append("click")
+
+    async def retry():
+        calls.append("retry")
+
+    assert asyncio.run(playwright_browser.click_with_retries(Locator(), on_retry=retry))
+    assert calls == ["retry", "click"]
+
+
+def test_settle_page_returns_false_on_timeout_and_still_delays():
+    import asyncio
+    from playwright.async_api import TimeoutError as PWTimeoutError
+
+    class Page:
+        delayed = 0
+
+        async def wait_for_load_state(self, **_kw):
+            raise PWTimeoutError("timeout")
+
+        async def wait_for_timeout(self, delay):
+            self.delayed = delay
+
+    page = Page()
+
+    assert asyncio.run(playwright_browser.settle_page(page, timeout=1, delay_ms=123)) is False
+    assert page.delayed == 123
+
+
+def test_wait_for_url_change_falls_back_to_current_url():
+    import asyncio
+    from playwright.async_api import TimeoutError as PWTimeoutError
+
+    class Page:
+        url = "after"
+
+        async def wait_for_function(self, *_a, **_kw):
+            raise PWTimeoutError("timeout")
+
+    assert asyncio.run(playwright_browser.wait_for_url_change(Page(), "before"))
+
+
+def test_save_failure_artifact_writes_png_html_and_url(tmp_path):
+    import asyncio
+
+    class Page:
+        url = "https://example.test/fail"
+
+        async def screenshot(self, *, path: str, timeout: int):
+            Path(path).write_bytes(b"png")
+
+        async def content(self):
+            return "<html>fail</html>"
+
+    base = asyncio.run(playwright_browser.save_failure_artifact(Page(), "Case-x", tmp_path))
+
+    assert base is not None
+    assert base.with_suffix(".png").read_bytes() == b"png"
+    assert base.with_suffix(".html").read_text() == "<html>fail</html>"
+    assert base.with_suffix(".url.txt").read_text() == "https://example.test/fail"
