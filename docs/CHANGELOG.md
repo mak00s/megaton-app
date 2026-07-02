@@ -2,6 +2,11 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-07-02 (v0.19.0)
+
+- Added `megaton_lib.login_gate`, promoted from minkabu broker/bank login helpers: runtime notices, login/ready gates, generic login error detection, and shared login form JS helpers. Consumer repos can pass their own exception class to preserve existing error handling.
+- Extended `megaton_lib.playwright_browser` with async retry/page-settle helpers promoted from poimak4, plus `save_failure_artifact()` for screenshot/HTML/URL failure captures.
+
 ## 2026-07-02 (v0.18.1)
 
 - `megaton_lib.notify.post_webhook()` now honors its never-raises contract for unserializable payloads too: JSON serialization happens inside the guard, so a circular reference (`ValueError`) or non-str dict key (`TypeError`) fails the notification (returns False, logged) instead of the run that produced it.

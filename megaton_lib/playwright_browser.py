@@ -24,16 +24,20 @@ extras group and run ``playwright install chromium`` before use.
 
 from __future__ import annotations
 
+import contextlib
+import datetime as dt
 import json
 import logging
-import sys
 import socket
 import subprocess
+import sys
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
+
+from megaton_lib.tz_utils import JST
 
 if TYPE_CHECKING:
     from playwright.async_api import Page as AsyncPage
@@ -173,6 +177,147 @@ async def async_wait_for_url_not_contains(
         if remaining_ms <= 0:
             return False
         await page.wait_for_timeout(min(poll_ms, remaining_ms))
+
+
+WaitUntil = Literal["commit", "domcontentloaded", "load", "networkidle"]
+
+
+def _async_timeout_error():
+    try:
+        from playwright.async_api import TimeoutError as PWTimeoutError
+    except ImportError as exc:  # pragma: no cover - exercised when extras missing
+        raise RuntimeError(_PLAYWRIGHT_MISSING_MSG) from exc
+    return PWTimeoutError
+
+
+def is_transient_playwright_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(
+        token in text
+        for token in (
+            "target page, context or browser has been closed",
+            "frame was detached",
+            "net::err_aborted",
+            "net::err_ssl_protocol_error",
+            "execution context was destroyed",
+            "interrupted by another navigation",
+        )
+    )
+
+
+async def goto_with_retries(
+    page: AsyncPage,
+    url: str,
+    *,
+    goto: Callable[..., Awaitable[bool]] | None = None,
+    timeouts: tuple[int, ...] = (30_000,),
+    wait_until: WaitUntil | None = "domcontentloaded",
+) -> bool:
+    """Try ``url`` once per entry in ``timeouts``.
+
+    With a ``goto`` callback (a wrapper returning bool, e.g. one that swallows
+    transient errors) a failed attempt returns False after the last timeout.
+    Without one, ``page.goto`` is called directly and a navigation failure
+    RAISES instead of returning False — the two modes are intentionally
+    asymmetric.
+    """
+    for timeout in timeouts:
+        if goto is not None:
+            ok = await goto(url, timeout=timeout, wait_until=wait_until)
+        else:
+            await page.goto(url, timeout=timeout, wait_until=wait_until)
+            ok = True
+        if ok:
+            return True
+    return False
+
+
+async def click_with_retries(
+    locator,
+    *,
+    attempts: int = 3,
+    timeout: int = 3000,
+    on_retry: Callable[[], Awaitable[None]] | None = None,
+    force_on_last: bool = False,
+    js_on_last: bool = False,
+) -> bool:
+    PWTimeoutError = _async_timeout_error()
+    for attempt in range(attempts):
+        try:
+            await locator.click(timeout=timeout)
+            return True
+        except PWTimeoutError:
+            if attempt == attempts - 1:
+                if force_on_last:
+                    try:
+                        await locator.click(timeout=timeout, force=True)
+                        return True
+                    except PWTimeoutError:
+                        pass
+                if js_on_last:
+                    handle = await locator.element_handle()
+                    if handle is not None:
+                        await handle.evaluate("(el) => el.click()")
+                        return True
+                raise
+            if on_retry is not None:
+                await on_retry()
+    return False
+
+
+async def settle_page(
+    page: AsyncPage,
+    *,
+    state: WaitUntil = "domcontentloaded",
+    timeout: int = 3_000,
+    delay_ms: int = 0,
+) -> bool:
+    PWTimeoutError = _async_timeout_error()
+    try:
+        await page.wait_for_load_state(state=state, timeout=timeout)
+        settled = True
+    except PWTimeoutError:
+        settled = False
+    if delay_ms:
+        await page.wait_for_timeout(delay_ms)
+    return settled
+
+
+async def wait_for_url_change(page: AsyncPage, previous_url: str, *, timeout: int = 1_500) -> bool:
+    """Wait until the current page URL differs from previous_url."""
+    PWTimeoutError = _async_timeout_error()
+    try:
+        await page.wait_for_function(
+            "url => window.location.href !== url",
+            arg=previous_url,
+            timeout=timeout,
+        )
+        return True
+    except PWTimeoutError:
+        return page.url != previous_url
+
+
+async def save_failure_artifact(page: AsyncPage | None, label: str, dir: str | Path) -> Path | None:
+    """Save a screenshot + HTML + URL on failure for post-mortem.
+
+    The timestamp is JST (not runner-local) so CI artifacts sort with the
+    operator's timezone. Filenames are built by string concatenation, not
+    ``with_suffix``: labels can legitimately contain dots (e.g. an object
+    repr) and ``with_suffix`` would replace everything after the last one.
+    """
+    try:
+        if page is None:
+            return None
+        out_dir = Path(dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        name = f"{label}-{dt.datetime.now(JST).strftime('%m%d_%H%M%S')}"
+        await page.screenshot(path=str(out_dir / f"{name}.png"), timeout=5000)
+        with contextlib.suppress(Exception):
+            (out_dir / f"{name}.html").write_text(await page.content())
+        (out_dir / f"{name}.url.txt").write_text(page.url)
+        return out_dir / name
+    except Exception:
+        return None
 
 
 def _remaining_timeout_ms(deadline: float) -> int:
