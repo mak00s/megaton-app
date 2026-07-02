@@ -65,11 +65,22 @@ def test_reclassify_source_channel_ai():
     assert channel == "AI"
 
 
-def test_reclassify_source_channel_internal():
-    row = {"channel": "Referral", "source": "teams.shiseido.co.jp", "medium": "referral"}
+def test_reclassify_source_channel_internal_generic_default():
+    row = {"channel": "Referral", "source": "teams.example.net", "medium": "referral"}
     source, channel = reclassify_source_channel(row)
-    assert source == "teams.shiseido.co.jp"
-    assert channel == "Shiseido Internal"
+    assert source == "teams.example.net"
+    assert channel == "Internal"
+
+
+def test_reclassify_source_channel_internal_custom_pattern_and_label():
+    row = {"channel": "Referral", "source": "intra.acme.co.jp", "medium": "referral"}
+    source, channel = reclassify_source_channel(
+        row,
+        internal_pattern=r"intra\.acme\.co\.jp",
+        internal_label="Acme Internal",
+    )
+    assert source == "intra.acme.co.jp"
+    assert channel == "Acme Internal"
 
 
 def test_reclassify_source_channel_fallback():

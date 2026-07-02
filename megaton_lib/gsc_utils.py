@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from urllib.parse import unquote
 
 import numpy as np
@@ -43,15 +44,23 @@ def aggregate_search_console_data(df_raw: pd.DataFrame) -> pd.DataFrame:
     return df.groupby(group_cols, as_index=False).agg(impressions=("impressions", "sum"), clicks=("clicks", "sum"))
 
 
-def deduplicate_queries(df_in: pd.DataFrame) -> pd.DataFrame:
+def deduplicate_queries(
+    df_in: pd.DataFrame,
+    *,
+    group_keys: Sequence[str] = ("month", "clinic", "page"),
+) -> pd.DataFrame:
     """Merge query variants that differ only by whitespace.
 
-    Keeps representative query string with highest impressions per key.
+    Keeps the representative query string with the highest impressions per
+    ``(*group_keys, query_key)``. ``group_keys`` are the context columns that
+    scope a query (default ``month, clinic, page``); pass your own to reuse this
+    for non-clinic data (e.g. ``("month", "page")``).
     """
     if df_in.empty:
         return df_in
 
-    required = {"month", "clinic", "query", "page", "impressions", "clicks", "position"}
+    keys = list(group_keys)
+    required = set(keys) | {"query", "impressions", "clicks", "position"}
     missing = sorted(required - set(df_in.columns))
     if missing:
         raise ValueError(f"deduplicate_queries: missing columns {missing}")
@@ -60,69 +69,62 @@ def deduplicate_queries(df_in: pd.DataFrame) -> pd.DataFrame:
     df["query"] = df["query"].astype(str)
     df["query_key"] = df["query"].str.replace(r"\s+", "", regex=True)
 
+    group_by = keys + ["query_key"]
     sorted_df = df.sort_values(
-        by=["month", "clinic", "page", "query_key", "impressions"],
-        ascending=[True, True, True, True, False],
+        by=group_by + ["impressions"],
+        ascending=[True] * len(group_by) + [False],
     )
     top_query = (
-        sorted_df.groupby(["month", "clinic", "page", "query_key"], as_index=False)
-        .first()[["month", "clinic", "page", "query_key", "query"]]
+        sorted_df.groupby(group_by, as_index=False)
+        .first()[group_by + ["query"]]
     )
 
+    def _agg_group(g: pd.DataFrame) -> pd.Series:
+        imp = g["impressions"].sum()
+        return pd.Series({
+            "impressions": imp,
+            "clicks": g["clicks"].sum(),
+            "position": (g["position"] * g["impressions"]).sum() / imp if imp > 0 else 0.0,
+        })
+
     try:
-        agg = (
-            df.groupby(["month", "clinic", "page", "query_key"], as_index=False)
-            .apply(
-                lambda g: pd.Series({
-                    "impressions": g["impressions"].sum(),
-                    "clicks": g["clicks"].sum(),
-                    "position": (
-                        (g["position"] * g["impressions"]).sum() / g["impressions"].sum()
-                        if g["impressions"].sum() > 0 else 0.0
-                    ),
-                }),
-                include_groups=False,
-            )
-        )
+        agg = df.groupby(group_by, as_index=False).apply(_agg_group, include_groups=False)
     except TypeError:
-        agg = (
-            df.groupby(["month", "clinic", "page", "query_key"], as_index=False)
-            .apply(
-                lambda g: pd.Series({
-                    "impressions": g["impressions"].sum(),
-                    "clicks": g["clicks"].sum(),
-                    "position": (
-                        (g["position"] * g["impressions"]).sum() / g["impressions"].sum()
-                        if g["impressions"].sum() > 0 else 0.0
-                    ),
-                })
-            )
-        )
-        agg = agg.reset_index(drop=True)
+        agg = df.groupby(group_by, as_index=False).apply(_agg_group).reset_index(drop=True)
 
-    out = agg.merge(top_query, on=["month", "clinic", "page", "query_key"], how="left")
-    return out[["month", "clinic", "query", "page", "impressions", "clicks", "position"]]
+    out = agg.merge(top_query, on=group_by, how="left")
+    # Preserve the historical column order: group keys with ``query`` after the
+    # second key (month, clinic, query, page for the default), then metrics.
+    ordered = list(keys)
+    ordered.insert(min(2, len(ordered)), "query")
+    return out[ordered + ["impressions", "clicks", "position"]]
 
 
-def filter_by_clinic_thresholds(df: pd.DataFrame, threshold_df: pd.DataFrame) -> pd.DataFrame:
-    """Filter low-value query rows by clinic-specific thresholds.
+def filter_by_group_thresholds(
+    df: pd.DataFrame,
+    threshold_df: pd.DataFrame,
+    *,
+    group_col: str = "clinic",
+) -> pd.DataFrame:
+    """Filter low-value query rows by per-group thresholds.
 
-    Clinics not defined in ``threshold_df`` are intentionally excluded from output.
+    Groups (values of ``group_col``, default ``clinic``) not present in
+    ``threshold_df`` are intentionally excluded from the output.
     """
     if df.empty or threshold_df.empty:
         return df
 
     rows = []
     for _, rule in threshold_df.iterrows():
-        clinic = str(rule.get("clinic", "")).strip()
-        if not clinic:
+        group = str(rule.get(group_col, "")).strip()
+        if not group:
             continue
         min_imp = pd.to_numeric(rule.get("min_impressions", 10), errors="coerce")
         max_pos = pd.to_numeric(rule.get("max_position", 50), errors="coerce")
         min_imp = 10 if pd.isna(min_imp) else float(min_imp)
         max_pos = 50 if pd.isna(max_pos) else float(max_pos)
 
-        sub = df[df["clinic"] == clinic].copy()
+        sub = df[df[group_col] == group].copy()
         sub = sub[
             ~(
                 (pd.to_numeric(sub["clicks"], errors="coerce").fillna(0) == 0)
@@ -137,6 +139,10 @@ def filter_by_clinic_thresholds(df: pd.DataFrame, threshold_df: pd.DataFrame) ->
     if not rows:
         return pd.DataFrame(columns=df.columns)
     return pd.concat(rows, ignore_index=True)
+
+
+# Back-compat alias for the original clinic-specific name.
+filter_by_clinic_thresholds = filter_by_group_thresholds
 
 
 def force_text_on_numeric_column(df: pd.DataFrame, *, column: str = "query") -> pd.DataFrame:

@@ -71,11 +71,18 @@ def reclassify_source_channel(
     medium_col: str = "medium",
     ai_patterns: Mapping[str, str] | None = None,
     internal_pattern: str | None = None,
+    internal_label: str = "Internal",
     organic_search_pattern: str | None = None,
     social_patterns: Mapping[str, str] | None = None,
     referral_search_pattern: str | None = None,
 ) -> tuple[str, str]:
-    """Reclassify source+channel together with configurable regex rules."""
+    """Reclassify source+channel together with configurable regex rules.
+
+    ``internal_pattern`` / ``internal_label`` classify intranet/corp hosts.
+    Both default to generic values; pass an org-specific ``internal_pattern``
+    (e.g. your intranet domains) and ``internal_label`` to tag them — keep
+    company-specific host lists in the calling repo, not here.
+    """
     ai_patterns = ai_patterns or {
         "ChatGPT": r"(chatgpt|chat\.openai\.com)",
         "Copilot": r"(copilot|bing\.com|microsoftcopilot)",
@@ -83,10 +90,7 @@ def reclassify_source_channel(
         "Claude": r"(claude|anthropic\.com)",
         "Perplexity": r"(perplexity|pplx\.ai)",
     }
-    internal_pattern = internal_pattern or (
-        r"(extra\.shiseido\.co\.jp|(spark|international|intra)\.shiseido\.co\.jp"
-        r"|office\.net|sharepoint|teams|basement\.jp|yammer)"
-    )
+    internal_pattern = internal_pattern or r"(office\.net|sharepoint|teams|yammer)"
     organic_search_pattern = organic_search_pattern or r"(service\.smt\.docomo\.ne\.jp|search|jp\.hao123\.com|\.jword\.jp)"
     social_patterns = social_patterns or {
         "Twitter": r"(t\.co|twitter)",
@@ -107,7 +111,7 @@ def reclassify_source_channel(
             return ai_name, "AI"
 
     if re.search(internal_pattern, src):
-        return src, "Shiseido Internal"
+        return src, internal_label
 
     if re.search(organic_search_pattern, src):
         return src, "Organic Search"

@@ -5,8 +5,48 @@ from megaton_lib.gsc_utils import (
     aggregate_search_console_data,
     deduplicate_queries,
     filter_by_clinic_thresholds,
+    filter_by_group_thresholds,
     force_text_on_numeric_column,
 )
+
+
+def test_deduplicate_queries_custom_group_keys_without_clinic():
+    df = pd.DataFrame(
+        {
+            "month": ["202605", "202605"],
+            "page": ["/a", "/a"],
+            "query": ["foo bar", "foobar"],
+            "impressions": [10, 5],
+            "clicks": [1, 0],
+            "position": [3.0, 4.0],
+        }
+    )
+    out = deduplicate_queries(df, group_keys=("month", "page"))
+    # space variants merged into one row; no clinic column required
+    assert len(out) == 1
+    assert list(out.columns) == ["month", "page", "query", "impressions", "clicks", "position"]
+    assert out.iloc[0]["impressions"] == 15
+    assert out.iloc[0]["query"] == "foo bar"  # highest-impressions representative
+
+
+def test_filter_by_group_thresholds_custom_group_col():
+    df = pd.DataFrame(
+        {
+            "site": ["a", "b"],
+            "query": ["q1", "q2"],
+            "clicks": [0, 0],
+            "impressions": [1, 100],
+            "position": [80.0, 5.0],
+        }
+    )
+    thresholds = pd.DataFrame({"site": ["a", "b"], "min_impressions": [10, 10], "max_position": [50, 50]})
+    out = filter_by_group_thresholds(df, thresholds, group_col="site")
+    # site a's low row is dropped; site b's strong row is kept
+    assert list(out["site"]) == ["b"]
+
+
+def test_filter_by_clinic_thresholds_is_backcompat_alias():
+    assert filter_by_clinic_thresholds is filter_by_group_thresholds
 
 
 def test_aggregate_search_console_data_weighted_position_and_clean_page():
