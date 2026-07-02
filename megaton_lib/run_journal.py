@@ -14,7 +14,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from megaton_lib.gspread_lowlevel import call_with_retry
+from megaton_lib.gspread_lowlevel import call_with_retry, column_label
 from megaton_lib.tz_utils import JST
 
 
@@ -25,7 +25,7 @@ def ensure_header_and_migrate(
     legacy_headers: list[list[str]],
     migrate_row: Callable[[list[str], list[str]], list[Any]],
     clear_extra_range: str | None = None,
-    value_input_option: str = "USER_ENTERED",
+    value_input_option: str = "RAW",
 ) -> bool:
     """Ensure ``header`` and migrate legacy rows when a known old header exists.
 
@@ -47,7 +47,7 @@ def ensure_header_and_migrate(
                 changed = True
             migrated.append(migrated_row)
         if changed:
-            _write_migrated(ws, migrated, header, rows, clear_extra_range, "RAW")
+            _write_migrated(ws, migrated, header, rows, clear_extra_range, value_input_option)
         _shrink_extra_columns(ws, len(header))
         return True
 
@@ -60,7 +60,7 @@ def ensure_header_and_migrate(
         migrated.append(migrate_row(row, current_header))
     if ws.col_count < len(header):
         call_with_retry(f"{ws.title}.resize", lambda: ws.resize(cols=len(header)))
-    _write_migrated(ws, migrated, header, rows, clear_extra_range, "RAW")
+    _write_migrated(ws, migrated, header, rows, clear_extra_range, value_input_option)
     _shrink_extra_columns(ws, len(header))
     return True
 
@@ -156,7 +156,7 @@ def _write_migrated(
     clear_extra_range: str | None,
     value_input_option: str,
 ) -> None:
-    end_col = _column_name(len(header))
+    end_col = column_label(len(header))
     call_with_retry(
         f"{ws.title}.update",
         lambda: ws.update(
@@ -178,10 +178,3 @@ def _shrink_extra_columns(ws, col_count: int) -> None:
         with contextlib.suppress(Exception):
             call_with_retry(f"{ws.title}.resize", lambda: ws.resize(cols=col_count))
 
-
-def _column_name(index: int) -> str:
-    name = ""
-    while index:
-        index, rem = divmod(index - 1, 26)
-        name = chr(65 + rem) + name
-    return name
