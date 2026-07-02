@@ -26,16 +26,19 @@ def post_webhook(url: str, payload: dict, *, timeout_s: int = _TIMEOUT_S) -> boo
     """POST ``payload`` as JSON. Returns True on 2xx; never raises."""
     if not url:
         return False
-    body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=body, headers={"Content-Type": "application/json"}, method="POST"
-    )
     try:
+        # Serialization inside the guard: a circular reference (ValueError) or
+        # a non-str dict key (TypeError) must fail the notification, not the
+        # run that produced the payload.
+        body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=body, headers={"Content-Type": "application/json"}, method="POST"
+        )
         with urllib.request.urlopen(req, timeout=timeout_s) as resp:  # noqa: S310 - user-configured URL
             ok = 200 <= resp.status < 300
             if not ok:
                 logger.warning("webhook returned HTTP %s", resp.status)
             return ok
-    except (urllib.error.URLError, OSError, ValueError) as exc:
+    except (urllib.error.URLError, OSError, ValueError, TypeError) as exc:
         logger.warning("webhook POST failed: %s", exc)
         return False

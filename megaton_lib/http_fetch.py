@@ -92,6 +92,15 @@ def fetch_json(
     return _with_retry(_req)
 
 
+def safe_fetch_text(url: str, **kwargs) -> str | None:
+    """Like ``fetch_text`` but returns None on failure instead of raising."""
+    try:
+        return fetch_text(url, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("safe_fetch_text failed for %s: %s", url, exc)
+        return None
+
+
 def safe_fetch_html(url: str, **kwargs):
     """Like ``fetch_html`` but returns None on failure instead of raising."""
     try:

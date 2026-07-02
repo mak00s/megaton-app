@@ -1,6 +1,6 @@
 [project]
 name = "megaton-app"
-version = "0.18.0"
+version = "0.18.1"
 requires-python = ">=3.11"
 dependencies = [
     "megaton>=1.4.0",
@@ -50,6 +50,7 @@ validation = [
 ]
 local = [
     "PyYAML",
+    "beautifulsoup4",
     "google-api-python-client",
     "google-auth",
     "google-auth-oauthlib",
@@ -59,6 +60,7 @@ local = [
     "japanize-matplotlib",
     "jupyter",
     "jupytext",
+    "lxml",
     "matplotlib",
     "playwright",
     "plotly",

@@ -54,3 +54,14 @@ def test_post_webhook_never_raises_on_network_error(monkeypatch):
 
 def test_post_webhook_empty_url_is_noop():
     assert post_webhook("", {"a": 1}) is False
+
+
+def test_post_webhook_never_raises_on_unserializable_payload(monkeypatch):
+    def must_not_be_called(req, timeout=None):  # pragma: no cover
+        raise AssertionError("urlopen must not run when serialization fails")
+
+    monkeypatch.setattr(notify.urllib.request, "urlopen", must_not_be_called)
+    circular: dict = {}
+    circular["self"] = circular
+    assert post_webhook("https://hook.example/x", circular) is False  # ValueError
+    assert post_webhook("https://hook.example/x", {("t", "k"): 1}) is False  # TypeError
