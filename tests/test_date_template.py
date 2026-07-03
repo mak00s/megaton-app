@@ -74,9 +74,14 @@ class TestResolveDate:
     def test_whitespace_trimmed(self):
         assert resolve_date("  today  ", reference=self.REF) == "2026-02-07"
 
+    def test_ga_tokens_resolve_since_megaton_15(self):
+        # Vocabulary unified with megaton 1.5: GA-style tokens now resolve too.
+        assert resolve_date("yesterday", reference=self.REF) == "2026-02-06"
+        assert resolve_date("7daysAgo", reference=self.REF) == "2026-01-31"
+
     def test_unknown_expression_raises(self):
         with pytest.raises(ValueError, match="Unknown date template"):
-            resolve_date("yesterday", reference=self.REF)
+            resolve_date("next-month", reference=self.REF)
 
     def test_invalid_expression_raises(self):
         with pytest.raises(ValueError, match="Unknown date template"):
@@ -95,18 +100,18 @@ class TestResolveDate:
             resolve_date("20261340", reference=self.REF)
 
     def test_today_uses_configured_timezone(self, monkeypatch):
-        class FakeDatetime:
+        # Implementation lives in megaton.dates since 1.5; patch its clock via
+        # the resolver's own globals (robust to module identity).
+        from megaton import dates as mdates
+
+        class FakeDatetime(real_datetime):
             @classmethod
             def now(cls, tz=None):
                 # Boundary time where UTC date is 2026-02-06 and JST date is 2026-02-07.
                 base = real_datetime(2026, 2, 6, 15, 30, tzinfo=ZoneInfo("UTC"))
                 return base.astimezone(tz) if tz else base
 
-            @classmethod
-            def strptime(cls, value, fmt):
-                return real_datetime.strptime(value, fmt)
-
-        monkeypatch.setattr(dt_mod, "datetime", FakeDatetime)
+        monkeypatch.setitem(mdates.resolve_date.__globals__, "datetime", FakeDatetime)
 
         monkeypatch.setenv("DATE_TEMPLATE_TZ", "UTC")
         assert resolve_date("today") == "2026-02-06"
@@ -115,17 +120,15 @@ class TestResolveDate:
         assert resolve_date("today") == "2026-02-07"
 
     def test_invalid_timezone_falls_back_to_jst(self, monkeypatch):
-        class FakeDatetime:
+        from megaton import dates as mdates
+
+        class FakeDatetime(real_datetime):
             @classmethod
             def now(cls, tz=None):
                 base = real_datetime(2026, 2, 6, 15, 30, tzinfo=ZoneInfo("UTC"))
                 return base.astimezone(tz) if tz else base
 
-            @classmethod
-            def strptime(cls, value, fmt):
-                return real_datetime.strptime(value, fmt)
-
-        monkeypatch.setattr(dt_mod, "datetime", FakeDatetime)
+        monkeypatch.setitem(mdates.resolve_date.__globals__, "datetime", FakeDatetime)
         monkeypatch.setenv("DATE_TEMPLATE_TZ", "Invalid/Timezone")
         # invalid timezone -> fallback Asia/Tokyo
         assert resolve_date("today") == "2026-02-07"
@@ -194,7 +197,7 @@ class TestValidatorIntegration:
         assert normalized["date_range"]["start"] != "today-30d"
         assert len(normalized["date_range"]["start"]) == 10  # YYYY-MM-DD
 
-    def test_invalid_template_rejected(self):
+    def test_ga_tokens_accepted_since_megaton_15(self):
         from megaton_lib.params_validator import validate_params
 
         data = {
@@ -202,6 +205,19 @@ class TestValidatorIntegration:
             "source": "gsc",
             "site_url": "sc-domain:example.com",
             "date_range": {"start": "yesterday", "end": "today"},
+            "dimensions": ["query"],
+        }
+        normalized, errors = validate_params(data)
+        assert not any(e["error_code"] == "INVALID_DATE" for e in errors)
+
+    def test_invalid_template_rejected(self):
+        from megaton_lib.params_validator import validate_params
+
+        data = {
+            "schema_version": "1.0",
+            "source": "gsc",
+            "site_url": "sc-domain:example.com",
+            "date_range": {"start": "next-month", "end": "today"},
             "dimensions": ["query"],
         }
         normalized, errors = validate_params(data)
