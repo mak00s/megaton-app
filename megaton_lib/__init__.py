@@ -24,10 +24,13 @@ Params & config:
 Dates:
     dates            : SINGLE ENTRY POINT for all date/period helpers — import
                        dates from here (resolve_date, resolve_month, windows,
-                       month ranges, parse_summary_tokens, ...)
-    date_template    : (impl) resolve_date()/resolve_month() template parsing
-    date_utils       : (impl) month ranges + month parsing/current-month helpers
-    periods          : (impl) month-window parsing (quarters/years/relative months)
+                       month ranges, parse_summary_tokens, ...). Generic
+                       vocabulary lives in megaton.dates since megaton 1.5;
+                       app-specific bits (resolve_effective_months_ago,
+                       summary tokens, DATE_TEMPLATE_TZ compat) stay here.
+    date_template    : (compat) thin wrapper over megaton.dates (+DATE_TEMPLATE_TZ)
+    date_utils       : (compat) re-exports from megaton.dates
+    periods          : (impl) summary-token parsing (quarters/years/relative months)
     tz_utils         : (impl) shared timezone resolution (stdlib-only)
 
 Sheets & output:

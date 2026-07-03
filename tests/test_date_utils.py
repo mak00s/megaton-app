@@ -125,7 +125,10 @@ class TestParseYearMonthSeries:
 class TestMonthDataframeFilters:
     def test_drop_current_month_rows_with_yyyymm_column(self, monkeypatch):
         fixed_now = dt.datetime(2026, 3, 20, tzinfo=dt.timezone(dt.timedelta(hours=9)))
-        monkeypatch.setattr(date_utils, "now_in_tz", lambda _tz="Asia/Tokyo": fixed_now)
+        monkeypatch.setitem(
+            date_utils.drop_current_month_rows.__globals__, "now_in_tz",
+            lambda _tz="Asia/Tokyo": fixed_now,
+        )
 
         df = pd.DataFrame({"month": ["202602", "202603"], "v": [1, 2]})
         got = drop_current_month_rows(df, month_col="month")
@@ -133,7 +136,10 @@ class TestMonthDataframeFilters:
 
     def test_drop_current_month_rows_with_datetime_column(self, monkeypatch):
         fixed_now = dt.datetime(2026, 3, 20, tzinfo=dt.timezone(dt.timedelta(hours=9)))
-        monkeypatch.setattr(date_utils, "now_in_tz", lambda _tz="Asia/Tokyo": fixed_now)
+        monkeypatch.setitem(
+            date_utils.drop_current_month_rows.__globals__, "now_in_tz",
+            lambda _tz="Asia/Tokyo": fixed_now,
+        )
 
         df = pd.DataFrame(
             {
