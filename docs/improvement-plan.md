@@ -27,6 +27,17 @@ notebooks ca8a5e7。検証済みチェーンで2ブロックを置換(_ch-m: to_
 変換ロジックは追加2/3で実データ全セル一致証明済み・式はファイルにそのまま採用・py_compile/ruff/jupytext/96テストpass。
 **注意**: フル§6二重実走(shibuyaはSHEET_URL未パラメータ化・2ブック・GA4重い)は過剰として未実施。次回 Daily Shibuya GHA(月曜08:45 JST)が初の本番end-to-end。megatonは1.4.0でリトライ枯渇raise+レポート内dup assertがあるので、万一の不整合は静かに通らず**うるさく失敗**する。月曜の結果を確認すること。
 
+### 2026-07-03 追加5: megaton棲み分けレビュー → 日付統合を実施(megaton v1.5.0)
+レビュー結論: 棲み分けは妥当(stateful megaton / stateless megaton_lib の二層は意図的)。唯一の真の重複=日付を統合:
+- **megaton v1.5.0**(PyPI公開済み): 統一語彙 resolve_date(GAトークン+カレンダートークン)/resolve_month、`mg.report.set.dates("prev-month-start", ...)` ネイティブ対応(GA-nativeトークンはAPI通過のまま)、dateオブジェクトAPI+pandas月ヘルパー移管、TZ契約=引数>MEGATON_TZ>Asia/Tokyo。**use_ga3/recipes を deprecation**(2.0で削除、公開面の正味増を抑制)。542テスト
+- **megaton-app v0.23.0**: date_template/date_utils を委譲化、dates.py はapp固有(resolve_effective_months_ago/parse_summary_tokens/DATE_TEMPLATE_TZ互換)のみ残置。**契約変更(意図的)**: yesterday/NdaysAgo が date template と params で有効に(旧: 拒否)。1043テストパス=委譲の等価性確認
+- **notebooks**: ピン v0.17.2→v0.23.0(158 import名の存在を機械検証、136テストパス)
+- 移行見送りの判断記録: BQ stateless関数(将来は「statelessを正準化しMegatonBQ格下げ」の再設計として)、A1ビルダー(Sheets正本一本化の起点として次にSheetsを触るとき)、ga4_helpers/credentialsの汎用部分(トリガー待ち)
+
+### ⚠️ 要対応 (2026-07-03発見): 7/1 monthly-slqm が failure
+原因はライブラリ変更と無関係: `export_slqm_ls.py` の **Google ログインタイムアウト**(SLQM_GOOGLE_STORAGE_STATE_JSON のPlaywrightセッション期限切れ)。slqm.py 本体は未実行=6月分の本番SLQM未更新・Voice精密値の本番反映も未実施。
+→ ユーザー対応: storage state を再取得して secret 更新 → workflow 手動再実行。(7/3 の Daily Shibuya は success — チェーン化した _ch-m/_lp の本番E2Eはこちらで確認済み)
+
 ## 残タスク(進行中)
 
 1. [x] **デプロイ完了 (2026-06-11)**: ① megaton push + tag v1.4.0 + GitHub release + **PyPI 1.4.0 公開済み** → ② megaton-app push (f527e6f、report_runフック強化+fetch_for_sites fail_if_all_failed含む) → ③ notebooks ピンを f527e6f へ更新 → ④ notebooks push (31a9dd5)。pip dry-run で解決確認済み。※ユーザー判断で「全部今デプロイ」(slqm残り2タブの検証はGA4障害起因と特定済みのため)
