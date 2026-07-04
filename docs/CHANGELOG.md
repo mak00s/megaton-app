@@ -2,6 +2,15 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-07-04 (v0.24.0)
+
+- **Requires `megaton>=2.0.0`** (raised from `>=1.5.0`). megaton 2.0.0 is a breaking major (GA3/UA removed, `mg.recipes` → `mg.load.config`, `filter_d` unified across report/search, `mg.set.retry`, `mg.report.set_dates` → `mg.report.set.dates`, `mg.show.ga.properties` → `mg.show.ga.property`). megaton-app uses none of the removed/renamed APIs — verified by grep and by running the full test suite against megaton 2.0.0 (1043 passed). Behavior note: `mg.report.run(limit=/max_retries=/timeout=)` now actually reach GA4 (megaton fixed a bug where they were silently dropped), so report paths that pass `limit=` now honor it.
+
+## 2026-07-03 (v0.23.0)
+
+- Delegated the date stack to `megaton.dates` (requires `megaton>=1.5.0`): date-token resolution now lives in megaton and megaton-app re-exports it, so the two share one date vocabulary.
+- De-domained the traffic / GSC helpers (removed hardcoded Shiseido/clinic specifics) so they are reusable across analysis repos.
+
 ## 2026-07-02 (v0.22.0)
 
 - Added `megaton_lib.playwright_browser.save_failure_artifact_sync()` for sync Playwright consumers, matching the async failure artifact capture behavior with JST timestamps, dotted-label-safe filenames, screenshot/HTML/URL outputs, and never-raise failure handling.
