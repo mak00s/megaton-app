@@ -689,8 +689,21 @@ def list_libraries(config: AdobeTagsConfig) -> list[dict[str, Any]]:
 def build_library(config: AdobeTagsConfig, library_id: str) -> dict[str, Any]:
     """Trigger a library build via POST /libraries/{library_id}/builds.
 
+    Preflights that the library has an environment assigned — building
+    without one fails with an opaque 409. A missing environment usually
+    means a refresh/transition dropped the relationship; re-assign it via
+    ``assign_library_environment`` (refresh_library_resources does this
+    automatically).
+
     Returns dict with id, status, and created_at of the new build.
     """
+    if not get_library_environment_id(config, library_id):
+        raise RuntimeError(
+            f"library {library_id} has no environment assigned; a build would "
+            "fail with 409 'library must have an environment'. Re-assign one "
+            "with assign_library_environment(config, library_id, environment_id) "
+            "(list ids via /properties/{property_id}/environments)."
+        )
     payload = {"data": {"type": "builds", "attributes": {}}}
     body = _reactor_post(config, f"/libraries/{library_id}/builds", payload)
     data = body.get("data", {})
@@ -858,6 +871,27 @@ def revise_library_data_elements(
     return {"revised_count": result["revised_count"], "new_de_ids": result["new_ids"]}
 
 
+def get_library_environment_id(config: AdobeTagsConfig, library_id: str) -> str:
+    """Return the library's assigned environment id ('' when unassigned)."""
+    body = _reactor_get(config, f"/libraries/{library_id}")
+    data = body.get("data") or {}
+    if not isinstance(data, dict):
+        return ""
+    rel = (data.get("relationships") or {}).get("environment") or {}
+    return str(((rel.get("data") or {}) or {}).get("id") or "")
+
+
+def assign_library_environment(
+    config: AdobeTagsConfig, library_id: str, environment_id: str
+) -> None:
+    """Assign an environment to a library (PATCH relationships/environment)."""
+    _reactor_patch(
+        config,
+        f"/libraries/{library_id}/relationships/environment",
+        {"data": {"id": environment_id, "type": "environments"}, "id": library_id},
+    )
+
+
 def refresh_library_resources(
     config: AdobeTagsConfig,
     library_id: str,
@@ -873,8 +907,14 @@ def refresh_library_resources(
     Optionally merges *new_resources* (origin IDs not yet in the library).
     Each entry must have ``{"id": "...", "type": "rules"|"data_elements"}``.
 
+    The library's environment relationship is snapshotted on entry and
+    re-attached at the end if the refresh dropped it (observed 2026-07-02:
+    a refresh left the library with no environment, so the next
+    ``build_library`` failed with 409 "library must have an environment").
+
     Returns dict with ``rules_count`` and ``data_elements_count``.
     """
+    environment_id_before = get_library_environment_id(config, library_id)
     origins_by_type: dict[str, set[str]] = {}
     existing_by_type: dict[str, dict[str, list[str]]] = {}
 
@@ -923,6 +963,10 @@ def refresh_library_resources(
             refreshed += result["revised_count"]
 
         counts[f"{rtype}_count"] = refreshed
+
+    if environment_id_before and not get_library_environment_id(config, library_id):
+        assign_library_environment(config, library_id, environment_id_before)
+        counts["environment_reattached"] = environment_id_before
 
     return counts
 
