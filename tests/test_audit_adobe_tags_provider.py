@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import re
+
 import pytest
 import requests
 
@@ -501,6 +503,10 @@ def test_sync_data_elements_writes_settings_sidecar(tags_env, monkeypatch, tmp_p
 def test_build_library_returns_summary(tags_env, monkeypatch):
     config = _make_config()
     monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.get_library_environment_id",
+        lambda cfg, lid: "EN1",
+    )
+    monkeypatch.setattr(
         "megaton_lib.audit.providers.tag_config.adobe_tags.requests.request",
         lambda method, url, **kw: _Resp(201, {
             "data": {
@@ -751,6 +757,10 @@ def test_refresh_library_resources_rolls_back_failed_rule_refresh(tags_env, monk
         "megaton_lib.audit.providers.tag_config.adobe_tags._revise_library_resources",
         mock_revise,
     )
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.tag_config.adobe_tags.get_library_environment_id",
+        lambda cfg, lid: "",
+    )
 
     with pytest.raises(RuntimeError, match="revise failed"):
         refresh_library_resources(config, "LB1")
@@ -816,6 +826,16 @@ def test_deploy_library(tags_env, monkeypatch):
 
     def mock_request(method, url, **kw):
         if method == "GET":
+            if re.search(r"/libraries/[^/]+/?$", url):
+                return _Resp(200, {
+                    "data": {
+                        "id": "LB1",
+                        "type": "libraries",
+                        "relationships": {
+                            "environment": {"data": {"id": "EN1", "type": "environments"}},
+                        },
+                    },
+                })
             if "/libraries/" in url and "/rules" in url:
                 return _Resp(200, {
                     "data": [{
