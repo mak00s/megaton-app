@@ -834,7 +834,7 @@ should import them from `megaton_lib.gspread_lowlevel`.
 |----------|-------------|
 | `open_spreadsheet(spreadsheet_id, credentials_path, scopes=None)` | Open a spreadsheet with a service-account JSON |
 | `get_or_create_worksheet(spreadsheet, sheet_name, rows=100, cols=20)` | Return a worksheet, creating it when missing |
-| `overwrite_worksheet(spreadsheet, sheet_name, df, ...)` | Clear and overwrite one worksheet from a DataFrame |
+| `overwrite_worksheet(spreadsheet, sheet_name, df, ...)` | Atomically clear, resize, and overwrite one worksheet; date-like strings remain text |
 | `append_rows(spreadsheet, sheet_name, rows, ...)` | Append raw row values |
 | `fetch_worksheet_values(spreadsheet, sheet_name, *, missing_ok=False)` | Read all worksheet values as string rows (read-side of overwrite/append) |
 | `ensure_sheet_exists(spreadsheet, sheet_name, ...)` | Create a worksheet when missing |
@@ -846,6 +846,7 @@ should import them from `megaton_lib.gspread_lowlevel`.
 | `dataframe_update_cells_rows(df)` | Convert a DataFrame (with header row) to Sheets API row records |
 | `contiguous_runs(values)` | Yield `(value, start, end)` for maximal equal-value runs (e.g. per-row number formats) |
 | `atomic_replace_dataframe_requests(sheet_id, df, ...)` | Build batchUpdate requests for atomic clear→resize→write→format DataFrame replacement |
+| `wrap_spreadsheet_with_retry(spreadsheet)` | Retry safe reads/idempotent updates; append/insert/delete/add stay single-shot to prevent duplicate mutations |
 
 Notes:
 - `read_sheet_table(..., header_row=...)` can start from a non-zero header row when source sheets include title/comment rows

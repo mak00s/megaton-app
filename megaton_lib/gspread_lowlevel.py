@@ -1,8 +1,10 @@
 """Low-level gspread and Google Sheets batchUpdate helpers.
 
-All network calls in this module are wrapped with :func:`call_with_retry`
+Retry-safe network calls in this module use :func:`call_with_retry`
 (exponential backoff via ``megaton.retry_utils.expo_retry``; HTTP 429 quota
-errors wait at least 30 seconds before the next attempt).
+errors wait at least 30 seconds). Non-idempotent append/insert/delete/add calls
+are deliberately submitted once to avoid duplicate mutations after a lost
+response.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ import logging
 import math
 import re
 import time
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +29,7 @@ DEFAULT_SHEETS_SCOPES = [
 
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 _QUOTA_FLOOR_WAIT = 30.0  # HTTP 429 needs at least this many seconds
+_RETRY_ACTIVE: ContextVar[bool] = ContextVar("gspread_retry_active", default=False)
 
 
 def _get_status_code(exc: BaseException):
@@ -46,7 +50,13 @@ def call_with_retry(
     Retries gspread ``APIError`` with status 429/5xx and ``requests``
     transport errors. HTTP 429 quota retries add extra sleep so the wait
     before the next attempt is at least 30 seconds. ``op`` is the log label.
+
+    Nested calls collapse into the outer retry loop. This lets a retrying proxy
+    be passed to another helper in this module without multiplying attempts.
     """
+    if _RETRY_ACTIVE.get():
+        return func()
+
     import gspread
     import requests
 
@@ -67,15 +77,19 @@ def call_with_retry(
             logger.info("Quota error: adding %.1fs extra wait", extra)
             sleep(extra)
 
-    return retry_utils.expo_retry(
-        func,
-        max_retries=max_retries,
-        backoff_factor=backoff_factor,
-        exceptions=(gspread.exceptions.APIError, requests.exceptions.RequestException),
-        is_retryable=_is_retryable,
-        on_retry=_on_retry,
-        sleep=sleep,
-    )
+    token = _RETRY_ACTIVE.set(True)
+    try:
+        return retry_utils.expo_retry(
+            func,
+            max_retries=max_retries,
+            backoff_factor=backoff_factor,
+            exceptions=(gspread.exceptions.APIError, requests.exceptions.RequestException),
+            is_retryable=_is_retryable,
+            on_retry=_on_retry,
+            sleep=sleep,
+        )
+    finally:
+        _RETRY_ACTIVE.reset(token)
 
 
 __all__ = [
@@ -109,7 +123,121 @@ __all__ = [
     "contiguous_runs",
     "dataframe_update_cells_rows",
     "atomic_replace_dataframe_requests",
+    "RetryingWorksheet",
+    "RetryingSpreadsheet",
+    "wrap_spreadsheet_with_retry",
 ]
+
+
+_RETRYABLE_WORKSHEET_METHODS = frozenset({
+    "acell",
+    "batch_format",
+    "batch_get",
+    "batch_update",
+    "cell",
+    "clear",
+    "col_values",
+    "find",
+    "findall",
+    "format",
+    "freeze",
+    "get",
+    "get_all_cells",
+    "get_all_records",
+    "get_all_values",
+    "get_note",
+    "get_values",
+    "hide",
+    "resize",
+    "row_values",
+    "show",
+    "sort",
+    "update",
+    "update_acell",
+    "update_cell",
+    "update_cells",
+    "update_note",
+    "update_tab_color",
+})
+_RETRYABLE_SPREADSHEET_METHODS = frozenset({
+    "fetch_sheet_metadata",
+    "get_worksheet",
+    "get_worksheet_by_id",
+    "list_named_ranges",
+    "list_permissions",
+    "values_batch_get",
+    "values_batch_update",
+    "values_get",
+    "values_update",
+})
+
+
+class RetryingWorksheet:
+    """Retry reads and idempotent absolute updates on a gspread worksheet.
+
+    Append/insert/delete/add methods are intentionally passed through once.
+    Retrying those operations after a lost response can duplicate or remove
+    rows twice. The facade therefore gives those mutations at-most-once client
+    submission semantics.
+    """
+
+    def __init__(self, worksheet):
+        self._worksheet = worksheet
+
+    def __getattr__(self, name: str):
+        attr = getattr(self._worksheet, name)
+        if not callable(attr) or name not in _RETRYABLE_WORKSHEET_METHODS:
+            return attr
+
+        def wrapped(*args, **kwargs):
+            title = getattr(self._worksheet, "title", "worksheet")
+            return call_with_retry(f"{title}.{name}", lambda: attr(*args, **kwargs))
+
+        return wrapped
+
+
+class RetryingSpreadsheet:
+    """Retry safe spreadsheet calls and wrap returned worksheets.
+
+    This facade is suitable for consumers that access raw gspread objects.
+    Nested use with this module's helpers is also safe: ``call_with_retry``
+    suppresses inner retry loops. Non-idempotent methods remain single-shot.
+    """
+
+    def __init__(self, spreadsheet):
+        self._spreadsheet = spreadsheet
+
+    def worksheet(self, sheet_name: str) -> RetryingWorksheet:
+        worksheet = call_with_retry(
+            f"worksheet {sheet_name}",
+            lambda: self._spreadsheet.worksheet(sheet_name),
+        )
+        return RetryingWorksheet(worksheet)
+
+    def add_worksheet(self, *args, **kwargs) -> RetryingWorksheet:
+        worksheet = self._spreadsheet.add_worksheet(*args, **kwargs)
+        return RetryingWorksheet(worksheet)
+
+    def worksheets(self) -> list[RetryingWorksheet]:
+        worksheets = call_with_retry("worksheets", self._spreadsheet.worksheets)
+        return [RetryingWorksheet(ws) for ws in worksheets]
+
+    def __getattr__(self, name: str):
+        attr = getattr(self._spreadsheet, name)
+        if not callable(attr) or name not in _RETRYABLE_SPREADSHEET_METHODS:
+            return attr
+
+        def wrapped(*args, **kwargs):
+            return call_with_retry(f"spreadsheet.{name}", lambda: attr(*args, **kwargs))
+
+        return wrapped
+
+
+def wrap_spreadsheet_with_retry(spreadsheet) -> RetryingSpreadsheet:
+    """Return a retrying facade without changing ``open_spreadsheet``'s contract."""
+    if isinstance(spreadsheet, RetryingSpreadsheet):
+        return spreadsheet
+    return RetryingSpreadsheet(spreadsheet)
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATETIME_RE = re.compile(
@@ -127,7 +255,7 @@ def _is_missing_scalar(value: Any) -> bool:
         return False
 
 
-def cell_value(value: Any) -> dict:
+def cell_value(value: Any, *, parse_formulas: bool = True) -> dict:
     """Build ``userEnteredValue`` for a Python value.
 
     Strings intentionally stay strings so IDs/codes with leading zeroes are not
@@ -147,7 +275,7 @@ def cell_value(value: Any) -> dict:
         s = value.strip()
         if not s:
             return {"stringValue": ""}
-        if s.startswith("="):
+        if parse_formulas and s.startswith("="):
             return {"formulaValue": s}
         return {"stringValue": s}
     return {"stringValue": str(value)}
@@ -177,6 +305,8 @@ def cell_data(
     *,
     date_format: str = "yyyy-mm-dd",
     datetime_format: str = "yyyy-mm-dd hh:mm",
+    parse_formulas: bool = True,
+    parse_dates: bool = True,
 ) -> dict:
     """Build Sheets API ``CellData`` for a value.
 
@@ -184,8 +314,10 @@ def cell_data(
     with a display format. Other strings stay strings.
     """
     if isinstance(value, str):
+        if not parse_formulas and not parse_dates:
+            return {"userEnteredValue": cell_value(value, parse_formulas=False)}
         s = value.strip()
-        if _DATETIME_RE.match(s):
+        if parse_dates and _DATETIME_RE.match(s):
             serial = _datetime_serial(s)
             if serial is not None:
                 return {
@@ -194,16 +326,16 @@ def cell_data(
                         "numberFormat": {"type": "DATE_TIME", "pattern": datetime_format}
                     },
                 }
-        elif _DATE_RE.match(s):
+        elif parse_dates and _DATE_RE.match(s):
             try:
                 serial = (_dt.date.fromisoformat(s) - _SHEETS_EPOCH_DATE).days
             except ValueError:
-                return {"userEnteredValue": cell_value(value)}
+                return {"userEnteredValue": cell_value(value, parse_formulas=parse_formulas)}
             return {
                 "userEnteredValue": {"numberValue": float(serial)},
                 "userEnteredFormat": {"numberFormat": {"type": "DATE", "pattern": date_format}},
             }
-    return {"userEnteredValue": cell_value(value)}
+    return {"userEnteredValue": cell_value(value, parse_formulas=parse_formulas)}
 
 
 def contiguous_runs(values: list[Any]):
@@ -217,7 +349,12 @@ def contiguous_runs(values: list[Any]):
         i = j
 
 
-def dataframe_update_cells_rows(df: pd.DataFrame | None) -> list[dict]:
+def dataframe_update_cells_rows(
+    df: pd.DataFrame | None,
+    *,
+    parse_formulas: bool = True,
+    parse_dates: bool = True,
+) -> list[dict]:
     """Convert a DataFrame to Sheets API row records including the header row."""
     if df is None:
         values: list[list[Any]] = [[]]
@@ -226,7 +363,15 @@ def dataframe_update_cells_rows(df: pd.DataFrame | None) -> list[dict]:
     else:
         values = [[str(c) for c in df.columns]]
         values.extend([list(row) for row in df.itertuples(index=False, name=None)])
-    return [{"values": [cell_data(v) for v in row]} for row in values]
+    return [
+        {
+            "values": [
+                cell_data(v, parse_formulas=parse_formulas, parse_dates=parse_dates)
+                for v in row
+            ]
+        }
+        for row in values
+    ]
 
 
 def atomic_replace_dataframe_requests(
@@ -239,7 +384,12 @@ def atomic_replace_dataframe_requests(
     column_widths: list[int] | None = None,
     clear_format: bool = True,
     header_format: dict | None = None,
-    freeze_header: bool = True,
+    freeze_header: bool | None = True,
+    min_rows: int | None = None,
+    min_cols: int | None = None,
+    write_formats: bool = True,
+    parse_formulas: bool = True,
+    parse_dates: bool = True,
 ) -> list[dict]:
     """Build batchUpdate requests for atomic DataFrame sheet replacement.
 
@@ -248,10 +398,15 @@ def atomic_replace_dataframe_requests(
     workbook facades can use it without adopting megaton's higher-level sheet
     abstractions.
     """
-    rows = dataframe_update_cells_rows(df)
-    n_rows = max(len(rows), 2)
+    rows = dataframe_update_cells_rows(
+        df,
+        parse_formulas=parse_formulas,
+        parse_dates=parse_dates,
+    )
+    n_rows = max(len(rows), 2, int(min_rows or 0))
     n_cols = max(
         max((len(r.get("values", [])) for r in rows), default=1),
+        int(min_cols or 0),
         1,
     )
     clear_fields = "userEnteredValue,userEnteredFormat" if clear_format else "userEnteredValue"
@@ -271,7 +426,7 @@ def atomic_replace_dataframe_requests(
             "updateCells": {
                 "start": {"sheetId": int(sheet_id), "rowIndex": 0, "columnIndex": 0},
                 "rows": rows,
-                "fields": "userEnteredValue,userEnteredFormat",
+                "fields": "userEnteredValue,userEnteredFormat" if write_formats else "userEnteredValue",
             }
         },
     ]
@@ -291,9 +446,9 @@ def atomic_replace_dataframe_requests(
             }
         })
 
-    if freeze_header:
+    if freeze_header is True:
         requests.append(update_grid_properties_request(int(sheet_id), frozen_rows=1))
-    else:
+    elif freeze_header is False:
         requests.append(update_grid_properties_request(int(sheet_id), frozen_rows=0))
 
     for col, nf in (number_formats or {}).items():
@@ -418,13 +573,10 @@ def get_or_create_worksheet(
             lambda: spreadsheet.worksheet(sheet_name),
         )
     except gspread.exceptions.WorksheetNotFound:
-        return call_with_retry(
-            f"add_worksheet {sheet_name}",
-            lambda: spreadsheet.add_worksheet(
-                title=sheet_name,
-                rows=max(int(rows), 1),
-                cols=max(int(cols), 1),
-            ),
+        return spreadsheet.add_worksheet(
+            title=sheet_name,
+            rows=max(int(rows), 1),
+            cols=max(int(cols), 1),
         )
 
 
@@ -445,6 +597,8 @@ def overwrite_worksheet(
     """
     if df is None or not isinstance(df, pd.DataFrame):
         raise TypeError("df must be a pandas DataFrame")
+    if value_input_option not in {"RAW", "USER_ENTERED"}:
+        raise ValueError("value_input_option must be RAW or USER_ENTERED")
     if dry_run:
         print(f"would_write_sheet={sheet_name} rows={len(df)}")
         return int(len(df))
@@ -455,14 +609,20 @@ def overwrite_worksheet(
         rows=max(len(df) + 10, min_rows),
         cols=max(len(df.columns) + extra_cols, 1),
     )
-    call_with_retry(f"clear {sheet_name}", ws.clear)
-    values = [df.columns.tolist()] + df.astype(str).replace("nan", "").values.tolist()
-    call_with_retry(
-        f"update {sheet_name}",
-        lambda: ws.update(values, value_input_option=value_input_option),
+    requests = atomic_replace_dataframe_requests(
+        ws.id,
+        df,
+        min_rows=max(getattr(ws, "row_count", 0), len(df) + 10, min_rows),
+        min_cols=max(getattr(ws, "col_count", 0), len(df.columns) + extra_cols, 1),
+        clear_format=False,
+        write_formats=False,
+        header_format={},
+        # Legacy overwrite_worksheet only froze when True; False was a no-op.
+        freeze_header=True if freeze_header else None,
+        parse_formulas=value_input_option == "USER_ENTERED",
+        parse_dates=False,
     )
-    if freeze_header:
-        call_with_retry(f"freeze {sheet_name}", lambda: ws.freeze(rows=1))
+    batch_update_spreadsheet(spreadsheet, requests)
     return int(len(df))
 
 
@@ -477,7 +637,12 @@ def append_rows(
     min_cols: int = 20,
     dry_run: bool = False,
 ) -> int:
-    """Append rows to a worksheet and return the number of rows appended."""
+    """Append rows once and return the number submitted.
+
+    The append itself is not retried because an applied request with a lost
+    response cannot be distinguished from a failed request without an
+    application-level idempotency key.
+    """
     if dry_run:
         print(f"would_append_sheet={sheet_name} rows={len(rows)}")
         return len(rows)
@@ -494,10 +659,7 @@ def append_rows(
             lambda: spreadsheet.worksheet(sheet_name),
         )
     if rows:
-        call_with_retry(
-            f"append_rows {sheet_name}",
-            lambda: ws.append_rows(rows, value_input_option=value_input_option),
-        )
+        ws.append_rows(rows, value_input_option=value_input_option)
     return len(rows)
 
 
