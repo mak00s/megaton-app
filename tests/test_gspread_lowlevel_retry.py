@@ -9,8 +9,8 @@ from megaton_lib import gspread_lowlevel as gl
 class _FakeAPIError(Exception):
     """Stand-in shaped like gspread APIError (has .response.status_code)."""
 
-    def __init__(self, status):
-        super().__init__(f"http {status}")
+    def __init__(self, status, message=None):
+        super().__init__(message or f"http {status}")
         self.response = MagicMock(status_code=status)
 
 
@@ -46,6 +46,37 @@ def test_does_not_retry_on_4xx_other_than_429(_patch_gspread_exc):
     def denied():
         calls["n"] += 1
         raise _FakeAPIError(403)
+
+    with pytest.raises(_FakeAPIError):
+        gl.call_with_retry("op", denied, sleep=lambda *_: None)
+    assert calls["n"] == 1
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["userRateLimitExceeded", "rate limit exceeded", "quotaExceeded"],
+)
+def test_retries_rate_limit_403_with_quota_floor(_patch_gspread_exc, message):
+    sleeps = []
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _FakeAPIError(403, message)
+        return "ok"
+
+    assert gl.call_with_retry("op", flaky, sleep=sleeps.append) == "ok"
+    assert calls["n"] == 2
+    assert sum(sleeps) >= gl._QUOTA_FLOOR_WAIT
+
+
+def test_permission_403_fails_without_retry(_patch_gspread_exc):
+    calls = {"n": 0}
+
+    def denied():
+        calls["n"] += 1
+        raise _FakeAPIError(403, "The caller does not have permission")
 
     with pytest.raises(_FakeAPIError):
         gl.call_with_retry("op", denied, sleep=lambda *_: None)

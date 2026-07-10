@@ -1097,6 +1097,25 @@ def test_connected_browser_page_priority_match_closes_same_host_duplicates(monke
     assert holdings.closed is False
 
 
+def test_connected_browser_page_prunes_duplicates_across_multiple_hosts(monkeypatch):
+    holdings = FakePage(url="https://trade.kabu.co.jp/member/holdings")
+    stale_login = FakePage(url="https://kabu.com/login")
+    other = FakePage(url="https://other.example/")
+    ctx = FakeCDPContext([stale_login, holdings, other])
+    _install_fake_cdp(monkeypatch, [ctx])
+
+    with playwright_browser.connected_browser_page(
+        "http://127.0.0.1:9231",
+        match="member/holdings",
+        cleanup_host=["kabu.co.jp", "kabu.com"],
+    ) as page:
+        assert page is holdings
+
+    assert stale_login.closed is True
+    assert holdings.closed is False
+    assert other.closed is False
+
+
 def test_connected_browser_page_prunes_kept_page_on_failure(monkeypatch):
     page = FakePage(url="https://broker.example/member/holdings")
     ctx = FakeCDPContext([page])
