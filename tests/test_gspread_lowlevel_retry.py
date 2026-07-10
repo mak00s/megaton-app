@@ -91,3 +91,24 @@ def test_retries_requests_transport_errors():
 
     assert gl.call_with_retry("op", flaky, sleep=lambda *_: None) == "ok"
     assert calls["n"] == 2
+
+
+def test_nested_retry_uses_only_outer_attempt_loop():
+    import requests
+
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise requests.exceptions.ConnectionError("reset")
+        return "ok"
+
+    result = gl.call_with_retry(
+        "outer",
+        lambda: gl.call_with_retry("inner", flaky, sleep=lambda *_: None),
+        sleep=lambda *_: None,
+    )
+
+    assert result == "ok"
+    assert calls["n"] == 2

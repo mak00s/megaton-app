@@ -2,6 +2,11 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## Unreleased
+
+- Made `gspread_lowlevel.overwrite_worksheet()` atomic and missing-value safe; date-like strings now remain text instead of being parsed into Sheets date cells. Added shared retrying spreadsheet/worksheet facades that deliberately do not retry non-idempotent append/insert/delete/add operations.
+- Added a CI lint gate for the installable `megaton_lib` package.
+
 ## 2026-07-04 (v0.24.0)
 
 - **Requires `megaton>=2.0.0`** (raised from `>=1.5.0`). megaton 2.0.0 is a breaking major (GA3/UA removed, `mg.recipes` → `mg.load.config`, `filter_d` unified across report/search, `mg.set.retry`, `mg.report.set_dates` → `mg.report.set.dates`, `mg.show.ga.properties` → `mg.show.ga.property`). megaton-app uses none of the removed/renamed APIs — verified by grep and by running the full test suite against megaton 2.0.0 (1043 passed). Behavior note: `mg.report.run(limit=/max_retries=/timeout=)` now actually reach GA4 (megaton fixed a bug where they were silently dropped), so report paths that pass `limit=` now honor it.

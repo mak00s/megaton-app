@@ -15,6 +15,7 @@ audit = [
 dev = [
     "pytest",
     "pytest-cov",
+    "ruff",
 ]
 google = [
     "google-api-python-client",
