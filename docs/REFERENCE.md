@@ -979,6 +979,8 @@ a browser is opened. Install with `pip install -e ".[playwright]"` and run
 | `CanvasClipScreenshotter(...)` | Context manager for fixed-coordinate screenshots relative to a browser-rendered canvas |
 | `is_port_open(port, host="127.0.0.1", ...)` | Probe whether a local TCP port is accepting connections |
 | `launch_chrome_with_debug_port(...)` | macOS-only helper that opens Google Chrome with `--remote-debugging-port` for CDP attach |
+| `assert_cdp_profile_owner(cdp_url, user_data_dir, ...)` | Fail unless a local CDP listener has the exact expected Chrome profile; remote/unverifiable endpoints require explicit opt-in |
+| `cdp_command_uses_profile(command, user_data_dir)` | Check an exact `--user-data-dir` process argument without prefix matching |
 | `find_or_open_page(context, url, ...)` | Reuse an existing page whose URL starts with `url`, or open and navigate a new page |
 | `connected_browser_page(cdp_url, ...)` | Context manager that attaches to an existing Chrome over CDP and yields a page |
 | `async_connected_browser_page(cdp_url, ...)` | Async CDP context manager with the same priority match and stale-tab cleanup guarantees |
