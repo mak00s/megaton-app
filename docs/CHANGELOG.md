@@ -2,7 +2,7 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-## Unreleased
+## 2026-07-10 (v0.26.0)
 
 - Added fail-closed CDP profile ownership checks: local listeners require an exact `--user-data-dir` match, while remote or unverifiable endpoints require explicit opt-in.
 
