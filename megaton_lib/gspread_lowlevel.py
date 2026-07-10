@@ -29,12 +29,28 @@ DEFAULT_SHEETS_SCOPES = [
 
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 _QUOTA_FLOOR_WAIT = 30.0  # HTTP 429 needs at least this many seconds
+_RATE_LIMIT_403_TOKENS = (
+    "user_rate_limit",
+    "userratelimitexceeded",
+    "rate limit",
+    "ratelimitexceeded",
+    "quota exceeded",
+    "quotaexceeded",
+)
 _RETRY_ACTIVE: ContextVar[bool] = ContextVar("gspread_retry_active", default=False)
 
 
 def _get_status_code(exc: BaseException):
     response = getattr(exc, "response", None)
     return getattr(response, "status_code", None)
+
+
+def _is_rate_limit_403(exc: BaseException) -> bool:
+    """Match quota-style 403s without retrying real permission failures."""
+    if _get_status_code(exc) != 403:
+        return False
+    message = str(exc).lower()
+    return any(token in message for token in _RATE_LIMIT_403_TOKENS)
 
 
 def call_with_retry(
@@ -47,9 +63,10 @@ def call_with_retry(
 ):
     """Run a gspread/Sheets network call with exponential-backoff retry.
 
-    Retries gspread ``APIError`` with status 429/5xx and ``requests``
-    transport errors. HTTP 429 quota retries add extra sleep so the wait
-    before the next attempt is at least 30 seconds. ``op`` is the log label.
+    Retries gspread ``APIError`` with status 429/5xx, rate-limit-specific 403s,
+    and ``requests`` transport errors. Quota retries add extra sleep so the
+    wait before the next attempt is at least 30 seconds. Ordinary permission
+    403s fail immediately. ``op`` is the log label.
 
     Nested calls collapse into the outer retry loop. This lets a retrying proxy
     be passed to another helper in this module without multiplying attempts.
@@ -65,14 +82,14 @@ def call_with_retry(
     def _is_retryable(exc: BaseException) -> bool:
         if isinstance(exc, requests.exceptions.RequestException):
             return True
-        return _get_status_code(exc) in _RETRYABLE_STATUS_CODES
+        return _get_status_code(exc) in _RETRYABLE_STATUS_CODES or _is_rate_limit_403(exc)
 
     def _on_retry(attempt_no: int, max_attempts: int, wait: float, exc: BaseException) -> None:
         logger.warning(
             "%s failed; retrying in %.1fs (%s/%s): %s",
             op, wait, attempt_no, max_attempts, exc,
         )
-        if _get_status_code(exc) == 429 and wait < _QUOTA_FLOOR_WAIT:
+        if (_get_status_code(exc) == 429 or _is_rate_limit_403(exc)) and wait < _QUOTA_FLOOR_WAIT:
             extra = _QUOTA_FLOOR_WAIT - wait
             logger.info("Quota error: adding %.1fs extra wait", extra)
             sleep(extra)
