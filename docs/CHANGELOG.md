@@ -2,7 +2,7 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-## Unreleased
+## 2026-07-10 (v0.25.0)
 
 - Made `gspread_lowlevel.overwrite_worksheet()` atomic and missing-value safe; date-like strings now remain text instead of being parsed into Sheets date cells. Added shared retrying spreadsheet/worksheet facades that deliberately do not retry non-idempotent append/insert/delete/add operations.
 - Retry policy now recognizes rate-limit-specific HTTP 403 responses while ordinary permission 403s still fail immediately.
