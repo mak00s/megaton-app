@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import builtins
 import importlib
 import socket
@@ -503,6 +504,10 @@ class AsyncFakeBrowser:
         self.closed = False
         self.new_context_kwargs: dict = {}
 
+    @property
+    def contexts(self):
+        return [self._context]
+
     async def new_context(self, **kwargs):
         self.new_context_kwargs = kwargs
         return self._context
@@ -520,6 +525,7 @@ class AsyncFakeChromium:
         self.browser = AsyncFakeBrowser(self.context)
         self.launch_kwargs: dict = {}
         self.launch_persistent_kwargs: dict = {}
+        self.connect_calls: list[str] = []
 
     async def launch(self, **kwargs):
         self.launch_kwargs = kwargs
@@ -528,6 +534,10 @@ class AsyncFakeChromium:
     async def launch_persistent_context(self, **kwargs):
         self.launch_persistent_kwargs = kwargs
         return self.persistent_context
+
+    async def connect_over_cdp(self, cdp_url):
+        self.connect_calls.append(cdp_url)
+        return self.browser
 
 
 class AsyncFakePlaywright:
@@ -583,6 +593,22 @@ def test_async_browser_page_passes_options_and_closes(monkeypatch):
     }
     assert pw.chromium.context.closed is True
     assert pw.chromium.browser.closed is True
+
+
+def test_open_async_browser_context_uses_shared_device_and_cdp_policy():
+    pw = AsyncFakePlaywright()
+
+    context = asyncio.run(
+        playwright_browser.open_async_browser_context(
+            pw,
+            cdp_url="http://127.0.0.1:9222",
+            device_name="Pixel",
+            timezone_id="Asia/Tokyo",
+        )
+    )
+
+    assert context is pw.chromium.context
+    assert pw.chromium.connect_calls == ["http://127.0.0.1:9222"]
 
 
 def test_launch_async_browser_fallback_logs_original_error(caplog):
@@ -1007,6 +1033,15 @@ def test_connected_browser_page_target_url_keeps_startswith_semantics(monkeypatc
     assert ctx._new_pages_created == 1
 
 
+def test_cdp_host_cleanup_matches_hostname_not_query_string():
+    assert playwright_browser.cdp_url_matches_host(
+        "https://member.example.test/account", "example.test"
+    )
+    assert not playwright_browser.cdp_url_matches_host(
+        "https://unrelated.test/?next=https://example.test/account", "example.test"
+    )
+
+
 def test_connected_browser_page_falls_back_to_last_page_when_no_target(monkeypatch):
     p1 = FakePage(url="https://a.test/")
     p2 = FakePage(url="https://b.test/")
@@ -1353,6 +1388,70 @@ def test_connected_browser_page_wraps_connect_failure_with_hint(monkeypatch):
     with pytest.raises(RuntimeError, match="remote-debugging-port"):
         with playwright_browser.connected_browser_page("http://127.0.0.1:9299"):
             pass
+
+
+def test_async_connected_browser_page_selects_and_cleans_tabs(monkeypatch):
+    class Page:
+        def __init__(self, url):
+            self.url = url
+            self.closed = False
+            self.front = 0
+
+        async def close(self):
+            self.closed = True
+
+        async def bring_to_front(self):
+            self.front += 1
+
+    keep = Page("https://member.example.test/account")
+    stale = Page("https://login.example.test/")
+
+    class Context:
+        pages = [stale, keep]
+
+        async def new_page(self):
+            page = Page("about:blank")
+            self.pages.append(page)
+            return page
+
+    context = Context()
+
+    class Browser:
+        contexts = [context]
+        closed = False
+
+        async def close(self):
+            self.closed = True
+
+    browser = Browser()
+
+    class Chromium:
+        async def connect_over_cdp(self, _url):
+            return browser
+
+    class Playwright:
+        chromium = Chromium()
+
+    @asynccontextmanager
+    async def manager():
+        yield Playwright()
+
+    monkeypatch.setattr(playwright_browser, "_load_async_playwright", lambda: manager)
+
+    async def run():
+        async with playwright_browser.async_connected_browser_page(
+            "http://127.0.0.1:9222",
+            match="/account",
+            cleanup_host="example.test",
+        ) as page:
+            assert page is keep
+
+    asyncio.run(run())
+
+    assert keep.front == 1
+    assert keep.closed is False
+    assert stale.closed is True
+    assert browser.closed is True
 
 
 def test_ensure_chrome_cdp_reuses_running_instance(monkeypatch, tmp_path):
