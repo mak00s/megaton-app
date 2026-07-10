@@ -28,6 +28,7 @@ import contextlib
 import datetime as dt
 import json
 import logging
+import re
 import socket
 import subprocess
 import sys
@@ -997,19 +998,26 @@ def ensure_chrome_cdp(
     user_data_dir: str | Path,
     start_url: str = "about:blank",
     timeout: float = 10.0,
+    allow_unverified: bool = False,
 ) -> str:
     """Ensure a normal Chrome instance is reachable over CDP; return its URL.
 
-    Idempotent: if ``http://127.0.0.1:<port>`` already answers ``/json/version``
-    the running instance is reused. Otherwise Chrome is launched WITHOUT
+    Idempotent: an existing listener is reused only when its command line has
+    an exact ``--user-data-dir`` match. Otherwise Chrome is launched WITHOUT
     Playwright automation flags (for sites that reject automated Chrome) and
-    polled until the debug port is ready, raising after ``timeout`` seconds.
+    polled until the debug port is ready. Ownership checks fail closed unless
+    ``allow_unverified`` is explicitly enabled.
     """
     url = f"http://127.0.0.1:{port}"
+    profile_dir = Path(user_data_dir).resolve()
     if _cdp_ready(url):
+        assert_cdp_profile_owner(
+            url,
+            profile_dir,
+            allow_unverified=allow_unverified,
+        )
         return url
 
-    profile_dir = Path(user_data_dir).resolve()
     profile_dir.mkdir(parents=True, exist_ok=True)
     chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
     subprocess.Popen(
@@ -1029,6 +1037,11 @@ def ensure_chrome_cdp(
     deadline = time.time() + timeout
     while time.time() < deadline:
         if _cdp_ready(url):
+            assert_cdp_profile_owner(
+                url,
+                profile_dir,
+                allow_unverified=allow_unverified,
+            )
             return url
         time.sleep(0.25)
     raise RuntimeError(f"Chrome CDP did not become ready: {url}")
@@ -1043,6 +1056,85 @@ def _cdp_ready(url: str) -> bool:
             return res.status == 200
     except (OSError, urllib.error.URLError):
         return False
+
+
+def cdp_command_uses_profile(command: str, user_data_dir: str | Path) -> bool:
+    """Return whether a process command has the exact Chrome profile argument."""
+    expected = re.escape(str(Path(user_data_dir).resolve()))
+    pattern = rf"(?:^|\s)--user-data-dir(?:=|\s+)(?P<q>['\"]?){expected}(?P=q)(?=\s|$)"
+    return re.search(pattern, command) is not None
+
+
+def local_cdp_listener_commands(cdp_url: str) -> list[str]:
+    """Return local listener command lines for a loopback CDP endpoint."""
+    parsed = urlsplit(cdp_url)
+    if parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+        raise ValueError(f"CDP endpoint is not local: {cdp_url}")
+    if parsed.port is None:
+        raise ValueError(f"CDP endpoint has no port: {cdp_url}")
+
+    try:
+        pids = subprocess.run(
+            ["lsof", "-nP", f"-iTCP:{parsed.port}", "-sTCP:LISTEN", "-t"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        ).stdout.split()
+        commands = []
+        for pid in pids:
+            command = subprocess.run(
+                ["ps", "-ww", "-o", "command=", "-p", pid],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            ).stdout.strip()
+            if command:
+                commands.append(command)
+        return commands
+    except (OSError, subprocess.SubprocessError):
+        return []
+
+
+def assert_cdp_profile_owner(
+    cdp_url: str,
+    user_data_dir: str | Path,
+    *,
+    allow_unverified: bool = False,
+    allow_remote: bool = False,
+) -> None:
+    """Require a CDP endpoint to belong to the expected Chrome profile.
+
+    Local listeners are matched by an exact ``--user-data-dir`` process
+    argument. Remote endpoints cannot be verified from the local process table
+    and therefore require explicit ``allow_remote=True``. Missing process
+    metadata fails closed unless ``allow_unverified=True`` is explicitly set,
+    which also covers intentionally trusted SSH tunnel listeners.
+    """
+    parsed = urlsplit(cdp_url)
+    is_local = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+    if not is_local:
+        if allow_remote:
+            return
+        raise RuntimeError(
+            f"cannot verify remote CDP profile owner: {cdp_url}; "
+            "set allow_remote=True only for an explicitly trusted endpoint"
+        )
+
+    commands = local_cdp_listener_commands(cdp_url)
+    if any(cdp_command_uses_profile(command, user_data_dir) for command in commands):
+        return
+    if allow_unverified:
+        return
+    expected = Path(user_data_dir).resolve()
+    if not commands:
+        raise RuntimeError(
+            f"cannot identify the process listening at {cdp_url}; expected profile: {expected}"
+        )
+    raise RuntimeError(
+        f"CDP endpoint {cdp_url} belongs to a different Chrome profile; expected: {expected}"
+    )
 
 
 def find_or_open_page(

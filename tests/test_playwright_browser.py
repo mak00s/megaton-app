@@ -1475,6 +1475,12 @@ def test_async_connected_browser_page_selects_and_cleans_tabs(monkeypatch):
 
 def test_ensure_chrome_cdp_reuses_running_instance(monkeypatch, tmp_path):
     monkeypatch.setattr(playwright_browser, "_cdp_ready", lambda url: True)
+    ownership = []
+    monkeypatch.setattr(
+        playwright_browser,
+        "assert_cdp_profile_owner",
+        lambda url, profile, **kwargs: ownership.append((url, profile, kwargs)),
+    )
 
     def must_not_launch(*a, **k):  # pragma: no cover
         raise AssertionError("Chrome must not be launched when CDP is already up")
@@ -1482,6 +1488,13 @@ def test_ensure_chrome_cdp_reuses_running_instance(monkeypatch, tmp_path):
     monkeypatch.setattr(playwright_browser.subprocess, "Popen", must_not_launch)
     url = playwright_browser.ensure_chrome_cdp(port=9222, user_data_dir=tmp_path / "p")
     assert url == "http://127.0.0.1:9222"
+    assert ownership == [
+        (
+            "http://127.0.0.1:9222",
+            (tmp_path / "p").resolve(),
+            {"allow_unverified": False},
+        )
+    ]
 
 
 def test_ensure_chrome_cdp_launches_and_polls_until_ready(monkeypatch, tmp_path):
@@ -1497,6 +1510,7 @@ def test_ensure_chrome_cdp_launches_and_polls_until_ready(monkeypatch, tmp_path)
         lambda cmd, **kw: calls["popen"].append(cmd),
     )
     monkeypatch.setattr(playwright_browser.time, "sleep", lambda s: None)
+    monkeypatch.setattr(playwright_browser, "assert_cdp_profile_owner", lambda *_a, **_k: None)
 
     url = playwright_browser.ensure_chrome_cdp(
         port=9250, user_data_dir=tmp_path / "profile", start_url="about:blank"
@@ -1518,3 +1532,40 @@ def test_ensure_chrome_cdp_raises_when_port_never_ready(monkeypatch, tmp_path):
 
     with pytest.raises(RuntimeError, match="did not become ready"):
         playwright_browser.ensure_chrome_cdp(port=9251, user_data_dir=tmp_path / "p", timeout=10.0)
+
+
+def test_cdp_command_profile_match_is_exact(tmp_path):
+    profile = (tmp_path / "chrome-cdp").resolve()
+
+    assert playwright_browser.cdp_command_uses_profile(
+        f"Google Chrome --user-data-dir={profile} --no-first-run",
+        profile,
+    )
+    assert not playwright_browser.cdp_command_uses_profile(
+        f"Google Chrome --user-data-dir={profile}-old --no-first-run",
+        profile,
+    )
+
+
+def test_assert_cdp_profile_owner_fails_closed_when_unknown(monkeypatch, tmp_path):
+    monkeypatch.setattr(playwright_browser, "local_cdp_listener_commands", lambda _url: [])
+
+    with pytest.raises(RuntimeError, match="cannot identify"):
+        playwright_browser.assert_cdp_profile_owner(
+            "http://127.0.0.1:9222",
+            tmp_path / "profile",
+        )
+
+
+def test_assert_cdp_profile_owner_requires_remote_opt_in(tmp_path):
+    with pytest.raises(RuntimeError, match="cannot verify remote"):
+        playwright_browser.assert_cdp_profile_owner(
+            "http://mac2022:9222",
+            tmp_path / "profile",
+        )
+
+    playwright_browser.assert_cdp_profile_owner(
+        "http://mac2022:9222",
+        tmp_path / "profile",
+        allow_remote=True,
+    )
