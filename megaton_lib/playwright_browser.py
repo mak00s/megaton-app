@@ -36,6 +36,7 @@ from collections.abc import Awaitable, Callable, Iterator, Mapping
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import urlsplit
 
 from megaton_lib.tz_utils import JST
 
@@ -563,6 +564,64 @@ async def async_browser_page(
                 await browser.close()
 
 
+async def open_async_browser_context(
+    playwright: Any,
+    *,
+    headless: bool = True,
+    browser_channel: str | None = None,
+    launch_args: list[str] | None = None,
+    user_data_dir: str | Path | None = None,
+    storage_state_path: str | Path | None = None,
+    device_name: str | None = None,
+    locale: str | None = "ja-JP",
+    timezone_id: str | None = None,
+    viewport: Mapping[str, int] | None = None,
+    accept_downloads: bool | None = None,
+    context_kwargs: Mapping[str, Any] | None = None,
+    cdp_url: str | None = None,
+) -> Any:
+    """Open an async BrowserContext using the shared launch/CDP policy.
+
+    The caller owns the passed Playwright instance and must close the returned
+    context and call ``playwright.stop()``. Stopping that caller-owned instance
+    also releases a CDP transport created by this helper; no separate Browser
+    handle is required. This shape supports long-lived task objects such as
+    poimak4's runner while keeping launch configuration centralized.
+    """
+    extra = _build_context_options(
+        devices=playwright.devices,
+        locale=locale,
+        device_name=device_name,
+        storage_state_path=Path(storage_state_path) if storage_state_path else None,
+        use_storage_state=user_data_dir is None,
+        user_agent=None,
+        timezone_id=timezone_id,
+        viewport=viewport,
+        accept_downloads=accept_downloads,
+        context_kwargs=context_kwargs,
+    )
+    if cdp_url:
+        browser = await playwright.chromium.connect_over_cdp(cdp_url)
+        if browser.contexts:
+            return browser.contexts[0]
+        return await browser.new_context(**extra)
+    launch_kwargs = _build_launch_options(
+        headless=headless,
+        browser_channel=browser_channel,
+        launch_args=launch_args,
+    )
+    if user_data_dir is not None:
+        profile = Path(user_data_dir)
+        profile.mkdir(parents=True, exist_ok=True)
+        return await playwright.chromium.launch_persistent_context(
+            user_data_dir=str(profile),
+            **launch_kwargs,
+            **extra,
+        )
+    browser = await _launch_async_browser(playwright.chromium, launch_kwargs)
+    return await browser.new_context(**extra)
+
+
 def _build_launch_options(
     *,
     headless: bool,
@@ -598,6 +657,7 @@ def _build_context_options(
     context_kwargs: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     extra: dict[str, Any] = dict(devices[device_name]) if device_name else {}
+    extra.pop("default_browser_type", None)
     if locale is not None:
         extra["locale"] = locale
     if storage_state_path is not None and storage_state_path.exists() and use_storage_state:
@@ -1013,11 +1073,19 @@ def _norm_cdp_hosts(host: str | list[str] | tuple[str, ...] | None) -> list[str]
     return [host] if isinstance(host, str) else list(host)
 
 
-def _cdp_host_match(url: str, hosts: list[str]) -> bool:
-    return any(h in (url or "") for h in hosts)
+def cdp_url_matches_host(url: str, hosts: str | list[str] | tuple[str, ...] | None) -> bool:
+    """Return whether ``url`` belongs to one of the exact hosts/subdomains."""
+    hostname = (urlsplit(url or "").hostname or "").lower().rstrip(".")
+    if not hostname:
+        return False
+    for host in _norm_cdp_hosts(hosts):
+        normalized = host.lower().rstrip(".")
+        if hostname == normalized or hostname.endswith(f".{normalized}"):
+            return True
+    return False
 
 
-def _plan_cdp_active_and_dups(
+def plan_cdp_active_and_duplicates(
     urls: list[str],
     match: str | list[str],
     cleanup_host: str | list[str] | None,
@@ -1040,11 +1108,11 @@ def _plan_cdp_active_and_dups(
     matching_any = {i for i, url in enumerate(urls) if any(pattern in (url or "") for pattern in patterns)}
     close = matching_any - {active}
     if hosts:
-        close |= {i for i, url in enumerate(urls) if i != active and _cdp_host_match(url, hosts)}
+        close |= {i for i, url in enumerate(urls) if i != active and cdp_url_matches_host(url, hosts)}
     return active, sorted(close)
 
 
-def _cdp_host_pages(
+def cdp_host_pages(
     pages: list[Any],
     cleanup_host: str | list[str] | None,
     *,
@@ -1057,8 +1125,15 @@ def _cdp_host_pages(
     return [
         page
         for page in pages
-        if (not keep_kept or page is not kept_page) and _cdp_host_match(getattr(page, "url", "") or "", hosts)
+        if (not keep_kept or page is not kept_page)
+        and cdp_url_matches_host(getattr(page, "url", "") or "", hosts)
     ]
+
+
+# Compatibility aliases for consumers released before these helpers became public.
+_cdp_host_match = cdp_url_matches_host
+_plan_cdp_active_and_dups = plan_cdp_active_and_duplicates
+_cdp_host_pages = cdp_host_pages
 
 
 def _close_cdp_pages(pages: list[Any]) -> int:
@@ -1093,7 +1168,7 @@ def _find_or_open_cdp_page(
         pages = list(context.pages)
     if match is not None:
         urls = [getattr(page, "url", "") or "" for page in pages]
-        active_i, dup_i = _plan_cdp_active_and_dups(urls, match, cleanup_host)
+        active_i, dup_i = plan_cdp_active_and_duplicates(urls, match, cleanup_host)
         if active_i is not None:
             active = pages[active_i]
             closed = _close_cdp_pages([pages[i] for i in dup_i])
@@ -1115,7 +1190,7 @@ def _find_or_open_cdp_page(
     if target_url is not None:
         page = context.new_page()
         page.goto(target_url, wait_until=wait_until, timeout=timeout_ms)
-        stale = _cdp_host_pages(pages, cleanup_host, keep_kept=False)
+        stale = cdp_host_pages(pages, cleanup_host, keep_kept=False)
         closed = _close_cdp_pages(stale)
         logger.info("[cdp] no matching tab; opened %s%s", target_url,
                     f" (closed {closed} stale tab(s))" if closed else "")
@@ -1184,7 +1259,7 @@ def connected_browser_page(
         finally:
             try:
                 pages = [pg for ctx in browser.contexts for pg in ctx.pages]
-                stale = _cdp_host_pages(
+                stale = cdp_host_pages(
                     pages,
                     cleanup_host,
                     kept_page=page,
@@ -1196,3 +1271,111 @@ def connected_browser_page(
             except Exception:  # noqa: BLE001 - cleanup must not mask caller errors
                 logger.debug("[cdp] cleanup failed", exc_info=True)
             browser.close()
+
+
+async def _async_close_cdp_pages(pages: list[Any]) -> int:
+    closed = 0
+    interrupt: BaseException | None = None
+    for page in pages:
+        try:
+            await page.close()
+            closed += 1
+        except (KeyboardInterrupt, SystemExit) as exc:
+            interrupt = exc
+        except Exception:  # noqa: BLE001 - tab cleanup must be best-effort
+            logger.debug("[cdp] could not close async tab %s", getattr(page, "url", "?"), exc_info=True)
+    if interrupt is not None:
+        raise interrupt
+    return closed
+
+
+async def _async_find_or_open_cdp_page(
+    browser: Any,
+    *,
+    target_url: str | None,
+    match: str | list[str] | None,
+    cleanup_host: str | list[str] | None,
+    wait_until: str = "domcontentloaded",
+    timeout_ms: int = 30_000,
+) -> tuple[AsyncPage, int]:
+    contexts = browser.contexts
+    context = contexts[0] if contexts else await browser.new_context()
+    pages = [page for ctx in contexts for page in ctx.pages]
+    if not pages:
+        pages = list(context.pages)
+    if match is not None:
+        urls = [getattr(page, "url", "") or "" for page in pages]
+        active_i, dup_i = plan_cdp_active_and_duplicates(urls, match, cleanup_host)
+        if active_i is not None:
+            return pages[active_i], await _async_close_cdp_pages([pages[i] for i in dup_i])
+        if target_url is None:
+            raise RuntimeError(
+                f"no open tab matching {match!r}. Open the target site and log "
+                "in, then re-run (or pass target_url to open it automatically)."
+            )
+    elif target_url is not None:
+        for existing_page in pages:
+            if (getattr(existing_page, "url", "") or "").startswith(target_url):
+                return existing_page, 0
+    if target_url is not None:
+        page = await context.new_page()
+        await page.goto(target_url, wait_until=wait_until, timeout=timeout_ms)
+        stale = cdp_host_pages(pages, cleanup_host, keep_kept=False)
+        return page, await _async_close_cdp_pages(stale)
+    if pages:
+        return pages[-1], 0
+    return await context.new_page(), 0
+
+
+@asynccontextmanager
+async def async_connected_browser_page(
+    cdp_url: str,
+    *,
+    target_url: str | None = None,
+    match: str | list[str] | None = None,
+    cleanup_host: str | list[str] | None = None,
+    keep_open_on_success: bool = True,
+    wait_until: str = "domcontentloaded",
+    timeout_ms: int = 30_000,
+    bring_to_front: bool = True,
+) -> Iterator[AsyncPage]:
+    """Async CDP attach with the same stale-tab guarantees as the sync API."""
+    async_playwright = _load_async_playwright()
+    async with async_playwright() as pw:
+        try:
+            browser = await pw.chromium.connect_over_cdp(cdp_url)
+        except Exception as exc:  # noqa: BLE001 - surface an actionable hint
+            raise RuntimeError(
+                f"could not attach to Chrome at {cdp_url}. Launch it with "
+                "--remote-debugging-port and log in first."
+            ) from exc
+        page = None
+        success = False
+        try:
+            page, _closed = await _async_find_or_open_cdp_page(
+                browser,
+                target_url=target_url,
+                match=match,
+                cleanup_host=cleanup_host,
+                wait_until=wait_until,
+                timeout_ms=timeout_ms,
+            )
+            if bring_to_front:
+                with contextlib.suppress(Exception):
+                    await page.bring_to_front()
+            yield page
+            success = True
+        finally:
+            try:
+                pages = [pg for ctx in browser.contexts for pg in ctx.pages]
+                stale = cdp_host_pages(
+                    pages,
+                    cleanup_host,
+                    kept_page=page,
+                    keep_kept=success and keep_open_on_success,
+                )
+                await _async_close_cdp_pages(stale)
+            except Exception:  # noqa: BLE001 - cleanup must not mask caller errors
+                logger.debug("[cdp] async cleanup failed", exc_info=True)
+            with contextlib.suppress(Exception):
+                await browser.close()

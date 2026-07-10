@@ -969,6 +969,7 @@ a browser is opened. Install with `pip install -e ".[playwright]"` and run
 |----------|-------------|
 | `browser_page(...)` | Context manager that yields a Playwright page using either a fresh context or a persistent `user_data_dir` profile; can load/save a `storage_state_path` JSON. Supports `stealth=` (default `False`), `slow_mo=`, and `locale=None` (omit locale) |
 | `async_browser_page(...)` | Async context manager with the same storage state, persistent profile, browser channel, launch args, `stealth`, `slow_mo`, downloads, device emulation, locale, timezone, and viewport options as `browser_page()` |
+| `open_async_browser_context(playwright, ...)` | Open a caller-owned async context with the shared launch, persistent-profile, storage-state, device, or CDP policy |
 | `scrape_with_playwright(url, handler=..., ...)` | Open a URL, optionally wait for a selector, and return `handler(page)` |
 | `save_page_storage_state(page, storage_state_path)` | Save the current page context storage state at a caller-controlled safe timing |
 | `async_save_page_storage_state(page, storage_state_path)` | Async variant of `save_page_storage_state()` |
@@ -980,6 +981,8 @@ a browser is opened. Install with `pip install -e ".[playwright]"` and run
 | `launch_chrome_with_debug_port(...)` | macOS-only helper that opens Google Chrome with `--remote-debugging-port` for CDP attach |
 | `find_or_open_page(context, url, ...)` | Reuse an existing page whose URL starts with `url`, or open and navigate a new page |
 | `connected_browser_page(cdp_url, ...)` | Context manager that attaches to an existing Chrome over CDP and yields a page |
+| `async_connected_browser_page(cdp_url, ...)` | Async CDP context manager with the same priority match and stale-tab cleanup guarantees |
+| `plan_cdp_active_and_duplicates(urls, match, cleanup_host)` | Select the priority tab and plan same-host duplicates to close |
 
 Note on stealth defaults: the AA/Tags validation wrappers in
 `megaton_lib.validation` default to `stealth=True`, but the generic
