@@ -2,6 +2,11 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-07-27 (v0.27.0)
+
+- Added `megaton_lib.llm_advisor`: LLM chat providers (Anthropic / OpenAI / OpenRouter / disabled) with built-in per-call recording (exact prompts, raw response, generation ID, resolved model, token usage, finish reason, errors). SDKs import lazily; new optional extra `llm = ["anthropic", "openai"]`.
+- Added `megaton_lib.llm_audit`: portable audit trail for LLM advisor runs — atomic local artifacts (`advice/latest.json` + per-run files), gzip-chunked idempotent Google Sheets mirror with run retention, restore-from-sheet, and summary/detail renderers. Report and workbook are duck-typed (extracted from minkabu, generalized).
+
 ## 2026-07-10 (v0.26.0)
 
 - Added fail-closed CDP profile ownership checks: local listeners require an exact `--user-data-dir` match, while remote or unverifiable endpoints require explicit opt-in.

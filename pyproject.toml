@@ -1,6 +1,6 @@
 [project]
 name = "megaton-app"
-version = "0.26.0"
+version = "0.27.0"
 requires-python = ">=3.11"
 dependencies = [
     "megaton>=2.0.0",
@@ -23,6 +23,10 @@ google = [
     "google-auth-oauthlib",
     "google-cloud-bigquery",
     "gspread",
+]
+llm = [
+    "anthropic",
+    "openai",
 ]
 notebook = [
     "ipywidgets",
