@@ -28,7 +28,9 @@ import contextlib
 import datetime as dt
 import json
 import logging
+import os
 import re
+import signal
 import socket
 import subprocess
 import sys
@@ -1065,8 +1067,14 @@ def cdp_command_uses_profile(command: str, user_data_dir: str | Path) -> bool:
     return re.search(pattern, command) is not None
 
 
-def local_cdp_listener_commands(cdp_url: str) -> list[str]:
-    """Return local listener command lines for a loopback CDP endpoint."""
+def cdp_command_uses_debug_port(command: str, port: int) -> bool:
+    """Return whether a process command has the exact Chrome debug-port argument."""
+    pattern = rf"(?:^|\s)--remote-debugging-port(?:=|\s+)(?P<q>['\"]?){port}(?P=q)(?=\s|$)"
+    return re.search(pattern, command) is not None
+
+
+def local_cdp_listener_processes(cdp_url: str) -> list[tuple[int, str]]:
+    """Return ``(pid, command)`` pairs for a local loopback CDP listener."""
     parsed = urlsplit(cdp_url)
     if parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
         raise ValueError(f"CDP endpoint is not local: {cdp_url}")
@@ -1081,20 +1089,27 @@ def local_cdp_listener_commands(cdp_url: str) -> list[str]:
             timeout=5,
             check=False,
         ).stdout.split()
-        commands = []
-        for pid in pids:
+        processes: list[tuple[int, str]] = []
+        for value in pids:
+            if not value.isdigit():
+                continue
             command = subprocess.run(
-                ["ps", "-ww", "-o", "command=", "-p", pid],
+                ["ps", "-ww", "-o", "command=", "-p", value],
                 capture_output=True,
                 text=True,
                 timeout=5,
                 check=False,
             ).stdout.strip()
             if command:
-                commands.append(command)
-        return commands
+                processes.append((int(value), command))
+        return processes
     except (OSError, subprocess.SubprocessError):
         return []
+
+
+def local_cdp_listener_commands(cdp_url: str) -> list[str]:
+    """Return local listener command lines for a loopback CDP endpoint."""
+    return [command for _, command in local_cdp_listener_processes(cdp_url)]
 
 
 def assert_cdp_profile_owner(
@@ -1135,6 +1150,56 @@ def assert_cdp_profile_owner(
     raise RuntimeError(
         f"CDP endpoint {cdp_url} belongs to a different Chrome profile; expected: {expected}"
     )
+
+
+def terminate_owned_chrome_cdp(
+    cdp_url: str,
+    user_data_dir: str | Path,
+    *,
+    timeout: float = 5.0,
+) -> None:
+    """Terminate only a local Chrome that owns the exact CDP port and profile.
+
+    The function fails closed when listener metadata cannot prove ownership.
+    Shutdown completion is based on PID liveness, not port state, so a new or
+    unrelated process taking the same port cannot satisfy the wait.
+    """
+    parsed = urlsplit(cdp_url)
+    if parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+        raise RuntimeError(f"cannot terminate remote CDP endpoint: {cdp_url}")
+    if parsed.port is None:
+        raise RuntimeError(f"CDP endpoint has no port: {cdp_url}")
+
+    owned = [
+        pid
+        for pid, command in local_cdp_listener_processes(cdp_url)
+        if cdp_command_uses_profile(command, user_data_dir)
+        and cdp_command_uses_debug_port(command, parsed.port)
+    ]
+    if not owned:
+        expected = Path(user_data_dir).resolve()
+        raise RuntimeError(
+            f"refusing to terminate unverified Chrome at {cdp_url}; expected profile: {expected}"
+        )
+
+    for pid in owned:
+        os.kill(pid, signal.SIGTERM)
+
+    deadline = time.monotonic() + timeout
+    while any(_pid_is_alive(pid) for pid in owned):
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"owned Chrome did not stop within {timeout:g}s: {cdp_url}")
+        time.sleep(0.1)
+
+
+def _pid_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def find_or_open_page(
@@ -1363,6 +1428,57 @@ def connected_browser_page(
             except Exception:  # noqa: BLE001 - cleanup must not mask caller errors
                 logger.debug("[cdp] cleanup failed", exc_info=True)
             browser.close()
+
+
+def check_chrome_cdp_health(cdp_url: str, *, timeout_ms: int = 5000) -> None:
+    """Exercise a disposable renderer tab without contacting an external site."""
+    health_url = "data:text/html,megaton-cdp-health"
+    with connected_browser_page(
+        cdp_url,
+        target_url=health_url,
+        match=health_url,
+        bring_to_front=False,
+        timeout_ms=timeout_ms,
+    ) as page:
+        page.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
+        page.evaluate("() => 1")
+        page.close()
+
+
+def ensure_healthy_chrome_cdp(
+    *,
+    port: int,
+    user_data_dir: str | Path,
+    start_url: str = "about:blank",
+    timeout: float = 10.0,
+    health_timeout_ms: int = 5000,
+    stop_timeout: float = 5.0,
+) -> str:
+    """Ensure an owned responsive Chrome, restarting it once when health fails."""
+    cdp_url = ensure_chrome_cdp(
+        port=port,
+        user_data_dir=user_data_dir,
+        start_url=start_url,
+        timeout=timeout,
+    )
+    try:
+        check_chrome_cdp_health(cdp_url, timeout_ms=health_timeout_ms)
+    except Exception:
+        logger.warning("Chrome CDP health check failed; restarting owned Chrome: %s", cdp_url)
+        terminate_owned_chrome_cdp(cdp_url, user_data_dir, timeout=stop_timeout)
+        cdp_url = ensure_chrome_cdp(
+            port=port,
+            user_data_dir=user_data_dir,
+            start_url=start_url,
+            timeout=timeout,
+        )
+        try:
+            check_chrome_cdp_health(cdp_url, timeout_ms=health_timeout_ms)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Chrome CDP remained unhealthy after one restart: {cdp_url}"
+            ) from exc
+    return cdp_url
 
 
 async def _async_close_cdp_pages(pages: list[Any]) -> int:
