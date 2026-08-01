@@ -2,6 +2,12 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-08-01 (v0.28.0)
+
+- Added fail-closed Chrome CDP health recovery: verify renderer responsiveness
+  with a disposable local tab, terminate only an exact port/profile owner, wait
+  for the owned PID to exit, and retry launch once.
+
 ## 2026-07-27 (v0.27.0)
 
 - Added `megaton_lib.llm_advisor`: LLM chat providers (Anthropic / OpenAI / OpenRouter / disabled) with built-in per-call recording (exact prompts, raw response, generation ID, resolved model, token usage, finish reason, errors). SDKs import lazily; new optional extra `llm = ["anthropic", "openai"]`.
