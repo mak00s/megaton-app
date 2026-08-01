@@ -33,8 +33,13 @@ class FakePage:
     def wait_for_timeout(self, ms):
         pass
 
-    def wait_for_load_state(self, state):
+    def wait_for_load_state(self, state, *, timeout=None):
         self.wait_load_state = state
+        self.wait_load_timeout = timeout
+
+    def evaluate(self, expression):
+        self.evaluated = expression
+        return 1
 
     def bring_to_front(self):
         self.brought_to_front += 1
@@ -1545,6 +1550,123 @@ def test_cdp_command_profile_match_is_exact(tmp_path):
         f"Google Chrome --user-data-dir={profile}-old --no-first-run",
         profile,
     )
+
+
+def test_cdp_command_debug_port_match_is_exact():
+    assert playwright_browser.cdp_command_uses_debug_port(
+        "Google Chrome --remote-debugging-port=9230 --no-first-run",
+        9230,
+    )
+    assert not playwright_browser.cdp_command_uses_debug_port(
+        "Google Chrome --remote-debugging-port=92301 --no-first-run",
+        9230,
+    )
+
+
+def test_terminate_owned_chrome_cdp_waits_for_pid_exit(monkeypatch, tmp_path):
+    profile = (tmp_path / "profile").resolve()
+    command = (
+        "Google Chrome --remote-debugging-port=9230 "
+        f"--user-data-dir={profile}"
+    )
+    monkeypatch.setattr(
+        playwright_browser,
+        "local_cdp_listener_processes",
+        lambda _url: [(101, command)],
+    )
+    signals = []
+    alive = iter([True, False])
+    monkeypatch.setattr(playwright_browser.os, "kill", lambda pid, sig: signals.append((pid, sig)))
+    monkeypatch.setattr(playwright_browser, "_pid_is_alive", lambda _pid: next(alive))
+    monkeypatch.setattr(playwright_browser.time, "sleep", lambda _seconds: None)
+
+    playwright_browser.terminate_owned_chrome_cdp(
+        "http://127.0.0.1:9230",
+        profile,
+    )
+
+    assert signals == [(101, playwright_browser.signal.SIGTERM)]
+
+
+def test_terminate_owned_chrome_cdp_refuses_profile_prefix(monkeypatch, tmp_path):
+    profile = (tmp_path / "profile").resolve()
+    command = (
+        "Google Chrome --remote-debugging-port=9230 "
+        f"--user-data-dir={profile}-old"
+    )
+    monkeypatch.setattr(
+        playwright_browser,
+        "local_cdp_listener_processes",
+        lambda _url: [(101, command)],
+    )
+
+    with pytest.raises(RuntimeError, match="refusing to terminate unverified Chrome"):
+        playwright_browser.terminate_owned_chrome_cdp(
+            "http://127.0.0.1:9230",
+            profile,
+        )
+
+
+def test_ensure_healthy_chrome_cdp_restarts_once(monkeypatch, tmp_path):
+    ensured = []
+    checked = []
+    terminated = []
+
+    def fake_ensure(**kwargs):
+        ensured.append(kwargs)
+        return "http://127.0.0.1:9230"
+
+    def fake_check(cdp_url, *, timeout_ms):
+        checked.append((cdp_url, timeout_ms))
+        if len(checked) == 1:
+            raise TimeoutError("stale renderer")
+
+    monkeypatch.setattr(playwright_browser, "ensure_chrome_cdp", fake_ensure)
+    monkeypatch.setattr(playwright_browser, "check_chrome_cdp_health", fake_check)
+    monkeypatch.setattr(
+        playwright_browser,
+        "terminate_owned_chrome_cdp",
+        lambda *args, **kwargs: terminated.append((args, kwargs)),
+    )
+
+    result = playwright_browser.ensure_healthy_chrome_cdp(
+        port=9230,
+        user_data_dir=tmp_path / "profile",
+        start_url="https://example.test/",
+    )
+
+    assert result == "http://127.0.0.1:9230"
+    assert len(ensured) == 2
+    assert len(checked) == 2
+    assert len(terminated) == 1
+
+
+def test_check_chrome_cdp_health_uses_disposable_tab(monkeypatch):
+    page = FakePage()
+    calls = []
+
+    @contextmanager
+    def fake_connected(cdp_url, **kwargs):
+        calls.append((cdp_url, kwargs))
+        yield page
+
+    monkeypatch.setattr(playwright_browser, "connected_browser_page", fake_connected)
+
+    playwright_browser.check_chrome_cdp_health(
+        "http://127.0.0.1:9230",
+        timeout_ms=4321,
+    )
+
+    assert calls[0][1] == {
+        "target_url": "data:text/html,megaton-cdp-health",
+        "match": "data:text/html,megaton-cdp-health",
+        "bring_to_front": False,
+        "timeout_ms": 4321,
+    }
+    assert page.wait_load_state == "domcontentloaded"
+    assert page.wait_load_timeout == 4321
+    assert page.evaluated == "() => 1"
+    assert page.closed is True
 
 
 def test_assert_cdp_profile_owner_fails_closed_when_unknown(monkeypatch, tmp_path):
