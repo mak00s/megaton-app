@@ -826,9 +826,12 @@ object and are intended for jobs that deliberately bypass `megaton`.
 
 #### Direct-gspread helpers
 
-These low-level helpers live in `megaton_lib.gspread_lowlevel`. They are
-available from `megaton_lib.sheets` only as compatibility re-exports. New code
-should import them from `megaton_lib.gspread_lowlevel`.
+The implementation home for these low-level helpers is
+`megaton.gsheet_lowlevel` (promoted in megaton 2.1.0);
+`megaton_lib.gspread_lowlevel` is a re-export shim kept for existing import
+sites, and `megaton_lib.sheets` re-exports a subset for compatibility. New
+code should import from `megaton.gsheet_lowlevel` (new Sheets work lands in
+megaton first — see AGENTS.md and docs/sheets-consolidation.md).
 
 | Function | Description |
 |----------|-------------|
@@ -1651,8 +1654,9 @@ section of `megaton/docs/api-reference.md` (single source of truth).
 - The native `mg.*` Sheets methods (`mg.save.to.sheet`, `mg.append.to.sheet`,
   `mg.upsert.to.sheet`, `mg.sheet.cell/range`, `mg.sheets.list/create/delete`)
   are documented in [megaton/docs/api-reference.md](../../megaton/docs/api-reference.md).
-- Low-level batchUpdate request builders live in `megaton_lib.gspread_lowlevel`
-  (see the Direct-gspread helpers table above).
+- Low-level batchUpdate request builders live in `megaton.gsheet_lowlevel`
+  (re-exported via `megaton_lib.gspread_lowlevel` for compatibility; see the
+  Direct-gspread helpers table above).
 
 ### BigQuery
 
