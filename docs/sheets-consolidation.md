@@ -1,6 +1,9 @@
 # Sheets 正本一本化 — 設計メモ(長期計画)
 
 作成: 2026-08-10(3repo連携監査の後続)。
+**進捗: S1+S2+S3a 実施済み(megaton 2.1.0 / app v0.29.0、2026-08-10)** —
+stateless スタック全体が `megaton.gsheet_lowlevel` へ移動し、`MegatonGS.call_with_retry`
+は同一コアへ委譲。app 側は再エクスポート shim。残: S3b(SheetsService内部の逆転、トリガー待ち)と S4(shim解消、急がない)。
 目的: megaton(PyPI)と megaton-app に**並行して存在する2つのSheetsスタック**を、
 「実装は1つ・利用形態は2つ」の構造に統合するための段階計画。
 

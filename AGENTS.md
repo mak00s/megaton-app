@@ -71,6 +71,7 @@ python scripts/query.py --params output/my_query.json --output output/result.csv
 
 ## 7. Library Rules
 
+- Sheets(gspread/batchUpdate/retry)の新機能・修正は **megaton 側(`megaton.gsheet_lowlevel` / `gsheet.py`)にまず実装**し、`megaton_lib.gspread_lowlevel` は再エクスポート shim のまま保つ(docs/sheets-consolidation.md)。
 - Keep `megaton_lib/` generic and reusable.
 - Do not move UI concerns into `megaton_lib/`.
 - Prefer extending existing helpers over creating parallel variants.

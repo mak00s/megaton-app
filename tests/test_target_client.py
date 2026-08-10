@@ -171,3 +171,15 @@ def test_patch_sends_json(target_env, monkeypatch):
     assert result["updated"] is True
     assert session.calls[0]["method"] == "PATCH"
     assert session.calls[0]["json"] == {"name": "updated"}
+
+
+def test_post_sends_json(target_env):
+    _, client = _make_client(target_env)
+    session = _Session([_Resp(201, {"id": 48199, "name": "Created"})])
+    client.session = session
+
+    result = client.post("/recs/collections", {"name": "Created", "rules": []})
+
+    assert result["id"] == 48199
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["json"] == {"name": "Created", "rules": []}

@@ -113,6 +113,24 @@ def test_create_import_job_omits_notifications_without_email(monkeypatch):
     assert captured["json"]["keyOptions"] == {"overwrite": True}
 
 
+def test_create_import_job_can_omit_key_options_for_legacy_dataset(monkeypatch):
+    captured = {}
+
+    def fake_post(_url, *, json=None, **_kwargs):
+        captured["json"] = json
+        return _DummyResponse(200, {"api_job_id": "job-1"})
+
+    monkeypatch.setattr(
+        "megaton_lib.audit.providers.analytics.classifications.requests.post",
+        fake_post,
+    )
+
+    client = ClassificationsClient(auth=_DummyAuth(), company_id="wacoal1")
+    client.create_import_job("legacy-dataset", overwrite=None)
+
+    assert "keyOptions" not in captured["json"]
+
+
 def test_import_classification_chunked_retries_transient_upload_error(monkeypatch):
     client = ClassificationsClient(auth=_DummyAuth(), company_id="wacoal1")
     calls = []
@@ -190,6 +208,7 @@ def test_import_helpers_forward_notification_options(monkeypatch):
         "Key\tLabel\nA\tAlpha\n",
         notification_emails=["ops@example.com"],
         notification_states=["completed"],
+        overwrite=None,
         verbose=False,
     )
     client.import_classification_chunked(
@@ -199,16 +218,20 @@ def test_import_helpers_forward_notification_options(monkeypatch):
         chunk_pause_seconds=0,
         notification_emails=["ops@example.com"],
         notification_states=["failed_processing"],
+        overwrite=False,
         verbose=False,
     )
 
     create_calls = [call for call in calls if call[0] == "create"]
     assert create_calls[0][2]["notification_emails"] == ["ops@example.com"]
     assert create_calls[0][2]["notification_states"] == ["completed"]
+    assert create_calls[0][2]["overwrite"] is None
     assert create_calls[1][2]["notification_emails"] == ["ops@example.com"]
     assert create_calls[1][2]["notification_states"] == ["failed_processing"]
+    assert create_calls[1][2]["overwrite"] is False
     assert create_calls[2][2]["notification_emails"] == ["ops@example.com"]
     assert create_calls[2][2]["notification_states"] == ["failed_processing"]
+    assert create_calls[2][2]["overwrite"] is False
 
 
 def test_create_export_job_includes_date_filter_and_keys(monkeypatch):

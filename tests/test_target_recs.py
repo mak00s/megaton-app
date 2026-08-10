@@ -18,6 +18,7 @@ from megaton_lib.audit.providers.target.recs import (
     _criteria_detail_endpoint,
     _strip_metadata,
     apply_recs,
+    create_recs_resource,
     export_recs,
 )
 
@@ -30,6 +31,7 @@ class _MockClient:
         self._detail = detail_data or {}
         self.patched: list[tuple[str, dict]] = []
         self.putted: list[tuple[str, dict]] = []
+        self.posted: list[tuple[str, dict]] = []
 
     def get_all(self, endpoint: str, **kw) -> list[dict]:
         parts = endpoint.strip("/").split("/")
@@ -71,6 +73,10 @@ class _MockClient:
     def put(self, endpoint: str, payload: dict) -> dict:
         self.putted.append((endpoint, payload))
         return payload
+
+    def post(self, endpoint: str, payload: dict) -> dict:
+        self.posted.append((endpoint, payload))
+        return {"id": 999, **payload}
 
 
 # ---- export tests ----
@@ -165,6 +171,38 @@ def test_export_per_resource_filters(tmp_path):
 
 
 # ---- apply tests ----
+
+
+def test_create_recs_resource_dry_run_checks_name_without_posting():
+    client = _MockClient({"collections": []})
+    payload = {"name": "疾患あり_categoryId必須", "rules": []}
+
+    result = create_recs_resource(client, "collections", payload, dry_run=True)
+
+    assert result["action"] == "create"
+    assert result["applied"] is False
+    assert client.posted == []
+
+
+def test_create_recs_resource_posts_and_requires_returned_id():
+    client = _MockClient({"collections": []})
+    payload = {"name": "疾患あり_categoryId必須", "rules": []}
+
+    result = create_recs_resource(client, "collections", payload, dry_run=False)
+
+    assert result["created"]["id"] == 999
+    assert client.posted == [("/recs/collections", payload)]
+
+
+def test_create_recs_resource_rejects_duplicate_name():
+    client = _MockClient({"collections": [{"id": 1, "name": "疾患あり_categoryId必須"}]})
+
+    with pytest.raises(ValueError, match="already exists"):
+        create_recs_resource(
+            client,
+            "collections",
+            {"name": "疾患あり_categoryId必須", "rules": []},
+        )
 
 
 def test_apply_dry_run_reports_changes(tmp_path):
