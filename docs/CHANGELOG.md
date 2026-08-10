@@ -2,6 +2,28 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## Unreleased
+
+- Adobe Classifications import helpers now accept `overwrite=None` to omit
+  `keyOptions` for legacy datasets that otherwise return HTTP 500
+  `Invalid key type specified`; the existing default remains
+  `overwrite=True`.
+- Adobe Target: `AdobeTargetClient.post()` (authenticated POST with retry)
+  and `create_recs_resource()` — create a Recommendations resource with an
+  exact-name duplicate guard (`dry_run=True` by default; never updates an
+  existing same-name resource).
+
+## 2026-08-10 (v0.29.0)
+
+- `megaton_lib.gspread_lowlevel` is now a re-export shim over
+  `megaton.gsheet_lowlevel` (megaton 2.1.0): the full stateless Sheets stack
+  (retry core with quota-403 handling and nested-retry suppression, Retrying
+  proxies, cell/serial parsers, batchUpdate builders, one-shot I/O helpers)
+  moved into the megaton package so both Sheets entry styles share one
+  implementation. All existing import sites keep working; requires
+  `megaton>=2.1.0`. New Sheets work lands in megaton first (AGENTS.md rule;
+  see docs/sheets-consolidation.md).
+
 ## 2026-08-01 (v0.28.0)
 
 - Added fail-closed Chrome CDP health recovery: verify renderer responsiveness

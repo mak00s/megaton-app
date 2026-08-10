@@ -350,6 +350,7 @@ class ClassificationsClient:
         dataset_id: str,
         *,
         job_name: str = "",
+        overwrite: bool | None = True,
         notification_emails: Sequence[str] | None = None,
         notification_states: Sequence[str] | None = None,
     ) -> str:
@@ -368,10 +369,14 @@ class ClassificationsClient:
             "dataFormat": "tsv",
             "encoding": "UTF8",
             "jobName": job_name or f"import {dataset_id}",
-            "keyOptions": {"overwrite": True},
             "listDelimiter": ",",
             "source": "Direct API Upload",
         }
+        # Some legacy classification datasets reject keyOptions entirely with
+        # HTTP 500 / "Invalid key type specified". None deliberately omits the
+        # field and lets Adobe use the dataset's configured key behavior.
+        if overwrite is not None:
+            body["keyOptions"] = {"overwrite": overwrite}
         notifications = self._notification_payload(notification_emails, notification_states)
         if notifications:
             body["notifications"] = notifications
@@ -444,6 +449,7 @@ class ClassificationsClient:
         *,
         job_name: str = "",
         filename: str = "classification.tsv",
+        overwrite: bool | None = True,
         notification_emails: Sequence[str] | None = None,
         notification_states: Sequence[str] | None = None,
         verbose: bool = True,
@@ -467,6 +473,7 @@ class ClassificationsClient:
         job_id = self.create_import_job(
             dataset_id,
             job_name=job_name,
+            overwrite=overwrite,
             notification_emails=notification_emails,
             notification_states=notification_states,
         )
@@ -495,6 +502,7 @@ class ClassificationsClient:
         chunk_pause_seconds: float = 2.0,
         max_attempts: int = 10,
         retry_backoff_seconds: float = 12.0,
+        overwrite: bool | None = True,
         notification_emails: Sequence[str] | None = None,
         notification_states: Sequence[str] | None = None,
         verbose: bool = True,
@@ -578,6 +586,7 @@ class ClassificationsClient:
                     job_id = self.create_import_job(
                         dataset_id,
                         job_name=chunk_name,
+                        overwrite=overwrite,
                         notification_emails=notification_emails,
                         notification_states=notification_states,
                     )
