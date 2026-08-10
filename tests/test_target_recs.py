@@ -988,3 +988,30 @@ def test_config_loader_adobe_tags_no_oauth():
     result = _parse_tag_source(node)
     assert result.adobe_tags is not None
     assert result.adobe_tags.oauth is None
+
+
+def test_create_recs_resource_guard_scans_all_items():
+    """Duplicate guard must request an uncapped listing (review finding P2)."""
+    captured = {}
+
+    class _Client:
+        def get_all(self, endpoint, *, limit=100, max_items="MISSING"):
+            captured["max_items"] = max_items
+            return []
+
+        def post(self, endpoint, payload):  # pragma: no cover - dry_run path
+            raise AssertionError("post must not be called in dry_run")
+
+    from megaton_lib.audit.providers.target.recs import create_recs_resource
+
+    record = create_recs_resource(_Client(), "criteria", {"name": "X"}, dry_run=True)
+    assert record["action"] == "create"
+    assert captured["max_items"] is None  # full scan, not a capped page
+
+
+def test_create_recs_resource_package_root_export():
+    """Importable like the sibling helpers (review finding P3)."""
+    from megaton_lib.audit.providers.target import create_recs_resource
+    from megaton_lib.audit.providers.target import recs as recs_module
+
+    assert create_recs_resource is recs_module.create_recs_resource
