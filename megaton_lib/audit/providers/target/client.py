@@ -113,6 +113,18 @@ class AdobeTargetClient:
             return result
         return {}
 
+    def post(
+        self,
+        endpoint: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Authenticated POST with retry."""
+        url = self._endpoint_url(endpoint)
+        result = self._request("POST", url, json_body=payload)
+        if isinstance(result, dict):
+            return result
+        return {}
+
     def put(
         self,
         endpoint: str,

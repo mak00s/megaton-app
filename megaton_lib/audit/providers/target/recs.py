@@ -391,6 +391,51 @@ def apply_recs(
     return changes
 
 
+def create_recs_resource(
+    client: AdobeTargetClient,
+    resource: str,
+    payload: dict[str, Any],
+    *,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """Create one Recommendations resource after an exact-name duplicate check.
+
+    This intentionally does not update an existing same-name resource. Callers
+    must review or apply changes through the normal snapshot workflow instead.
+    """
+    if resource not in RESOURCE_TYPES:
+        raise ValueError(f"Unsupported Recommendations resource: {resource}")
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise ValueError("Recommendations resource name is required")
+    if payload.get("id") not in (None, ""):
+        raise ValueError("Create payload must not contain an id")
+
+    existing = [
+        item
+        for item in client.get_all(f"{RECS_PREFIX}/{resource}", max_items=10000)
+        if str(item.get("name") or "") == name
+    ]
+    if existing:
+        ids = [item.get("id") for item in existing]
+        raise ValueError(f"Recommendations {resource} name already exists: {name} ids={ids}")
+
+    record: dict[str, Any] = {
+        "resource": resource,
+        "name": name,
+        "action": "create",
+        "applied": False,
+        "payload": _strip_metadata(payload),
+    }
+    if not dry_run:
+        created = client.post(f"{RECS_PREFIX}/{resource}", record["payload"])
+        if not created.get("id"):
+            raise RuntimeError(f"Target create response did not include an id: {created}")
+        record["applied"] = True
+        record["created"] = created
+    return record
+
+
 def _merge_design_sidecar(local: dict[str, Any], json_file: Path) -> dict[str, Any]:
     """Merge sidecar script file (.vtl/.html/.js) back into design ``script``.
 
