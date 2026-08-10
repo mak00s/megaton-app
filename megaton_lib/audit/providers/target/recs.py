@@ -411,9 +411,11 @@ def create_recs_resource(
     if payload.get("id") not in (None, ""):
         raise ValueError("Create payload must not contain an id")
 
+    # The exact-name guard must see EVERY item; a capped listing would let a
+    # same-name resource beyond the cap slip through (review finding P2).
     existing = [
         item
-        for item in client.get_all(f"{RECS_PREFIX}/{resource}", max_items=10000)
+        for item in client.get_all(f"{RECS_PREFIX}/{resource}", max_items=None)
         if str(item.get("name") or "") == name
     ]
     if existing:

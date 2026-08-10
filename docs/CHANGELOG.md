@@ -2,7 +2,7 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-## Unreleased
+## 2026-08-10 (v0.30.0)
 
 - Adobe Classifications import helpers now accept `overwrite=None` to omit
   `keyOptions` for legacy datasets that otherwise return HTTP 500
@@ -11,7 +11,12 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 - Adobe Target: `AdobeTargetClient.post()` (authenticated POST with retry)
   and `create_recs_resource()` — create a Recommendations resource with an
   exact-name duplicate guard (`dry_run=True` by default; never updates an
-  existing same-name resource).
+  existing same-name resource). Review fixes: the duplicate guard scans the
+  FULL listing (previously capped at 10,000 items, letting a same-name
+  resource beyond the cap slip through), and `create_recs_resource` is
+  exported from the package root like its sibling helpers.
+- Requires `megaton>=2.1.1` (batchUpdate no longer retries structural
+  mutations — addSheet/deleteSheet/appendDimension are submitted once).
 
 ## 2026-08-10 (v0.29.0)
 

@@ -3,7 +3,7 @@
 Lazy-loaded submodules:
 
 - ``client`` — ``AdobeTargetClient`` (authenticated HTTP)
-- ``recs`` — ``export_recs``, ``apply_recs``
+- ``recs`` — ``export_recs``, ``apply_recs``, ``create_recs_resource``
 - ``feeds`` — ``export_feeds``
 - ``getoffer_scope`` — ``detect_getoffer_scope``, ``export_getoffer_scope``
 """
@@ -14,6 +14,7 @@ __all__ = [
     "AdobeTargetClient",
     "export_recs",
     "apply_recs",
+    "create_recs_resource",
     "export_feeds",
     "export_activities",
     "fetch_activity",
@@ -27,6 +28,7 @@ _LAZY_MAP: dict[str, str] = {
     "AdobeTargetClient": ".client",
     "export_recs": ".recs",
     "apply_recs": ".recs",
+    "create_recs_resource": ".recs",
     "export_feeds": ".feeds",
     "export_activities": ".activities",
     "fetch_activity": ".activities",
