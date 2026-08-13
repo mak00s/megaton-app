@@ -2,6 +2,11 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-08-13 (v0.31.2)
+
+- `megaton 2.1.2` is now on PyPI, so the dependency is back to the normal
+  `megaton>=2.1.2` range (reverts the temporary v0.31.1 Git-tag pin).
+
 ## 2026-08-13 (v0.31.1)
 
 - Pin the unreleased `megaton 2.1.2` dependency to its Git tag so installing

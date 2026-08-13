@@ -1,9 +1,9 @@
 [project]
 name = "megaton-app"
-version = "0.31.1"
+version = "0.31.2"
 requires-python = ">=3.11"
 dependencies = [
-    "megaton @ git+https://github.com/mak00s/megaton.git@v2.1.2",
+    "megaton>=2.1.2",
     "pandas",
     "requests",
 ]
