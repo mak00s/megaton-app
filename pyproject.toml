@@ -86,3 +86,8 @@ markers = [
     "contract: interface/schema/output contract tests",
     "integration: cross-module flow tests",
 ]
+
+[tool.ruff.lint]
+# Keep the CI gate stable across Ruff releases. Broader rule families are
+# adopted intentionally rather than changing whenever Ruff's defaults do.
+select = ["E4", "E7", "E9", "F"]
