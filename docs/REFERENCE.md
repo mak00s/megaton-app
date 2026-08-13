@@ -840,6 +840,7 @@ megaton first — see AGENTS.md and docs/sheets-consolidation.md).
 | `overwrite_worksheet(spreadsheet, sheet_name, df, ...)` | Atomically clear, resize, and overwrite one worksheet; date-like strings remain text |
 | `append_rows(spreadsheet, sheet_name, rows, ...)` | Append raw row values |
 | `fetch_worksheet_values(spreadsheet, sheet_name, *, missing_ok=False)` | Read all worksheet values as string rows (read-side of overwrite/append) |
+| `fetch_worksheets_values(spreadsheet, sheet_names, *, missing_ok=False, available_sheet_names=None)` | Batch-read multiple tabs; one metadata request plus one `values.batchGet`, or one request when known titles are supplied |
 | `ensure_sheet_exists(spreadsheet, sheet_name, ...)` | Create a worksheet when missing |
 | `get_sheet_id(spreadsheet, sheet_name)` | Resolve worksheet title to numeric `sheetId` |
 | `set_frozen_rows(spreadsheet, sheet_name, count)` | Set frozen row count via batchUpdate |

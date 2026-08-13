@@ -17,6 +17,10 @@ def test_public_names_are_identical_objects():
         assert getattr(shim, name) is getattr(core, name), name
 
 
+def test_batch_read_helper_is_exported():
+    assert shim.fetch_worksheets_values is core.fetch_worksheets_values
+
+
 def test_underscore_compat_names_delegate():
     for name in [
         "_QUOTA_FLOOR_WAIT",

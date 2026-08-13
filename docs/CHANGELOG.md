@@ -2,6 +2,13 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-08-13 (v0.31.0)
+
+- Requires `megaton>=2.1.2` and exposes
+  `megaton_lib.gspread_lowlevel.fetch_worksheets_values()`, which reads many
+  worksheet tabs with one `values.batchGet` request after one metadata lookup.
+  Optional missing tabs and caller-owned metadata caches are supported.
+
 ## 2026-08-10 (v0.30.0)
 
 - Adobe Classifications import helpers now accept `overwrite=None` to omit
