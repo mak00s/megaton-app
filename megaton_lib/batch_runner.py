@@ -113,11 +113,16 @@ def run_batch(
         config_name = config_path.name
         params, errors = _load_and_validate(config_path)
 
-        if errors:
+        if errors or params is None:
             entry = {
                 "config": config_name,
                 "status": "skipped",
-                "errors": errors,
+                "errors": errors or [{
+                    "error_code": "INVALID_VALIDATION_RESULT",
+                    "message": "Validator returned no normalized params.",
+                    "path": "$",
+                    "hint": "Check the params validator contract.",
+                }],
             }
             skipped += 1
             results.append(entry)

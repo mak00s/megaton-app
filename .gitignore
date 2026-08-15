@@ -22,6 +22,8 @@ __pycache__/
 *.egg-info/
 .installed.cfg
 *.egg
+build/
+dist/
 
 # Notebooks（private repo で管理）
 notebooks/

@@ -1,6 +1,7 @@
 [project]
 name = "megaton-app"
 version = "0.31.2"
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "megaton>=2.1.2",
@@ -15,6 +16,7 @@ audit = [
 dev = [
     "pytest",
     "pytest-cov",
+    "pyright==1.1.411",
     "ruff",
 ]
 google = [
@@ -91,3 +93,16 @@ markers = [
 # Keep the CI gate stable across Ruff releases. Broader rule families are
 # adopted intentionally rather than changing whenever Ruff's defaults do.
 select = ["E4", "E7", "E9", "F"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+include = [
+    "megaton_lib/params_validator.py",
+    "megaton_lib/audit/config.py",
+    "megaton_lib/query_runner.py",
+    "megaton_lib/batch_runner.py",
+    "megaton_lib/job_manager.py",
+    "megaton_lib/validation/contracts.py",
+    "megaton_lib/validation/metadata.py",
+]
