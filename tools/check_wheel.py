@@ -25,19 +25,19 @@ def verify_wheel(path: Path) -> None:
     if len(dist_info_roots) != 1:
         raise SystemExit(f"expected one .dist-info directory, got: {dist_info_roots}")
 
-    allowed_roots = {"megaton_lib", *dist_info_roots}
-    unexpected = sorted(
-        str(name) for name in names if name.parts and name.parts[0] not in allowed_roots
-    )
-    if unexpected:
-        raise SystemExit(f"unexpected wheel contents: {unexpected}")
-
     forbidden_roots = {"app", "scripts", "tests", "configs", "credentials", "input", "output"}
     included_forbidden = sorted(
         str(name) for name in names if name.parts and name.parts[0] in forbidden_roots
     )
     if included_forbidden:
         raise SystemExit(f"checkout-local content found in wheel: {included_forbidden}")
+
+    allowed_roots = {"megaton_lib", *dist_info_roots}
+    unexpected = sorted(
+        str(name) for name in names if name.parts and name.parts[0] not in allowed_roots
+    )
+    if unexpected:
+        raise SystemExit(f"unexpected wheel contents: {unexpected}")
 
     if not any(name.name == "LICENSE" for name in names):
         raise SystemExit("wheel does not contain LICENSE")
