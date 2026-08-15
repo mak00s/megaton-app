@@ -1,29 +1,32 @@
 # megaton-app
 
-Toolkit for fetching, processing, and visualizing data from GA4, GSC, BigQuery, Adobe Analytics, Adobe Tags, Target, and Google Sheets.
+Analytics workflow orchestration toolkit for GA4, GSC, BigQuery, Adobe Analytics, Adobe Tags, Target, and Google Sheets.
 
 ## 1. Scope
 
-- `megaton_lib/` is the reusable core used by multiple repos.
-- `scripts/` are thin CLIs over `megaton_lib`.
-- `app/` is Streamlit UI code only.
-- Keep business logic generic here; project-specific behavior belongs in the calling repo.
+- The normative purpose, ownership boundaries, and feature admission test are in `docs/architecture.md`.
+- `megaton_lib/` is the reusable core; `scripts/` and `app/` are thin interfaces over it.
+- Keep project-specific policy and business logic in the calling repo.
+- Do not expand browser, Box, Gmail, or other adapters into generic SaaS automation.
 
 ## 2. Self-Maintenance
 
 - Update this file only for durable, cross-repo rules.
 - Do not add task notes, temporary inventories, or one-off troubleshooting here.
+- Put product purpose, architectural boundaries, and scope decisions in `docs/architecture.md`.
 - If a rule is really a user-facing workflow, put it in `docs/USAGE.md` or `docs/REFERENCE.md` instead.
 
 ## 3. Source of Truth
 
-Use this order when information conflicts:
+Use the source that owns the question:
 
-1. implementation under `megaton_lib/`, `scripts/`, `app/`
-2. tests under `tests/`
-3. `docs/REFERENCE.md`
-4. `docs/USAGE.md`
-5. `AGENTS.md`
+- purpose, ownership, and scope: `docs/architecture.md`
+- current runtime behavior: implementation under `megaton_lib/`, `scripts/`, and `app/`, then tests
+- schemas and supported options: `docs/REFERENCE.md`
+- setup and user workflows: `docs/USAGE.md`
+- agent execution rules: this file
+
+If implementation conflicts with `docs/architecture.md`, treat it as architecture debt rather than scope precedent.
 
 ## 4. Directory Guide
 
@@ -108,6 +111,7 @@ python -m pytest -q -m unit
 
 ## 11. Documentation
 
+- `docs/architecture.md`: purpose, ownership, scope contract, and feature admission test
 - `docs/USAGE.md`: setup and common workflows
 - `docs/REFERENCE.md`: schema, CLI options, pipeline, auth, and library APIs
 - `docs/PYTHON_API.md`: Python entry points (notebook facade, chain API, dates, report_run)

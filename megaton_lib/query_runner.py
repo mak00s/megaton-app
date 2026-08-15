@@ -75,10 +75,10 @@ def resolve_and_validate_params(raw: dict[str, Any]) -> dict[str, Any]:
     """Resolve site aliases and validate a params dictionary."""
     resolved = site_aliases.resolve_site_alias(raw)
     params, errors = validate_params(resolved)
-    if errors:
+    if errors or params is None:
         details = "; ".join(
             f"{err.get('path')}: {err.get('message')}" for err in errors
-        )
+        ) or "validator returned no normalized params"
         raise ValueError(f"Params validation failed: {details}")
     return params
 

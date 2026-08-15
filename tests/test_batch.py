@@ -1,11 +1,10 @@
 """Tests for lib/batch_runner.py and --batch mode."""
 
 import json
-import tempfile
-from pathlib import Path
 
 import pytest
 
+import megaton_lib.batch_runner as batch_runner
 from megaton_lib.batch_runner import collect_configs, run_batch
 
 
@@ -118,6 +117,19 @@ class TestRunBatch:
         assert result["total"] == 2
         assert result["succeeded"] == 1
         assert result["skipped"] == 1
+
+    def test_empty_validator_result_skipped(self, tmp_path, monkeypatch):
+        self._make_config(tmp_path, "01.json", self._valid_gsc_params())
+        monkeypatch.setattr(batch_runner, "_load_and_validate", lambda _path: (None, []))
+
+        def unexpected_execute(_params, _config_path):
+            raise AssertionError("invalid params must not execute")
+
+        result = run_batch(str(tmp_path), execute_fn=unexpected_execute)
+
+        assert result["skipped"] == 1
+        error = result["results"][0]["errors"][0]
+        assert error["error_code"] == "INVALID_VALIDATION_RESULT"
 
     def test_progress_callback(self, tmp_path):
         self._make_config(tmp_path, "01.json", self._valid_gsc_params())

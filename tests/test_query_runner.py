@@ -3,12 +3,21 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from megaton_lib import query_runner
 
 
 def _unused_query(*_args, **_kwargs):
     raise AssertionError("unexpected query executor")
+
+
+def test_resolve_and_validate_params_rejects_empty_validator_result(monkeypatch):
+    monkeypatch.setattr(query_runner.site_aliases, "resolve_site_alias", lambda raw: raw)
+    monkeypatch.setattr(query_runner, "validate_params", lambda _raw: (None, []))
+
+    with pytest.raises(ValueError, match="validator returned no normalized params"):
+        query_runner.resolve_and_validate_params({"schema_version": "1.0"})
 
 
 def test_run_query_to_csv_writes_params_and_applies_pipeline(tmp_path: Path, monkeypatch):

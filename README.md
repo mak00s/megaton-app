@@ -1,8 +1,10 @@
 # megaton-app
 
-A toolkit for fetching and analyzing data from GA4, Search Console, Adobe Analytics, and BigQuery.
+A toolkit for orchestrating analytics workflows across GA4, Search Console, Adobe Analytics, and BigQuery.
 Three interfaces — **Streamlit UI**, **CLI**, and **Jupyter Notebook** — share the same library, so you can explore interactively and automate with the same code.
 AI agents can drive the entire workflow through a simple JSON file, with no MCP server or special protocol required.
+
+The product boundary is analytics workflow orchestration: integration, execution, validation, audit, and delivery. It is not a generic SaaS automation framework. See [docs/architecture.md](docs/architecture.md).
 
 ## Features
 
@@ -12,7 +14,7 @@ AI agents can drive the entire workflow through a simple JSON file, with no MCP 
 - **Audit CLI** — Reusable audits for GTM/Adobe Tags + GA4/AA (`scripts/audit.py`)
 - **Validation Helpers** — Shared Playwright / AA validation runners, auth profiles, and follow-up task helpers
 - **Adobe Helpers** — Shared OAuth, AA segment listing, classifications export/import/verify, and Data Warehouse scheduling helpers
-- **Browser Automation Helpers** — Shared Playwright sessions (ephemeral / persistent profile / CDP attach / stealth), Box web-UI upload & shared-link automation, and Gmail draft helpers
+- **Workflow-bound Browser Automation** — Playwright validation and narrow Box/Gmail delivery adapters used only when an analytics workflow cannot rely on an API
 - **Safer Adobe Tags apply flow** — Export writes `.apply-baseline.json`, apply stays dry-run by default, and stale-base conflicts are blocked before PATCH
 - **Library-scope Adobe Tags workflows** — Shared helpers for destructive `checkout`, non-destructive `pull`, fast local `status --since-pull`, explicit `add`, guarded `push`, build-only, and `full-export`
 - **Notebook** — Develop analyses interactively, then run them as scheduled jobs
@@ -42,9 +44,10 @@ Unlike MCP-based integrations, this file-based approach requires no server setup
 
 ## Setup
 
-`pip install -e .` installs the reusable `megaton_lib` package. The `scripts/`
-and `app/` directories are checkout-local entrypoints, not installed console
-commands.
+The distribution is currently named `megaton-app`, but it installs only the
+reusable `megaton_lib` package. The `scripts/` and `app/` directories are
+checkout-local entrypoints, not installed packages or console commands. See
+the [packaging contract](docs/architecture.md#packaging-contract).
 
 ```bash
 python --version  # Python 3.11+
@@ -55,7 +58,8 @@ pip install -r requirements.txt
 # Library-only setup for repos that import megaton_lib
 pip install -e .
 
-# Optional narrower installs are also available, for example:
+# Optional groups install dependencies for checkout-local interfaces.
+# They do not add app/ or scripts/ to the installed wheel.
 pip install -e ".[ui]"
 pip install -e ".[notebook,google]"
 
@@ -93,6 +97,7 @@ python -m pytest -q
 
 | Document | Contents |
 |----------|----------|
+| [docs/architecture.md](docs/architecture.md) | Core purpose, ownership boundaries, scope contract, and feature admission test |
 | [docs/USAGE.md](docs/USAGE.md) | Setup, quick start, recipes, and how-to for Notebook / CLI / Streamlit |
 | [docs/REFERENCE.md](docs/REFERENCE.md) | JSON schema, CLI options, audit/validation/AA DW helpers, Target helpers, and auth |
 | [docs/PYTHON_API.md](docs/PYTHON_API.md) | Python API quickstart: notebook facade, chain API, dates, report_run scaffold |
@@ -119,9 +124,9 @@ megaton-app/
 │   ├── gsc_utils.py        # GSC aggregation helpers
 │   ├── sheets.py           # Megaton-instance Sheets helpers
 │   ├── gspread_lowlevel.py # Direct gspread / batchUpdate helpers
-│   ├── playwright_browser.py # Shared Playwright sessions (ephemeral/persistent/CDP/stealth)
-│   ├── box_ui.py           # Box web-UI upload & shared-link automation
-│   ├── gmail_client.py     # Gmail API wrapper (readonly lookup + drafts)
+│   ├── playwright_browser.py # Browser sessions for analytics validation/workflows
+│   ├── box_ui.py           # Narrow analytics-artifact delivery adapter
+│   ├── gmail_client.py     # Narrow analytics-result draft delivery adapter
 │   ├── validation/         # JSON contract and Playwright capture helpers
 │   └── audit/              # Reusable audit framework
 │       ├── config.py           # Project config model & loader
@@ -152,3 +157,7 @@ megaton-app/
 - `megaton-app` keeps reusable audit features `1-9` (providers, runner, common tasks, CLI).
 - Project-specific audit logic `10-12` stays in each analysis repository.
 - See `configs/audit/projects/README.md` for boundaries and config examples.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
