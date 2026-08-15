@@ -56,6 +56,47 @@ class TestMegatonExecution(unittest.TestCase):
                 metrics=["sessions"],
             )
 
+    @patch("google.analytics.data_v1beta.BetaAnalyticsDataClient")
+    @patch("megaton_lib.google_workspace.build_service_account_credentials")
+    def test_query_ga4_with_explicit_credentials(self, mock_build_creds, mock_client_cls):
+        response = types.SimpleNamespace(
+            rows=[
+                types.SimpleNamespace(
+                    dimension_values=[types.SimpleNamespace(value="Organic Search")],
+                    metric_values=[types.SimpleNamespace(value="12")],
+                )
+            ]
+        )
+        mock_client_cls.return_value.run_report.return_value = response
+
+        df = mc.query_ga4_with_credentials(
+            property_id="P2",
+            start_date="2026-01-01",
+            end_date="2026-01-31",
+            dimensions=[("sessionDefaultChannelGroup", "channel")],
+            metrics=["sessions"],
+            credentials_path="/creds/sa.json",
+            filter_d="landingPagePlusQueryString==/news/example/",
+        )
+
+        mock_build_creds.assert_called_once()
+        self.assertEqual(df.to_dict("records"), [{"channel": "Organic Search", "sessions": 12}])
+        request = mock_client_cls.return_value.run_report.call_args.args[0]
+        self.assertEqual(request.property, "properties/P2")
+        self.assertEqual(request.dimension_filter.filter.field_name, "landingPagePlusQueryString")
+
+    def test_query_ga4_with_explicit_credentials_rejects_bad_filter(self):
+        with self.assertRaises(ValueError):
+            mc.query_ga4_with_credentials(
+                property_id="P2",
+                start_date="2026-01-01",
+                end_date="2026-01-31",
+                dimensions=["date"],
+                metrics=["sessions"],
+                credentials_path="/creds/sa.json",
+                filter_d="country contains JP",
+            )
+
     def test_query_gsc_runs_with_dimension_filter(self):
         mg = MagicMock()
         mg.search.run.return_value.df = pd.DataFrame([{"clicks": 1}])
