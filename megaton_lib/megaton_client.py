@@ -421,6 +421,135 @@ def query_ga4(
     return df
 
 
+def query_ga4_with_credentials(
+    property_id: str,
+    start_date: str,
+    end_date: str,
+    dimensions: Sequence[FieldSpec],
+    metrics: Sequence[FieldSpec],
+    *,
+    credentials_path: str,
+    filter_d: Optional[str] = None,
+    limit: int = 10000,
+) -> pd.DataFrame:
+    """Run a GA4 Data API report with an explicitly selected credential.
+
+    This entry point is intended for CI jobs that know the target property and
+    service-account file but cannot use Analytics Admin API discovery. It uses
+    the same field and ``filter_d`` conventions as :func:`query_ga4`; filters
+    currently support exact (``field==value``) and not-exact
+    (``field!=value``) clauses joined by ``;``.
+    """
+    dimensions_l = _normalize_fields(dimensions, name="dimensions")
+    metrics_l = _normalize_fields(metrics, name="metrics")
+    if limit < 1:
+        raise ValueError("limit must be 1 or greater")
+
+    from google.analytics.data_v1beta import BetaAnalyticsDataClient
+    from google.analytics.data_v1beta.types import (
+        DateRange,
+        Dimension,
+        Filter,
+        FilterExpression,
+        FilterExpressionList,
+        Metric,
+        RunReportRequest,
+    )
+
+    from megaton_lib.google_workspace import build_service_account_credentials
+
+    def api_name(field: FieldSpec) -> str:
+        return field if isinstance(field, str) else field[0]
+
+    def output_name(field: FieldSpec) -> str:
+        return field if isinstance(field, str) else field[1]
+
+    filter_expression = None
+    if filter_d:
+        expressions = []
+        for raw_clause in filter_d.split(";"):
+            clause = raw_clause.strip()
+            if not clause:
+                continue
+            if "!=" in clause:
+                field, value = clause.split("!=", 1)
+                expressions.append(
+                    FilterExpression(
+                        not_expression=FilterExpression(
+                            filter=Filter(
+                                field_name=field.strip(),
+                                string_filter=Filter.StringFilter(
+                                    match_type=Filter.StringFilter.MatchType.EXACT,
+                                    value=value.strip(),
+                                ),
+                            )
+                        )
+                    )
+                )
+            elif "==" in clause:
+                field, value = clause.split("==", 1)
+                expressions.append(
+                    FilterExpression(
+                        filter=Filter(
+                            field_name=field.strip(),
+                            string_filter=Filter.StringFilter(
+                                match_type=Filter.StringFilter.MatchType.EXACT,
+                                value=value.strip(),
+                            ),
+                        )
+                    )
+                )
+            else:
+                raise ValueError(
+                    "filter_d clauses must use field==value or field!=value"
+                )
+        if len(expressions) == 1:
+            filter_expression = expressions[0]
+        elif expressions:
+            filter_expression = FilterExpression(
+                and_group=FilterExpressionList(expressions=expressions)
+            )
+
+    credentials = build_service_account_credentials(
+        credentials_path,
+        scopes=["https://www.googleapis.com/auth/analytics.readonly"],
+    )
+    client = BetaAnalyticsDataClient(credentials=credentials)
+
+    request = RunReportRequest(
+        property=f"properties/{_normalize_key(property_id)}",
+        dimensions=[Dimension(name=api_name(field)) for field in dimensions_l],
+        metrics=[Metric(name=api_name(field)) for field in metrics_l],
+        date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
+        dimension_filter=filter_expression,
+        limit=limit,
+    )
+    try:
+        response = client.run_report(request)
+    except Exception as exc:
+        message = str(exc)
+        if "403" in message or "permission" in message.lower():
+            raise PermissionError(
+                f"Permission denied for GA4 property {property_id}. "
+                "Check that the service account has Viewer role."
+            ) from exc
+        raise
+
+    columns = [output_name(field) for field in dimensions_l + metrics_l]
+    rows = []
+    for row in response.rows:
+        rows.append(
+            [value.value for value in row.dimension_values]
+            + [value.value for value in row.metric_values]
+        )
+    df = pd.DataFrame(rows, columns=columns)
+    for metric in metrics_l:
+        column = output_name(metric)
+        if column in df.columns:
+            df[column] = pd.to_numeric(df[column], errors="coerce")
+    return df
+
+
 # === GSC ===
 
 def get_gsc_sites() -> list:
