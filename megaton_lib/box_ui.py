@@ -177,6 +177,9 @@ async def download_from_box(
     desktop_more_button_pattern: str = r"Show More Options|More Options",
     desktop_download_item_pattern: str = r"Download|ダウンロード",
     folder_file_href_pattern: str = r"^/file/\d+$",
+    expected_folder_file_names: list[str] | None = None,
+    folder_listing_timeout_ms: int = 30_000,
+    folder_listing_poll_interval_ms: int = 500,
     print_permission_dialog_hint: bool = True,
 ) -> Path:
     """Download the currently-open Box item via login flow.
@@ -206,12 +209,13 @@ async def download_from_box(
 
         if "/folder/" in page.url:
             await _ensure_box_folder_page_ready(page=page, timeout_ms=timeout_ms)
-            file_links = await _collect_box_folder_file_links(
+            file_links = await _wait_for_box_folder_file_links(
                 page=page,
                 folder_file_href_pattern=folder_file_href_pattern,
+                expected_file_names=expected_folder_file_names,
+                timeout_ms=folder_listing_timeout_ms,
+                poll_interval_ms=folder_listing_poll_interval_ms,
             )
-            if not file_links:
-                raise RuntimeError("No downloadable file links found in Box folder view")
 
             downloaded_paths: list[Path] = []
             for item in file_links:
@@ -662,6 +666,41 @@ async def _collect_box_folder_file_links(*, page, folder_file_href_pattern: str)
         }""",
         folder_file_href_pattern,
     )
+
+
+async def _wait_for_box_folder_file_links(
+    *,
+    page,
+    folder_file_href_pattern: str,
+    expected_file_names: list[str] | None,
+    timeout_ms: int,
+    poll_interval_ms: int,
+) -> list[dict[str, str]]:
+    """Wait for Box's lazily rendered folder rows to become complete."""
+    expected = {str(name).strip() for name in expected_file_names or [] if str(name).strip()}
+    deadline = time.monotonic() + max(0, timeout_ms) / 1000
+    last_links: list[dict[str, str]] = []
+
+    while True:
+        last_links = await _collect_box_folder_file_links(
+            page=page,
+            folder_file_href_pattern=folder_file_href_pattern,
+        )
+        visible_names = {str(item.get("name") or "").strip() for item in last_links}
+        if last_links and (not expected or expected.issubset(visible_names)):
+            return last_links
+        if time.monotonic() >= deadline:
+            break
+        await asyncio.sleep(max(1, poll_interval_ms) / 1000)
+
+    if expected:
+        missing = sorted(expected - {str(item.get("name") or "").strip() for item in last_links})
+        seen = sorted(str(item.get("name") or "").strip() for item in last_links)
+        raise RuntimeError(
+            "Box folder listing did not show all expected files before timeout: "
+            f"missing={missing}, seen={seen}"
+        )
+    raise RuntimeError("No downloadable file links found in Box folder view before timeout")
 
 
 def _archive_box_downloads(*, output_path: Path, downloaded_paths: list[Path]) -> None:

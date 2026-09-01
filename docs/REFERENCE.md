@@ -210,7 +210,7 @@ Primary functions:
 
 | Function | Description |
 |---|---|
-| `download_from_box()` | Log in to a Box file/folder URL and download the current item. |
+| `download_from_box()` | Log in to a Box file/folder URL and download the current item. Folder downloads wait for lazily rendered rows; callers may require exact names with `expected_folder_file_names`. |
 | `upload_file_to_box_folder_via_ui()` | Log in, open/create an optional subfolder, upload one file, and optionally create a shared link. |
 | `upload_files_to_box_folder_via_ui()` | Upload multiple files in one Box browser session. |
 | `upload_file_to_box_folder_via_ui_sync()` | Synchronous wrapper for notebook/report code. |
