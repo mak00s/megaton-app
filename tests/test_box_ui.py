@@ -372,6 +372,52 @@ def test_download_from_box_downloads_current_file(monkeypatch, tmp_path):
     assert calls[1][1]["download_dir"] == tmp_path
 
 
+def test_wait_for_box_folder_file_links_retries_until_expected_files_are_visible(monkeypatch):
+    responses = [
+        [],
+        [{"href": "/file/1", "name": "ORATOSS.csv"}],
+        [
+            {"href": "/file/1", "name": "ORATOSS.csv"},
+            {"href": "/file/2", "name": "WITHユーザーマスタ.csv"},
+        ],
+    ]
+
+    async def fake_collect(**_kwargs):
+        return responses.pop(0)
+
+    monkeypatch.setattr(box_ui, "_collect_box_folder_file_links", fake_collect)
+
+    result = asyncio.run(
+        box_ui._wait_for_box_folder_file_links(
+            page=object(),
+            folder_file_href_pattern=r"^/file/\d+$",
+            expected_file_names=["ORATOSS.csv", "WITHユーザーマスタ.csv"],
+            timeout_ms=1_000,
+            poll_interval_ms=1,
+        )
+    )
+
+    assert [item["name"] for item in result] == ["ORATOSS.csv", "WITHユーザーマスタ.csv"]
+
+
+def test_wait_for_box_folder_file_links_reports_missing_expected_files(monkeypatch):
+    async def fake_collect(**_kwargs):
+        return [{"href": "/file/1", "name": "ORATOSS.csv"}]
+
+    monkeypatch.setattr(box_ui, "_collect_box_folder_file_links", fake_collect)
+
+    with pytest.raises(RuntimeError, match="WITHユーザーマスタ.csv"):
+        asyncio.run(
+            box_ui._wait_for_box_folder_file_links(
+                page=object(),
+                folder_file_href_pattern=r"^/file/\d+$",
+                expected_file_names=["ORATOSS.csv", "WITHユーザーマスタ.csv"],
+                timeout_ms=0,
+                poll_interval_ms=1,
+            )
+        )
+
+
 def test_upload_file_to_box_folder_via_ui_returns_result_shape(monkeypatch, tmp_path):
     calls = []
 

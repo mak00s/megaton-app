@@ -2,6 +2,10 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## Unreleased
+
+- Box folder downloads now retry lazy folder-list rendering and can wait for a caller-provided set of expected filenames before downloading.
+
 ## 2026-08-13 (v0.31.2)
 
 - `megaton 2.1.2` is now on PyPI, so the dependency is back to the normal
