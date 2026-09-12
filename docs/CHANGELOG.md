@@ -2,7 +2,7 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-## Unreleased
+## 2026-09-12 (v0.33.0)
 
 - Added public Tags `create_rule()` and `create_data_element()` operations;
   callers retain apply gating, library attachment, and build decisions.
