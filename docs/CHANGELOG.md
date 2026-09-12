@@ -2,9 +2,20 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-## Unreleased
+## 2026-09-12 (v0.32.0)
 
 - Box folder downloads now retry lazy folder-list rendering and can wait for a caller-provided set of expected filenames before downloading.
+- Added `megaton_lib.csv_validation.validate_generated_import_csv()` for comparing
+  generated analytics CSVs with their source DataFrames. Key selection is explicit;
+  ordered headers, row counts, unique keys, and optional per-key values are checked
+  without API calls or file mutations. Extracted from the WITH notebook workflow.
+- Adobe Tags `list_library_resources()` summaries now include `origin_id` alongside
+  the library revision `id`, allowing consumers to remove the correct revision
+  through the existing public API.
+- Added `megaton_lib.query_normalization.group_queries()`: auditable lexical
+  grouping of GSC queries (NFKC/case normalization, Japanese whitespace variants,
+  explicitly allowed term reorderings via `QueryPolicy`). Clicks/impressions are
+  conserved per partition/period and CTR is recomputed; no fuzzy merging.
 
 ## 2026-08-13 (v0.31.2)
 

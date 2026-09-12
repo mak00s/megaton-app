@@ -10,6 +10,7 @@ Query & clients:
     megaton_client   : get_ga4() factory + query_ga4/query_gsc/query_bq/query_aa
     ga4_helpers      : run_report_df, build_filter, to_datetime_col, to_numeric_cols
     gsc_utils        : Search Console DataFrame post-processing helpers
+    query_normalization: auditable lexical GSC query grouping (group_queries)
     bigquery_utils   : BigQuery load/append/replace + schema/query helpers
     query_runner     : execute params-style query configs in-process
     batch_runner     : run a directory of query configs in order
@@ -47,6 +48,7 @@ Reporting & delivery:
     google_workspace : Sheets/Docs/Drive client builders (user OAuth + SA)
     env_utils        : .env loading / required-env checks
     report_validation: ExecutionTracker for report runs + sheet caching
+    csv_validation   : validate generated import CSVs against source DataFrames
     report_gmail_draft: build Gmail drafts from execution summaries
     gmail_client     : Gmail API client wrapper
     credentials      : credential discovery/loading

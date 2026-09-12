@@ -545,6 +545,7 @@ def test_list_library_resources_detects_stale(tags_env, monkeypatch):
             "data": [{
                 "id": "DE1",
                 "attributes": {"name": "DE 1", "revision_number": 5, "dirty": False},
+                "relationships": {"origin": {"data": {"id": "DE-origin"}}},
                 "meta": {"latest_revision_number": 5},
             }],
             "meta": {"pagination": {}},
@@ -560,6 +561,9 @@ def test_list_library_resources_detects_stale(tags_env, monkeypatch):
     assert len(result["stale"]) == 1
     assert result["stale"][0]["id"] == "RL1"
     assert result["stale"][0]["type"] == "rules"
+    assert result["rules"][0]["origin_id"] == "RL1"
+    assert result["data_elements"][0]["id"] == "DE1"
+    assert result["data_elements"][0]["origin_id"] == "DE-origin"
 
 
 def test_list_library_resources_no_stale(tags_env, monkeypatch):
