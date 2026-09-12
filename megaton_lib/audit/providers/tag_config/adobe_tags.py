@@ -475,6 +475,57 @@ def find_extension_by_name(config: AdobeTagsConfig, name: str) -> dict[str, Any]
     raise RuntimeError(f"Adobe Tags extension not found in property {config.property_id}: {name!r}")
 
 
+def create_rule(config: AdobeTagsConfig, *, name: str) -> dict[str, Any]:
+    """Create a rule; callers own dry-run gating and library attachment.
+
+    Like create_rule_component, this is an explicit mutation and returns the
+    Reactor resource object, not the response envelope. It does not build.
+    """
+    if not name.strip():
+        raise ValueError("Rule name is required")
+    body = _reactor_post(config, f"/properties/{config.property_id}/rules", {
+        "data": {"type": "rules", "attributes": {"name": name}},
+    })
+    return body["data"]
+
+
+def create_data_element(
+    config: AdobeTagsConfig,
+    *,
+    name: str,
+    extension_id: str,
+    delegate_descriptor_id: str,
+    settings: Mapping[str, Any],
+    enabled: bool = True,
+    storage_duration: str | None = None,
+    force_lower_case: bool = False,
+    clean_text: bool = False,
+) -> dict[str, Any]:
+    """Create a data element without library attachment or build.
+
+    This explicit mutation follows create_rule_component's resource return
+    contract. Callers must gate it behind their apply decision.
+    """
+    if not name.strip() or not extension_id.strip() or not delegate_descriptor_id.strip():
+        raise ValueError("Data element name, extension and descriptor are required")
+    body = _reactor_post(config, f"/properties/{config.property_id}/data_elements", {
+        "data": {
+            "type": "data_elements",
+            "attributes": {
+                "name": name,
+                "delegate_descriptor_id": delegate_descriptor_id,
+                "settings": serialize_settings_object(settings),
+                "enabled": enabled,
+                "storage_duration": storage_duration,
+                "force_lower_case": force_lower_case,
+                "clean_text": clean_text,
+            },
+            "relationships": {"extension": {"data": {"id": extension_id, "type": "extensions"}}},
+        },
+    })
+    return body["data"]
+
+
 def create_rule_component(
     config: AdobeTagsConfig,
     *,

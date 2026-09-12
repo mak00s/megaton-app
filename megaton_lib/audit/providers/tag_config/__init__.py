@@ -22,6 +22,8 @@ from .build_workflow import collect_changed_resources, run_build_workflow, verif
 from .adobe_tags import (
     apply_component_settings,
     apply_data_element_settings,
+    create_data_element,
+    create_rule,
     create_rule_component,
     delete_resource,
     ensure_rule_component,
@@ -84,6 +86,8 @@ __all__ = [
     "resolve_first_existing_path",
     "apply_component_settings",
     "apply_data_element_settings",
+    "create_data_element",
+    "create_rule",
     "create_rule_component",
     "delete_resource",
     "ensure_rule_component",

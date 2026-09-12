@@ -15,6 +15,7 @@ from pathlib import Path
 import pandas as pd
 import pytz
 
+from .report_run_summary import github_run_url
 from .sheets import (
     duplicate_sheet_into,
     read_sheet_table,
@@ -27,12 +28,7 @@ from .sheets import (
 
 
 def _github_run_url() -> str:
-    server = os.getenv("GITHUB_SERVER_URL", "").strip()
-    repo = os.getenv("GITHUB_REPOSITORY", "").strip()
-    run_id = os.getenv("GITHUB_RUN_ID", "").strip()
-    if server and repo and run_id:
-        return f"{server}/{repo}/actions/runs/{run_id}"
-    return ""
+    return github_run_url()
 
 
 def _now_jst_iso() -> str:

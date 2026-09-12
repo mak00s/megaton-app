@@ -2,6 +2,16 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## Unreleased
+
+- Added public Tags `create_rule()` and `create_data_element()` operations;
+  callers retain apply gating, library attachment, and build decisions.
+- Added `megaton_lib.report_run_summary`, extracted from notebook delivery
+  summaries while preserving `report-run-summary/v1`. An explicit empty env no
+  longer inherits the process GitHub run URL.
+- Added `scripts/check_consumer_contracts.py` to run selected offline consumer
+  tests against an installed wheel or release and verify the loaded library path.
+
 ## 2026-09-12 (v0.32.0)
 
 - Box folder downloads now retry lazy folder-list rendering and can wait for a caller-provided set of expected filenames before downloading.
