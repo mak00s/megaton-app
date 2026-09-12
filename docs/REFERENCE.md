@@ -772,6 +772,32 @@ df = drop_current_month_rows(df, month_col="month_ym")
 
 ## Library Helper Modules
 
+### CSV Validation (`megaton_lib.csv_validation`)
+
+`validate_generated_import_csv(*, df_expected, csv_path, key_column,
+required_headers=None, compare_all_columns_by_key=False)` compares a generated
+UTF-8 CSV (BOM supported) with a source DataFrame. `csv_path` is a `Path` and
+`key_column` is required. Header order, row count and unique nonblank keys must
+match; row order is ignored. Value comparison is opt-in and retains the existing
+`(not set)` convention for missing expected values. It is not a general CSV
+normalizer: alternate encodings and project-specific value conversions belong
+in the caller.
+
+Returns `file`, `row_count`, `key_column`, `key_fingerprint` and `mismatch_rows`.
+Mismatches raise `RuntimeError`; pandas read/parse errors propagate. The function
+does not change files or call external APIs. WITH-specific data construction and
+acceptance policy remain in the notebook adapter.
+
+### Tags Library Resources
+
+`megaton_lib.audit.providers.tag_config.adobe_tags.list_library_resources(config,
+library_id)` returns `rules`, `data_elements` and `stale` lists. Each summary's
+`id` identifies the library revision; `origin_id` identifies the source resource
+(falls back to `id` when the origin relationship is absent).
+`remove_library_resources()` takes revision IDs, whereas `revise_library_rules()`
+and `revise_library_data_elements()` take origin IDs. Do not substitute one for
+the other.
+
 ### GA4 Helpers (`megaton_lib.ga4_helpers`)
 
 | Function | Description |

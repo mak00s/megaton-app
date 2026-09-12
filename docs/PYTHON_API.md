@@ -121,7 +121,9 @@ save_sheet_table(mg, sheet_url=URL, sheet_name="out", df=df)
 upsert_or_skip(mg, "monthly", df, keys=["month"])
 ```
 
-低レベル(batchUpdate等)は `gspread_lowlevel`（全呼び出しにretry内蔵、429は30秒フロア）。
+低レベル(batchUpdate等)は `megaton.gsheet_lowlevel`（`megaton_lib.gspread_lowlevel` は互換shim）。
+`batch_update_spreadsheet()` は操作内容に応じてretryを判断し、add/delete/append等の構造変更は単発送信する。
+外側から無条件retryで包まない。再試行可能な呼び出しの429待機は30秒フロア。
 
 ## 5. してはいけないこと
 

@@ -49,6 +49,15 @@ reusable `megaton_lib` package. The `scripts/` and `app/` directories are
 checkout-local entrypoints, not installed packages or console commands. See
 the [packaging contract](docs/architecture.md#packaging-contract).
 
+`megaton_lib.query_normalization.group_queries` provides auditable lexical query
+grouping for reporting: NFKC/case normalization, Japanese whitespace variants,
+and explicitly allowed Japanese search-term reorderings. Callers supply a
+`QueryPolicy` and language/brand/page partitions; no site vocabulary is embedded
+in the library. Joint-period representatives preserve clicks and impressions
+per partition/period and recompute CTR. It does not fuzzy-merge similar intents
+or sort individual characters. See `tests/test_query_normalization.py` for the
+conservative grouping contract.
+
 ```bash
 python --version  # Python 3.11+
 

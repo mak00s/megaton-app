@@ -719,7 +719,8 @@ def list_library_resources(config: AdobeTagsConfig, library_id: str) -> dict[str
     """Fetch rules and data elements in a library with revision status.
 
     Returns dict with:
-    - ``rules``: list of resource summaries
+    - ``rules``: list of resource summaries (``id`` is the library revision;
+      ``origin_id`` identifies the source resource, falling back to ``id``)
     - ``data_elements``: list of resource summaries
     - ``stale``: resources where revision_number != latest_revision_number
     """
@@ -738,6 +739,10 @@ def list_library_resources(config: AdobeTagsConfig, library_id: str) -> dict[str
             dirty = attrs.get("dirty", False)
             summary = {
                 "id": item.get("id", ""),
+                "origin_id": (
+                    ((item.get("relationships", {}).get("origin", {}).get("data") or {}).get("id"))
+                    or item.get("id", "")
+                ),
                 "name": attrs.get("name", ""),
                 "revision_number": rev,
                 "latest_revision_number": latest,
