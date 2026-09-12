@@ -131,3 +131,18 @@ DE作成やorigin/revision解決がなお複数スクリプトに残る場合に
 5つのanalysis repoのpyprojectにはmegaton-appの直接依存記載がないため、移行時に実際のbootstrap・Python実体・import元・版を確認する。これだけをもって起動不能とは判断しない。
 
 本書の作成にあたり外部API実行・依存更新・利用repoの編集は行っていない。実装移行時には各repoの最新AGENTSと差分を再確認する。
+
+## 第2弾: 共通側の追加実装と消費側ロールアウト(2026-09-12、未リリース)
+
+v0.32.0 の後に共通側へ追加したもの(API 仕様は [REFERENCE.md](REFERENCE.md) 参照):
+
+- `megaton_lib.report_run_summary` — notebooks `lib/report_run_summary.py` からの抽出。`report-run-summary/v1` 契約を保持。差分は `github_run_url(env={})` が process 環境へフォールバックしなくなった点。env 未指定または `None` の場合は従来どおり。notebooks の `build_with_summary()` は呼び出し元の env を転送するため、明示的な空辞書を渡すケースは移行時に確認する。
+- Tags `create_rule()` / `create_data_element()` — CSK の webinar provisioning にあった POST payload を公開 API 化。payload は移行元と同一(settings の JSON 区切りのみ差、意味は同一)。
+- `scripts/check_consumer_contracts.py` — インストール済み候補版に対して消費repoのオフラインテストを実行し、読み込まれた `megaton_lib` のパスを検証する。
+
+ロールアウト手順(共通側リリース後。それまで消費repoの本番ピンは公開版のまま):
+
+- **notebooks**: 公開ピンを更新し、`lib/report_run_summary.py` を `megaton_lib.report_run_summary` からの明示 import(`SCHEMA_VERSION`, `DEFAULT_TIMEZONE`, `github_run_url`, `now_jst_iso`, `normalize_report_summary`)に置換。既存の呼び出し側 import パスは維持。`tests/test_report_run_summary.py` とレポート/配信系テストをインストール済みリリースに対して実行。
+- **CSK**: webinar provisioning の DE/rule 作成 POST を `create_data_element` / `create_rule` に置換し、`response["data"]["id"]` の代わりに `resource["id"]` を読む。既存の apply ゲートは保持。名前・settings・重複選択・library ID・build 判断などのローカル方針は CSK に残す。実行前に no-op/dry-run と作成の両方をテスト。
+- `artifacts.box_uploads` → `delivery.box_uploads` エイリアス(モジュール内 TODO 2026-09-30)の削除は、notebooks 全レポートが `delivery` を直接書くようになった後、notebooks ピン更新とセットで行う。
+- オフラインテストの成功を Adobe/Sheets への配信成功の証拠と見なさない。契約チェックの一部として remote リソースの publish/build は行わない。

@@ -45,6 +45,7 @@ Sheets & output:
 
 Reporting & delivery:
     report_run       : start_report_run() scaffold (dates+client+tracker in one)
+    report_run_summary: normalize report delivery summaries (pure JSON contract)
     google_workspace : Sheets/Docs/Drive client builders (user OAuth + SA)
     env_utils        : .env loading / required-env checks
     report_validation: ExecutionTracker for report runs + sheet caching

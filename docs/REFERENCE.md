@@ -190,6 +190,28 @@ Notes:
 - Adobe Analytics can also auto-detect OAuth JSON files in `ADOBE_CREDS_PATH` or `credentials/`.
 - Adobe OAuth JSON shape: `client_id`, `client_secret`, `org_id` (or `ims_org_id`), optional `scopes`.
 
+## Consumer Contract Check (`scripts/check_consumer_contracts.py`)
+
+Runs explicitly selected offline tests of a consumer repo against an installed
+candidate of this library, so a release tag or wheel can be validated before
+consumers move their pins. Install the candidate into a separate directory first:
+
+```bash
+python -m pip install --no-deps --target /tmp/megaton-contract-lib DIST_OR_TAG
+python scripts/check_consumer_contracts.py --repo /path/to/consumer \
+  --library-path /tmp/megaton-contract-lib --test tests/test_example.py
+```
+
+- Repeat `--test` to select multiple files; each must be a `.py` inside `--repo`.
+- The pytest process verifies that the loaded `megaton_lib` resolves under
+  `--library-path` (a wrong import fails closed) and preserves pytest exit codes.
+- Tests are trusted executable code; nothing is sandboxed. Dependencies and
+  pytest must already exist in the invoking environment (`--no-deps` installs
+  only this library — `megaton` core still comes from that environment).
+- For partial commits, point `--repo` at an isolated index snapshot.
+- A green run proves import/API compatibility only, not Adobe/Sheets delivery;
+  the check never publishes or builds remote resources.
+
 ## Browser / Box Workflow Overview
 
 `megaton_lib.playwright_browser` is the shared home for non-validation browser
@@ -797,6 +819,34 @@ library_id)` returns `rules`, `data_elements` and `stale` lists. Each summary's
 `remove_library_resources()` takes revision IDs, whereas `revise_library_rules()`
 and `revise_library_data_elements()` take origin IDs. Do not substitute one for
 the other.
+
+### Tags Resource Creation
+
+`adobe_tags.create_rule(config, *, name)` and
+`create_data_element(config, *, name, extension_id, delegate_descriptor_id,
+settings, enabled=True, storage_duration=None, force_lower_case=False,
+clean_text=False)` return the created Reactor resource, consistent with
+`create_rule_component`. Both are also exported from
+`megaton_lib.audit.providers.tag_config`. These explicitly mutate remote state
+without attaching to a library or building; callers own dry-run/apply gating,
+library attachment, and build decisions.
+
+### Report Run Summary (`megaton_lib.report_run_summary`)
+
+`normalize_report_summary(summary, *, env=None, default_report="",
+default_status="")` returns a deep-copied `report-run-summary/v1` envelope with
+report/status, timestamps, window, run URL, entries, validation, artifacts,
+delivery, and next_actions. Unknown fields survive. `github_run_url(env=None)`
+and `now_jst_iso()` support caller-owned summaries; an explicit empty `env`
+does not fall back to the process environment.
+
+This is JSON normalization, not the lifecycle/tracker managed by `ReportRun`.
+For compatibility, missing validation inherits `passed` from `status=success`;
+callers must supply explicit validation when execution success is not proof of
+data validity. The legacy `artifacts.box_uploads` → `delivery.box_uploads`
+alias is retained (dated TODO in the module; removing it requires all notebooks
+callers to write `delivery` directly, so drop it together with a notebooks pin
+update). No Gmail or Box operations occur here.
 
 ### GA4 Helpers (`megaton_lib.ga4_helpers`)
 
