@@ -116,6 +116,13 @@ automation is out of scope.
 
 ## Architectural Invariants
 
+Browser workflow ownership follows the same boundary: exploratory interaction
+uses the agent's authorized tools, repeatable analytics execution uses a
+consumer-owned CLI over shared sessions/validation/delivery adapters. Prefer APIs
+where sufficient. Tool permissions still apply, regardless of implementation.
+The shared browser guide and local doctor are discovery/preflight tools, not a
+general browser agent, task planner, or arbitrary click/navigation server.
+
 - Keep `megaton_lib/` generic and reusable across repositories.
 - Keep `app/` and `scripts/` thin; shared behavior belongs in the library.
 - Keep checkout-relative application state out of the library distribution.

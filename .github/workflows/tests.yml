@@ -30,6 +30,8 @@ jobs:
           /tmp/megaton-app-wheel-smoke/bin/python -m pip install --no-deps dist/*.whl
           cd /tmp
           /tmp/megaton-app-wheel-smoke/bin/python -c "import megaton_lib; print(megaton_lib.__file__)"
+          # Module CLI must work from any cwd with no optional deps (guide never imports Playwright).
+          /tmp/megaton-app-wheel-smoke/bin/python -m megaton_lib.browser_workflow guide --format json > /dev/null
           /tmp/megaton-app-wheel-smoke/bin/python -c "import importlib.util; assert importlib.util.find_spec('app') is None"
           /tmp/megaton-app-wheel-smoke/bin/python -c "import importlib.util; assert importlib.util.find_spec('scripts') is None"
 

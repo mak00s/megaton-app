@@ -82,6 +82,10 @@ python scripts/query.py --params output/my_query.json --output output/result.csv
 
 ## 8. Validation Policy
 
+- Browser routing: unfamiliar-page exploration uses the agent's authorized browser tools; repeatable analytics jobs use a consumer CLI over shared helpers. Prefer a supported API when it meets the task.
+- Discover the route with `python -m megaton_lib.browser_workflow guide`; check local prerequisites with `doctor` (browser launch requires `--check-browser`). Follow agent tool restrictions; never use the library to bypass them.
+- Do not equate doctor success, page load, login, and analytics delivery. Record the actual evidence separately. Browser workflow details live in `docs/USAGE.md`.
+
 - `megaton_lib.validation` is the shared-first home for Playwright, contracts, and AA beacon validation.
 - Validation metadata should use `megaton_lib.validation.metadata.build_validation_run_metadata`.
 - New validation entrypoints should start from `docs/templates/validation_thin_entrypoint.py`.
