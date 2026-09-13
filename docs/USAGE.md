@@ -68,6 +68,44 @@ python scripts/query.py --list-ga4-properties
 
 Validation / Playwright の shared-first 方針は [VALIDATION.md](VALIDATION.md) を参照。
 
+### AIからのブラウザ操作を選ぶ
+
+入口は `python -m megaton_lib.browser_workflow guide`。mdを読む前でも
+`--help` と出力から用途・既存API・次の手順・制約を確認できる。
+
+| 用途 | 入口 | 保存するもの |
+|---|---|---|
+| 未知の画面を探索する | AIの許可されたMCP/ブラウザプラグイン | 発見した手順と検証条件 |
+| AA/Tags/GTMの動作を繰り返し検証 | 利用repoのCLI → `megaton_lib.validation` | live/overrideの区別、通信/DOMの証跡、期待値との比較 |
+| 分析用データを取得 | 対応APIを優先。不足する場合のみCLI → `playwright_browser` | 取得条件、データ、件数等の検証結果 |
+| 分析レポートを配信 | 既存の配信CLI → APIまたはBox等の限定adapter | plan、明示的な書込み判断、配信後の確認 |
+
+```bash
+python -m megaton_lib.browser_workflow guide --task validate --format json
+# Python依存の確認のみ。ブラウザ起動・サイトアクセスなし
+python -m megaton_lib.browser_workflow doctor --format json
+# 新規の一時Chromiumでabout:blankとJS実行を確認して終了
+python -m megaton_lib.browser_workflow doctor --check-browser --format json
+```
+
+`doctor`成功は指定したローカルチェックの成功のみ。ログイン・対象サイトへのアクセス・
+分析結果・CDPプロファイル所有権は `not_checked` のままで、本番動作の成功とは別。
+既存Chromeや認証ファイルをdoctorへ渡すオプションはない。
+
+定型処理はAIに毎回再生成させず、利用repoの薄いCLIへ保存する。CLIの入力、明示的な
+apply、終了コード、結果JSON、証跡を固定する。セレクタ・対象URL・業務判断は利用側が持つ。
+新しい汎用クリックCLIやMCPサーバーをmegaton-app内に作らない。
+
+通常は新規contextを使い、ログインが必要なら承認済みstorage stateを明示する。
+既存Chromeが必要な場合だけCDP接続を使い、`assert_cdp_profile_owner`と対象タブの確認を
+先に行う。複数AIから同じタブを同時操作しない。既存helperは排他制御を保証しない。
+storage state・スクリーンショット・通信ログは機密情報を含み得るため、出力先と共有を制限する。
+ページ閲覧自体が計測イベントを送る場合もあり、ブラウザのread-onlyはサーバー無変更を意味しない。
+
+AIが変わっても処理を共有できるが、Python実行権限・認証・依存環境は必要。
+各AIのツール制約をこのCLIで迂回しない。stealthは意図を明示して選び、既存デフォルトの
+違いは [REFERENCE.md](REFERENCE.md#browser-scraping-helpers-megaton_libplaywright_browser) を参照。
+
 ### Validation script を薄く保つ
 
 analysis repo の validation script は、browser 起動や AA beacon 収集を手書きしない方針を前提にする。

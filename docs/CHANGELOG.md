@@ -2,6 +2,16 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-09-14 (v0.34.0)
+
+- Added `python -m megaton_lib.browser_workflow guide|doctor` for analytics browser
+  workflow selection and local preflight. Browser launch is opt-in, uses a fresh
+  context, and never navigates to a real site. JSON results distinguish unchecked
+  login/workflow state from dependency and browser-runtime checks, and report the
+  loaded `megaton_lib` path alongside the (possibly stale) distribution version.
+- Clarified agent exploration versus repeatable consumer CLI ownership; existing
+  browser APIs and stealth defaults are unchanged.
+
 ## 2026-09-12 (v0.33.0)
 
 - Added public Tags `create_rule()` and `create_data_element()` operations;

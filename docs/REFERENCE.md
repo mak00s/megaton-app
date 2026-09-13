@@ -214,6 +214,32 @@ python scripts/check_consumer_contracts.py --repo /path/to/consumer \
 
 ## Browser / Box Workflow Overview
 
+### Browser Workflow Entry Point
+
+`python -m megaton_lib.browser_workflow` is installed with the library and is
+cwd-independent. It guides analytics workflow selection, not arbitrary browser
+control. For task ownership and examples see [USAGE.md](USAGE.md#aiからのブラウザ操作を選ぶ).
+
+| Command | Options | Effects |
+|---|---|---|
+| `guide` | `--task {explore,validate,extract,deliver}`, `--format {text,json}` | None; omitted task lists all routes |
+| `doctor` | `--check-browser`, `--format {text,json}` | Default: package metadata inspection only. Opt-in: temporary bundled Chromium / about:blank / JS probe, then close |
+
+Python entry points: `workflow_guide(task=None)` and
+`browser_doctor(check_browser=False)` in `megaton_lib.browser_workflow`.
+JSON uses `schema_version="browser-workflow/v1"`, `command`, `ok`, `exit_code`,
+and `effects`. Guide adds `workflows` and `session_policy`; doctor adds `scope`,
+`python`, `megaton_app_version`, `megaton_lib_path`, `checks`, and `next_actions`.
+`megaton_app_version` is distribution metadata and can lag an editable checkout
+until reinstall; `megaton_lib_path` (the imported package directory) is the
+authoritative signal for which code actually runs.
+Doctor checks are `passed`, `failed`, or `not_checked`. Exit 0 means requested
+checks passed; 1 means doctor failure; argparse errors exit 2. `not_checked`
+does not establish success. Default doctor only checks installed Playwright
+package metadata; a working browser executable is tested only with the flag.
+Site login, CDP ownership, and workflow results are never tested by doctor.
+The optional Playwright dependency is not imported by guide/default doctor.
+
 `megaton_lib.playwright_browser` is the shared home for non-validation browser
 automation such as notebook scraping, headed login handoff, CDP attach, and
 canvas screenshots. Keep detailed API options in
