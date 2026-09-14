@@ -113,7 +113,14 @@ python -m pytest -q -m unit
   - `ADOBE_ORG_ID`
 - tokens may be cached to disk and refreshed automatically
 
-## 11. Documentation
+## 11. Gmail Drafts
+
+- Gmailの下書き作成・返信・取得・更新・添付変更・検証は、原則として `megaton_lib.gmail_client` の下書き専用機能を使用する。CLIは `python -m megaton_lib.gmail_draft --help`。
+- Gmailコネクタやブラウザ操作は、標準経路が利用できず、ユーザーが対象操作と代替手段を明示的に許可した場合のみ使用する。機能不足や認証エラーを理由に自動で切り替えない。
+- 認証にはユーザーOAuthを使用し、サービスアカウントは使用しない。本ライブラリは送信機能を提供しない。代替手段の利用許可は送信の許可を含まない。
+- アカウント設定と操作手順は `docs/USAGE.md`、scopeとJSON契約は `docs/REFERENCE.md` を参照する。
+
+## 12. Documentation
 
 - `docs/architecture.md`: purpose, ownership, scope contract, and feature admission test
 - `docs/USAGE.md`: setup and common workflows

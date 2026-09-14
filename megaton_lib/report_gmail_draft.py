@@ -12,10 +12,8 @@ from typing import Any, Callable
 
 from .cli_help import build_parser
 from .gmail_client import (
-    SCOPES_DRAFT,
     GmailClient,
-    credentials_from_authorized_user_file,
-    credentials_from_authorized_user_info,
+    load_draft_credentials_from_env,
     parse_email_list,
 )
 
@@ -234,15 +232,7 @@ def _truthy(value: str) -> bool:
 
 
 def load_gmail_draft_credentials_from_env(*, env_prefix: str = ""):
-    token_json = prefixed_env(env_prefix, "TOKEN_JSON")
-    if token_json:
-        return credentials_from_authorized_user_info(token_json, SCOPES_DRAFT)
-
-    token_path = prefixed_env(env_prefix, "TOKEN_PATH")
-    if token_path:
-        return credentials_from_authorized_user_file(token_path, SCOPES_DRAFT)
-
-    raise RuntimeError("Set GMAIL_DRAFT_TOKEN_JSON or GMAIL_DRAFT_TOKEN_PATH for Gmail draft creation.")
+    return load_draft_credentials_from_env(env_prefix=env_prefix)
 
 
 def create_report_gmail_draft_from_env(
@@ -276,6 +266,7 @@ def create_report_gmail_draft_from_env(
         if not any(item["shared_url"] for item in box_upload_items(summary)):
             raise RuntimeError("Gmail draft requires a Box shared URL, but none was found in report summary.")
     client = client_factory(load_gmail_draft_credentials_from_env(env_prefix=env_prefix))
+    client.assert_account(prefixed_env(env_prefix, "EXPECTED_EMAIL") or sender)
     draft = client.create_draft(
         sender=sender,
         to=to,

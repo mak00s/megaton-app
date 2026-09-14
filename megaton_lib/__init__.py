@@ -52,7 +52,8 @@ Reporting & delivery:
     report_validation: ExecutionTracker for report runs + sheet caching
     csv_validation   : validate generated import CSVs against source DataFrames
     report_gmail_draft: build Gmail drafts from execution summaries
-    gmail_client     : Gmail API client wrapper
+    gmail_client     : user-OAuth message reads and draft-only reply/update/verification
+    gmail_draft      : draft-only CLI with preview, explicit apply and JSON readback
     credentials      : credential discovery/loading
 
 Browser automation:

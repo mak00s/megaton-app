@@ -64,6 +64,57 @@ python scripts/query.py --list-ga4-properties
 
 ---
 
+### Gmailの下書き専用操作
+
+CLIは `python -m megaton_lib.gmail_draft`。送信機能はなく、下書き操作までで停止する。
+AIエージェントの手段選択・認証ルールは [AGENTS.md](../AGENTS.md#11-gmail-drafts) を参照。
+
+この環境での標準アカウントは `sim@b-unit.jp` のユーザーOAuth。アドレスはライブラリに
+固定せず環境設定で指定し、実際の認証先と照合する。GA/GSC用サービスアカウントは使わない。
+Gmailへのサービスアカウントアクセスには別途ドメイン全体の委任等が必要だが、この実装では
+サポートせず拒否する。`GOOGLE_APPLICATION_CREDENTIALS` / ADCへもフォールバックしない。
+
+`create/get/update/verify` は `gmail.compose` のみで利用できる。
+`reply`用tokenには `gmail.readonly` と `gmail.compose` が必要。新規送付用のcompose-only token
+がある場合、scope名を環境変数やJSONに追記しても権限は増えない。ユーザーがOAuth認可を行う。
+既存tokenを残すには、別のtokenパスで明示的に初回認可する（この操作はブラウザを開く）。
+
+```python
+from pathlib import Path
+from megaton_lib.gmail_client import authorize, SCOPES_REPLY
+
+authorize(Path("credentials/gmail_oauth_client.json"),
+          Path("credentials/gmail_reply_token.json"), SCOPES_REPLY,
+          expected_email="sim@b-unit.jp")
+```
+
+```bash
+export GMAIL_DRAFT_TOKEN_PATH="$PWD/credentials/gmail_reply_token.json"
+export GMAIL_DRAFT_EXPECTED_EMAIL=sim@b-unit.jp
+
+# 元メールはGmailのmessage IDで指定。previewは下書きを書かない。
+python -m megaton_lib.gmail_draft reply --message-id MESSAGE_ID \
+  --reply-all --body-file output/reply.txt --attach output/report.pdf
+
+# 予定を確認した後、同じコマンドに --apply を付けて作成・再取得検証。
+# 既存下書きは先に取得してfingerprintを確認する。
+python -m megaton_lib.gmail_draft get --draft-id DRAFT_ID
+python -m megaton_lib.gmail_draft update --draft-id DRAFT_ID \
+  --expected-fingerprint FINGERPRINT --attach output/revised.pdf
+```
+
+更新もpreviewが既定。`--attach`は通常添付の差し替えであり追加ではない。
+未指定の本文・添付は保持する。作成後のIDで既存下書きを更新し、毎回新規作成しない。
+JSONで`applied=true, verified=false`なら既存IDを再検証する。`applied=null`なら結果不明なので
+自動再試行しない。Gmail UIや別エージェントとの同時編集は避ける。
+本文を読む必要があるときだけ`get --body-output output/draft.txt`で明示exportする。
+token・本文・結果JSONは共有やcommit対象にしない。添付を含む実メールでの検証は、対象を
+選んだうえで下書き作成・再取得まで実施し、配送確認とは区別する。
+
+全引数・JSON契約・HTML編集制限は[REFERENCE](REFERENCE.md#draft-only-reply-and-update)を参照。
+
+---
+
 ## クイックスタート
 
 Validation / Playwright の shared-first 方針は [VALIDATION.md](VALIDATION.md) を参照。
