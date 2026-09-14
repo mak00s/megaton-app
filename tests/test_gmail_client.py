@@ -35,6 +35,9 @@ class _Users:
     def drafts(self):
         return _Drafts(self.service)
 
+    def getProfile(self, **kwargs):
+        return _Execute({"emailAddress": "sender@example.com"})
+
 
 class _Service:
     create_kwargs = None

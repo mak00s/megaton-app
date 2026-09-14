@@ -2,6 +2,23 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-09-14 (v0.35.0)
+
+- Added draft-only Gmail reply/reply-all, threaded MIME headers, self/duplicate
+  recipient exclusion, attachment replacement, raw draft retrieval, guarded
+  updates and readback verification. `python -m megaton_lib.gmail_draft` defaults
+  to preview, requires explicit `--apply` for writes and returns JSON summaries.
+  It has no send operation or automatic connector/browser fallback.
+- Gmail authentication rejects service accounts and checks the OAuth mailbox.
+  The existing `create_draft()` now checks that From matches that mailbox;
+  sender-alias impersonation is not supported. `authorize(expected_email=...)`
+  verifies identity instead of only displaying an account hint, and saves new
+  tokens atomically with private permissions. Replies require readonly+compose
+  scopes; existing compose-only tokens may need explicit reauthorization.
+- Email address parsing now preserves quoted display names and RFC groups,
+  including empty undisclosed-recipient groups. BCC-only drafts can be updated.
+  The draft CLI requests readonly only for replies; other commands use compose.
+
 ## 2026-09-14 (v0.34.0)
 
 - Added `python -m megaton_lib.browser_workflow guide|doctor` for analytics browser

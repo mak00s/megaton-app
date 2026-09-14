@@ -12,6 +12,7 @@ from megaton_lib.report_gmail_draft import (
     first_sheet_url,
     period_label,
 )
+from megaton_lib import report_gmail_draft as report_module
 
 
 def _summary(**overrides):
@@ -99,3 +100,28 @@ def test_create_report_gmail_draft_can_require_box_url(tmp_path, monkeypatch):
             env_prefix="DEI",
             client_factory=lambda creds: None,
         )
+
+
+def test_report_draft_keeps_return_contract_and_checks_identity(tmp_path, monkeypatch):
+    summary_path = tmp_path / "summary.json"
+    summary_path.write_text(json.dumps(_summary()))
+    monkeypatch.setenv("GMAIL_DRAFT_SENDER", "sender@example.com")
+    monkeypatch.setenv("GMAIL_DRAFT_TO", "team@example.com")
+    monkeypatch.setenv("GMAIL_DRAFT_EXPECTED_EMAIL", "sender@example.com")
+    monkeypatch.setattr(report_module, "load_gmail_draft_credentials_from_env", lambda **kw: None)
+    calls = []
+
+    class Client:
+        def assert_account(self, email):
+            calls.append(("account", email))
+
+        def create_draft(self, **kwargs):
+            calls.append(("create", kwargs))
+            return {"id": "draft-id"}
+
+    result = create_report_gmail_draft_from_env(summary_path=summary_path, report_label="Report",
+                                               client_factory=lambda creds: Client())
+    assert result.draft == {"id": "draft-id"}
+    assert result.to == ["team@example.com"]
+    assert calls[0] == ("account", "sender@example.com")
+    assert calls[1][0] == "create"

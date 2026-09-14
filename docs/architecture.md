@@ -94,15 +94,24 @@ Browser, storage, email, and other SaaS automation belongs here only when all
 of the following are true:
 
 - it supports a named analytics workflow stage
-- an API is unavailable or insufficient for that workflow
+- browser/UI automation is used only when an API is unavailable or insufficient;
+  API adapters remain thin and limited to the operations below
 - the behavior is reusable across analytics projects
 - credentials, side effects, and human confirmation boundaries are explicit
 - the adapter remains narrower than a general client for the external service
 
 For example, Playwright capture used by analytics validation is in scope.
-Box upload or Gmail draft behavior is in scope only as delivery for analytics
-results or evidence. Expanding either into generic file management or mailbox
-automation is out of scope.
+Box upload is in scope as delivery for analytics results or evidence. Gmail
+supports report delivery plus a narrow draft-only exception: explicit new drafts,
+replies to caller-selected messages, and retrieval, update and verification of
+caller-selected drafts. Ordinary correspondence can use this same mechanism;
+message composition policy and recipient decisions remain in the consumer.
+Sending, automatic replies, inbox monitoring, bulk processing and general mailbox
+management are out of scope. User OAuth identity must be checked before writes;
+service accounts, ADC and automatic connector/browser fallback are not supported.
+Alternative Gmail tools require explicit user permission for the particular
+operation when the standard path is unavailable; that permission never implies
+permission to send. This exception does not expand other SaaS adapters' scope.
 
 ### Out of Scope
 
