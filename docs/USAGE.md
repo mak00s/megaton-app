@@ -64,6 +64,59 @@ python scripts/query.py --list-ga4-properties
 
 ---
 
+### Google Docsの限定編集
+
+`python -m megaton_lib.docs_edit --help` は文書ID指定の取得・編集計画・適用・検証の入口。
+本文の通常段落にある一意な単一行の文字列置換、またはその直後への単一行追記に限定する。
+**applyは共有中の原本へ即反映される**。レイアウトや複雑な編集は対象外。
+依存は `pip install -e ".[google]"`。v0.36.0以降が必要で、v0.35.0には含まれない。
+
+利用するOAuthクライアントのGCP projectでGoogle Docs APIを有効にする。
+既存Gmail tokenへscope名を追記しても認可は増えない。専用パスにユーザーOAuthを認可する。
+次の初回認可はブラウザを開くので、ユーザー承認を得て明示的に行う。
+
+```python
+from megaton_lib.google_workspace import authorize_user_credentials
+from megaton_lib.docs_client import DocsClient, SCOPES_EDIT
+
+authorize_user_credentials(
+    client_secrets_path="credentials/docs_oauth_client.json",
+    token_path="credentials/docs_token.json",
+    scopes=SCOPES_EDIT,
+    expected_email="sim@b-unit.jp",
+)
+# authorize_user_credentialsのexpected_emailは案内用。実照合は下記loaderで行う。
+client = DocsClient.from_oauth_file(
+    "credentials/docs_token.json", expected_email="sim@b-unit.jp",
+)
+```
+
+CLIは既存tokenを読むだけで、認可画面・ADC・サービスアカウントへフォールバックしない。
+アカウントは呼び出し元が指定し、ライブラリに固定しない。
+
+```bash
+umask 077
+mkdir -p output/docs
+python -m megaton_lib.docs_edit --token credentials/docs_token.json \
+  --expected-email sim@b-unit.jp get DOCUMENT_ID > output/docs/document.json
+python -m megaton_lib.docs_edit --token credentials/docs_token.json \
+  --expected-email sim@b-unit.jp plan DOCUMENT_ID --tab-id TAB_ID \
+  --match '旧表記' --text '新表記' > output/docs/reviewed.json
+# reviewed.jsonの文書ID・タブ・before/after・diffを確認し、承認後のみ実行。
+python -m megaton_lib.docs_edit --token credentials/docs_token.json \
+  --expected-email sim@b-unit.jp apply --plan output/docs/reviewed.json --apply
+python -m megaton_lib.docs_edit --token credentials/docs_token.json \
+  --expected-email sim@b-unit.jp verify --plan output/docs/reviewed.json
+```
+
+追記はplanに `--operation insert_after` を指定する。`--apply`なしのapplyは保存済みpreviewを
+表示するだけで、最新の原本を検証しない。実apply時は原本を再取得し、revisionとplanを照合する。
+競合時は新しいplanを確認する。`write_status=unknown` は自動再実行せず原本を読む。
+`acknowledged`かつ検証失敗なら同じplanのverifyを使い、再applyしない。
+出力とplanには本文が入る。利用repoでも `output/docs/` をignoreし、既存ファイルの権限も
+確認する。実Docへの適用・視覚的確認は個別の承認付き検証であり、モックテストとは別。
+契約と制限は[REFERENCE](REFERENCE.md#google-docs-edits)、エージェントの安全規則は[AGENTS](../AGENTS.md#12-google-docs-edits)。
+
 ### Gmailの下書き専用操作
 
 CLIは `python -m megaton_lib.gmail_draft`。送信機能はなく、下書き操作までで停止する。

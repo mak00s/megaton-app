@@ -48,6 +48,8 @@ Reporting & delivery:
     report_run_summary: normalize report delivery summaries (pure JSON contract)
     browser_workflow : browser route guide and opt-in local runtime doctor
     google_workspace : Sheets/Docs/Drive client builders (user OAuth + SA)
+    docs_client      : reviewed, revision-guarded edits to selected Google Docs
+    docs_edit        : Google Docs get/plan/apply/verify JSON CLI
     env_utils        : .env loading / required-env checks
     report_validation: ExecutionTracker for report runs + sheet caching
     csv_validation   : validate generated import CSVs against source DataFrames

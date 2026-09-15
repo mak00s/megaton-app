@@ -2,6 +2,16 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-09-15 (v0.36.0)
+
+- Added narrow Google Docs get/plan/apply/verify support with explicit user OAuth
+  identity, nested-tab retrieval, unique literal paragraph edits, reviewed plan
+  validation, required-revision writes and text readback. Writes require explicit
+  apply and are never retried automatically. Formatting, tables, document
+  creation, sharing and deletion are not supported for editing.
+- Clarified CDP cleanup through `context.browser` without changing the async
+  context helper's return type or closing shared contexts merely to disconnect.
+
 ## 2026-09-14 (v0.35.0)
 
 - Added draft-only Gmail reply/reply-all, threaded MIME headers, self/duplicate
