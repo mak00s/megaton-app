@@ -113,6 +113,16 @@ Alternative Gmail tools require explicit user permission for the particular
 operation when the standard path is unavailable; that permission never implies
 permission to send. This exception does not expand other SaaS adapters' scope.
 
+Google Docs has a separate narrow exception for caller-selected reports,
+proposals and meeting records: structured retrieval, a reviewed single text edit
+in a plain body paragraph, revision-guarded application and text readback.
+Ordinary document editing may use this mechanism; document selection, prose and
+approval policy remain in consumers. User OAuth identity is checked by the
+standard loader. General document authoring, formatting, Drive search, creation,
+sharing, deletion and automatic connector/browser fallback are out of scope.
+Unlike Gmail drafts, applying an edit changes the shared original immediately.
+Dry-run is the default and saved plans must be reviewed before explicit apply.
+
 ### Out of Scope
 
 - generic SaaS automation unrelated to an analytics workflow

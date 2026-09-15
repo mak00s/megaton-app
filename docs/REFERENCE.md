@@ -369,6 +369,45 @@ Failure:
 
 読み取りは `tracker.read_sheet_df(mg, gs_url, sheet_name, *, strict=False)`。`strict=True` の場合は読み取りエラーをそのまま送出し、`False`（既定）の場合は警告を出して空 DataFrame を返す。累積シートで既存データを失いたくない処理では `strict=True` を使う。
 
+### Google Docs Edits
+
+`megaton_lib.docs_client` / `python -m megaton_lib.docs_edit`。v0.36.0以降。
+レポート・提案書・議事録等の呼び出し元指定文書に限定し、Drive管理は含まない。
+
+| API | 契約 |
+|---|---|
+| `DocsClient.from_oauth_file(token_path, expected_email=...)` | documents + userinfo.email scopeの既存ユーザーOAuth。検証済みメールアドレスを照合。tokenの書き戻し・対話認可・SA/ADCなし |
+| `DocsClient(service)` | 既に認証・identity検証されたDocs serviceの注入。主にモック用。標準利用は上記loader |
+| `client.get(document_id)` | includeTabsContent=true、SUGGESTIONS_INLINEで生のDocument JSON。子タブ・見出し・表も構造を保持 |
+| `client.plan(document_id, match=..., text=..., operation="replace", tab_id=None)` | read-onlyの計画作成。複数タブ時はtab_id必須 |
+| `plan_edit(document, ...)` | 保存済みsnapshotから同じ計画を作る純粋関数。revisionId必須 |
+| `DocsEditPlan.preview()` | schema_version=1、mode=dry_run、plan、diff。planは本文を含む |
+| `client.apply(plan, apply=False)` | 既定はpreview。True時は再計画と完全一致確認後、requiredRevisionId指定のbatchUpdateを1回実行 |
+| `client.verify(plan)` | read-only。指定タブ・段落開始位置の本文がafterと一致するかを確認 |
+
+operationは `replace` / `insert_after`。本文直下の段落だけを検索し、一意の一致が必須。
+編集対象段落は単一textRunのみ。改行・制御文字・サロゲート・BMP私用文字、複数一致、提案を
+含む選択タブは拒否する。表内、ヘッダー、フッター、脚注、複数runにまたがる編集は非対応。
+replaceの空textは該当文字列の削除であり、段落終端の改行は削除しない。
+API位置はUTF-16単位で算出する。書式の明示指定・全文再生成・作成・共有・削除は提供しない。
+
+CLIは `get DOCUMENT_ID` / `plan DOCUMENT_ID` / `apply --plan FILE [--apply]` /
+`verify --plan FILE`。`--token`と`--expected-email`はサブコマンドより前に置く。
+stdoutはJSON、診断はstderr。成功/previewはexit 0、検証失敗・競合・APIエラーはexit 1、
+argparseの引数エラーはexit 2。getは`document`、planは`plan`/`diff`を返す。
+apply結果はdocument_id、url、tab_id、operation、start_index、end_index、ok、verified、
+write_statusを含む。verifyのscopeは `target_paragraph_text` であり、書式や文書全体の
+不変性・公開状態を保証しない。共同編集がreadbackへ影響する場合もある。
+
+- `write_status=acknowledged`: API成功応答あり。verified=falseなら変更済みの可能性を前提に再検証する。
+- `write_status=rejected`: APIが400/401/403/404/409/412/429を返して拒否。再計画・権限確認が必要。
+- `write_status=unknown`: 通信切断・5xx等で確定できない。自動再試行禁止。
+
+保存planはreview対象のローカルデータであり、署名済み承認証跡ではない。変更されたplanも
+再計算と不一致なら拒否するが、承認後にファイルを書き換えないことは呼び出し側の責務。
+Googleの[WriteControl仕様](https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/batchUpdate#writecontrol)と
+[タブ仕様](https://developers.google.com/workspace/docs/api/how-tos/tabs)に従う。
+
 ### Gmail Draft Helpers
 
 `megaton_lib.gmail_client` は Gmail API の薄い共通 wrapper。

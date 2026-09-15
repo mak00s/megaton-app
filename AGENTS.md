@@ -120,7 +120,14 @@ python -m pytest -q -m unit
 - 認証にはユーザーOAuthを使用し、サービスアカウントは使用しない。本ライブラリは送信機能を提供しない。代替手段の利用許可は送信の許可を含まない。
 - アカウント設定と操作手順は `docs/USAGE.md`、scopeとJSON契約は `docs/REFERENCE.md` を参照する。
 
-## 12. Documentation
+## 12. Google Docs Edits
+
+- 指定されたレポート・提案書・議事録の対応範囲内の編集は `megaton_lib.docs_client` / `python -m megaton_lib.docs_edit --help` を使用する。
+- 原本を直接変更するため、対象文書・タブ・差分を確認し、承認された保存済みplanだけを `apply --apply` で適用する。競合時は再計画・再確認し、結果不明時は再適用しない。
+- ユーザーOAuthと期待メールアドレスを明示する。Gmail tokenやGA/GSCサービスアカウントへの自動流用、コネクタ/ブラウザへの自動切替は禁止。代替手段には対象操作についての明示許可が必要。
+- planとget結果には本文が含まれる。Gitや共有ログへ入れない。認可・操作手順と対象外の編集は `docs/USAGE.md` / `docs/REFERENCE.md` を参照する。
+
+## 13. Documentation
 
 - `docs/architecture.md`: purpose, ownership, scope contract, and feature admission test
 - `docs/USAGE.md`: setup and common workflows

@@ -585,11 +585,20 @@ async def open_async_browser_context(
 ) -> Any:
     """Open an async BrowserContext using the shared launch/CDP policy.
 
-    The caller owns the passed Playwright instance and must close the returned
-    context and call ``playwright.stop()``. Stopping that caller-owned instance
-    also releases a CDP transport created by this helper; no separate Browser
-    handle is required. This shape supports long-lived task objects such as
-    poimak4's runner while keeping launch configuration centralized.
+    The caller owns the passed Playwright instance and its cleanup. For CDP,
+    the returned context may be the existing browser's shared default context:
+    do not close that context merely to disconnect. ``context.close()`` is not
+    a CDP disconnect operation. Obtain the connection via ``context.browser``
+    and use ``await context.browser.close()`` to disconnect this Browser handle
+    while retaining the caller's Playwright instance. Other users of that same
+    handle must have finished first. Close only pages/contexts you created.
+
+    For a locally launched non-persistent browser, close the owned context and
+    then its ``context.browser`` handle (capture it before closing the context).
+    For a persistent context, closing the context also closes its browser.
+    Finally, ``await playwright.stop()`` releases the caller-owned instance and
+    its transports, including any remaining CDP connections; use ``finally`` so
+    cleanup failures cannot skip this step. No tuple return is needed.
     """
     extra = _build_context_options(
         devices=playwright.devices,
