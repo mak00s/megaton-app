@@ -96,6 +96,7 @@ class Service:
             value["raw"] = raw(message)
         value.setdefault("threadId", "new-thread")
         value["id"] = f"message-{len(self.writes)}"
+        value["labelIds"] = ["DRAFT"]
         self.drafts_data[draft_id] = {"id": draft_id, "message": value}
         return {"id": draft_id, "message": {"id": value["id"]}}
 
@@ -123,7 +124,7 @@ def test_reply_all_threads_and_deduplicates(setup):
     service.source["Reply-To"] = "reply@example.com"
     service.source.add_attachment(b"secret", maintype="application", subtype="pdf", filename="original.pdf")
     content = client.prepare_reply("source-1", expected_email=service.account, body_text="Reply",
-                                   reply_all=True, self_aliases=["alias@example.com"])
+                                   self_aliases=["alias@example.com"])
     summary = content.summary()
     assert summary["to"] == ["reply@example.com", "team@example.com"]
     assert summary["cc"] == ["other@example.com"]
@@ -140,7 +141,7 @@ def test_reply_all_threads_and_deduplicates(setup):
 
 def test_single_reply_does_not_copy_cc(setup):
     client, service = setup
-    result = client.create_reply_draft("source-1", expected_email=service.account, body_text="Reply")
+    result = client.create_reply_draft("source-1", expected_email=service.account, body_text="Reply", reply_all=False)
     assert result["to"] == ["external@example.com"]
     assert result["cc"] == []
     assert result["verified"]
@@ -157,7 +158,7 @@ def test_unsafe_source_stops_before_write(setup, header, value):
     if value is not None:
         service.source[header] = value
     with pytest.raises(ValueError):
-        client.create_reply_draft("source-1", expected_email=service.account, body_text="Reply")
+        client.create_reply_draft("source-1", expected_email=service.account, body_text="Reply", reply_all=False)
     assert service.writes == []
 
 
@@ -200,6 +201,96 @@ def test_update_rejects_stale_or_missing_fingerprint(setup):
         client.update_draft("draft-1", expected_email=service.account, expected_fingerprint="stale", body_text="Changed")
     with pytest.raises(ValueError, match="expected_fingerprint"):
         client.save_draft(new_content(), expected_email=service.account, draft_id="draft-1")
+    assert len(service.writes) == 1
+
+
+@pytest.mark.parametrize("labels", [["SENT"], ["TRASH"], [], None,
+                                    ["DRAFT", "SENT"], ["DRAFT", "TRASH"]])
+def test_inactive_draft_rejected_before_read_verify_or_update(setup, labels):
+    client, service = setup
+    save(client)
+    before = client.get_draft("draft-1")
+    message = service.drafts_data["draft-1"]["message"]
+    message["id"] = "returned-message"
+    if labels is None:
+        del message["labelIds"]
+    else:
+        message["labelIds"] = labels
+    # Valid-looking MIME and an unchanged fingerprint must not override labels.
+    operations = [
+        lambda: client.get_draft("draft-1"),
+        lambda: client.verify_draft("draft-1", expected=before.content),
+        lambda: client.update_draft("draft-1", expected_email=service.account,
+                                    expected_fingerprint=before.fingerprint, body_text="Changed"),
+        lambda: client.save_draft(before.content, expected_email=service.account,
+                                  draft_id="draft-1", expected_fingerprint=before.fingerprint),
+    ]
+    for operation in operations:
+        with pytest.raises(module.GmailDraftStateError) as caught:
+            operation()
+        assert caught.value.result()["message_id"] == "returned-message"
+        assert caught.value.result()["errors"] == ["draft_not_active"]
+    assert len(service.writes) == 1
+
+
+def test_sent_during_readback_is_not_verified_or_recreated(setup, monkeypatch):
+    client, service = setup
+    original = service.write
+
+    def write(*args):
+        response = original(*args)
+        service.drafts_data[response["id"]]["message"]["labelIds"] = ["SENT"]
+        return response
+
+    monkeypatch.setattr(service, "write", write)
+    result = save(client)
+    assert not result["ok"] and not result["verified"]
+    assert result["applied"] is True
+    assert result["draft_id"] == "draft-1"
+    assert result["label_ids"] == ["SENT"]
+    assert result["errors"] == ["draft_not_active"]
+    assert len(service.writes) == 1
+
+
+@pytest.mark.parametrize("command", ["get", "verify", "update"])
+def test_cli_rejects_sent_message_without_export_or_write(setup, monkeypatch, tmp_path, capsys, command):
+    client, service = setup
+    save(client)
+    before = client.get_draft("draft-1")
+    service.drafts_data["draft-1"]["message"]["labelIds"] = ["SENT"]
+    monkeypatch.setattr(module, "GmailClient", lambda creds: client)
+    monkeypatch.setattr(module, "load_draft_credentials_from_env", lambda **kwargs: None)
+    output = tmp_path / "private.txt"
+    options = {"get": ["--body-output", str(output)],
+               "verify": ["--expected-json", str(tmp_path / "unused.json")],
+               "update": ["--expected-fingerprint", before.fingerprint, "--apply"]}
+    assert cli.main([command, "--draft-id", "draft-1", "--expected-email", service.account,
+                     *options[command]]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["errors"] == ["draft_not_active"]
+    assert result["label_ids"] == ["SENT"]
+    assert result["message_id"] == "message-1"
+    assert not result["applied"] and not result["verified"]
+    assert "Private body" not in json.dumps(result)
+    assert not output.exists()
+    assert len(service.writes) == 1
+
+
+def test_second_read_detects_send_during_update_preparation(setup, monkeypatch):
+    client, service = setup
+    save(client)
+    before = client.get_draft("draft-1")
+    original = client.get_draft
+
+    def get(draft_id):
+        result = original(draft_id)
+        service.drafts_data[draft_id]["message"]["labelIds"] = ["SENT"]
+        return result
+
+    monkeypatch.setattr(client, "get_draft", get)
+    with pytest.raises(module.GmailDraftStateError):
+        client.update_draft("draft-1", expected_email=service.account,
+                            expected_fingerprint=before.fingerprint, body_text="Changed")
     assert len(service.writes) == 1
 
 
@@ -466,11 +557,33 @@ def test_cli_requests_minimum_scopes(command, cli_setup, monkeypatch, tmp_path, 
     capsys.readouterr()
 
 
+@pytest.mark.parametrize("flags,reply_all", [([], True), (["--reply-all"], True), (["--sender-only"], False)])
+def test_cli_reply_recipient_selection(cli_setup, tmp_path, capsys, flags, reply_all):
+    _, service = cli_setup
+    service.source["Reply-To"] = "reply@example.com"
+    body = tmp_path / "body.txt"
+    body.write_text("Reply")
+    assert cli.main(["reply", "--message-id", "source-1", "--body-file", str(body),
+                     "--self-alias", "alias@example.com", *flags]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["to"] == (["reply@example.com", "team@example.com"] if reply_all else ["reply@example.com"])
+    assert result["cc"] == (["other@example.com"] if reply_all else [])
+    assert result["bcc"] == []
+    assert not service.writes
+
+
+def test_cli_reply_modes_are_mutually_exclusive():
+    with pytest.raises(SystemExit) as caught:
+        cli.create_parser().parse_args(["reply", "--message-id", "id", "--body-file", "body.txt",
+                                       "--reply-all", "--sender-only"])
+    assert caught.value.code == 2
+
+
 def test_cli_preview_apply_get_verify_and_update(cli_setup, tmp_path, capsys):
     client, service = cli_setup
     body = tmp_path / "body.txt"
     body.write_text("Private reply")
-    command = ["reply", "--message-id", "source-1", "--body-file", str(body), "--reply-all"]
+    command = ["reply", "--message-id", "source-1", "--body-file", str(body)]
     assert cli.main(command) == 0
     preview = json.loads(capsys.readouterr().out)
     assert not preview["applied"] and not preview["verified"]

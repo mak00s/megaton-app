@@ -324,6 +324,25 @@ class GmailDraftContent:
         return GmailDraftContent(message, self.thread_id)
 
 
+class GmailDraftStateError(ValueError):
+    """The returned message is not confirmed to be an active draft."""
+
+    def __init__(self, draft_id: str, message_id: str | None, label_ids: list[str]):
+        self.draft_id = draft_id
+        self.message_id = message_id
+        self.label_ids = label_ids
+        super().__init__(
+            "The returned message is not an active draft. Inspect its labels and Gmail; "
+            "do not automatically update or recreate it."
+        )
+
+    def result(self) -> dict[str, Any]:
+        return {"schema_version": "gmail-draft/v1", "ok": False, "exit_code": 1,
+                "draft_id": self.draft_id, "message_id": self.message_id,
+                "label_ids": self.label_ids, "verified": False,
+                "errors": ["draft_not_active"], "next_action": str(self)}
+
+
 @dataclass
 class GmailDraft:
     id: str
@@ -434,11 +453,13 @@ class GmailClient:
 
     def prepare_reply(
         self, message_id: str, *, expected_email: str, body_text: str,
-        reply_all: bool = False, self_aliases: Sequence[str] = (),
+        reply_all: bool = True, self_aliases: Sequence[str] = (),
         attachments: list[tuple[str, bytes, str]] | None = None,
     ) -> GmailDraftContent:
         """Read a source message and prepare a reply without creating a draft.
 
+        Replies include original To/CC by default, excluding self and duplicates.
+        Pass reply_all=False to reply only to Reply-To (or From).
         Bcc and original attachments are never inherited. Self-originated sources
         are rejected: use a received message or an explicit new draft instead.
         """
@@ -477,9 +498,18 @@ class GmailClient:
         return self.save_draft(content, expected_email=expected_email)
 
     def get_draft(self, draft_id: str) -> GmailDraft:
-        """Fetch raw MIME; draft ID is stable but the contained message ID can change."""
+        """Fetch an active draft, requiring DRAFT and rejecting SENT/TRASH labels.
+
+        A successful drafts.get alone is not proof: an old ID can return a sent
+        message. Missing labels also raise GmailDraftStateError, before parsing MIME.
+        This is a point-in-time check, not a lock against concurrent sending.
+        """
         draft = self._service.users().drafts().get(userId="me", id=draft_id, format="raw").execute()
         message = draft["message"]
+        labels = message.get("labelIds")
+        labels = labels if isinstance(labels, list) and all(isinstance(x, str) for x in labels) else []
+        if "DRAFT" not in labels or {"SENT", "TRASH"}.intersection(labels):
+            raise GmailDraftStateError(draft_id, message.get("id"), labels)
         raw = _decode_raw(message["raw"])
         content = GmailDraftContent(_parse_message(message["raw"]), message.get("threadId", ""))
         fingerprint = hashlib.sha256(message.get("threadId", "").encode() + b"\0" + raw).hexdigest()
@@ -494,7 +524,7 @@ class GmailClient:
         return _draft_result(observed, errors=errors, verified=not errors)
 
     def verify_draft_summary(self, draft: GmailDraft, *, expected: dict[str, Any]) -> dict[str, Any]:
-        """Verify against saved CLI JSON, without requiring plaintext body in that file."""
+        """Compare a fetched snapshot with saved JSON; does not recheck live state."""
         actual = draft.content.summary()
         if expected.get("schema_version") != "gmail-draft/v1" or any(k not in expected for k in actual):
             raise ValueError("Expected JSON must contain a complete gmail-draft/v1 content summary")
@@ -549,6 +579,8 @@ class GmailClient:
                     "next_action": "Inspect Gmail; do not automatically create another draft."}
         try:
             result = self.verify_draft(saved_id, expected=content)
+        except GmailDraftStateError as exc:
+            result = exc.result()
         except Exception as exc:
             result = {"schema_version": "gmail-draft/v1", "ok": False, "exit_code": 1,
                       "draft_id": saved_id, "verified": False,

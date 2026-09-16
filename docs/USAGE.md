@@ -119,6 +119,10 @@ python -m megaton_lib.docs_edit --token credentials/docs_token.json \
 
 ### Gmailの下書き専用操作
 
+返信はCLI・Python APIとも全員返信が既定。元To/CCを継承し、自分と重複宛先を除外する。
+Reply-To（なければFrom）のみに返信する場合はCLIで `--sender-only`、Pythonで
+`reply_all=False` を指定する。BCCは継承しない。保存前にpreviewのTo/CCを確認する。
+
 CLIは `python -m megaton_lib.gmail_draft`。送信機能はなく、下書き操作までで停止する。
 AIエージェントの手段選択・認証ルールは [AGENTS.md](../AGENTS.md#11-gmail-drafts) を参照。
 
@@ -160,6 +164,10 @@ python -m megaton_lib.gmail_draft update --draft-id DRAFT_ID \
 未指定の本文・添付は保持する。作成後のIDで既存下書きを更新し、毎回新規作成しない。
 JSONで`applied=true, verified=false`なら既存IDを再検証する。`applied=null`なら結果不明なので
 自動再試行しない。Gmail UIや別エージェントとの同時編集は避ける。
+送信後の古いDraft IDでメッセージを取得できても、下書きが残っているとは判断しない。
+取得・検証・更新では `DRAFT` ラベルを確認し、送信済み・ゴミ箱・ラベル不明は
+`draft_not_active` で停止する。エラーJSONの `message_id` と `label_ids` を確認し、
+自動で更新・再作成しない。
 本文を読む必要があるときだけ`get --body-output output/draft.txt`で明示exportする。
 token・本文・結果JSONは共有やcommit対象にしない。添付を含む実メールでの検証は、対象を
 選んだうえで下書き作成・再取得まで実施し、配送確認とは区別する。

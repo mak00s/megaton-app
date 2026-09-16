@@ -55,7 +55,11 @@ def create_parser():
                 sub.add_argument("--clear-bcc", action="store_true", help="Remove BCC")
         if name == "reply":
             sub.add_argument("--message-id", required=True, help="Source Gmail message ID, not RFC Message-ID or thread ID")
-            sub.add_argument("--reply-all", action="store_true", help="Include original To/CC, excluding self and duplicates")
+            recipients = sub.add_mutually_exclusive_group()
+            recipients.add_argument("--reply-all", dest="reply_all", action="store_true", default=True,
+                                    help="Include original To/CC, excluding self and duplicates (default)")
+            recipients.add_argument("--sender-only", dest="reply_all", action="store_false",
+                                    help="Reply only to Reply-To (or From); do not inherit original To/CC")
             sub.add_argument("--self-alias", action="append", default=[], help="Additional own address to exclude; repeatable")
     return parser
 
@@ -136,6 +140,11 @@ def main(argv=None) -> int:
                   "errors": [type(exc).__name__],
                   "next_action": str(exc) if type(exc) is ValueError else
                   "Check user OAuth token/scopes, input files and network. No automatic fallback or retry."}
+        if isinstance(exc, ValueError):
+            from .gmail_client import GmailDraftStateError
+
+            if isinstance(exc, GmailDraftStateError):
+                result.update(exc.result())
     result = {"account": None, "draft_id": None, "message_id": None, "thread_id": "",
               "fingerprint": None, "sender": [], "to": [], "cc": [], "bcc": [],
               "subject": "", "in_reply_to": "", "references": "",

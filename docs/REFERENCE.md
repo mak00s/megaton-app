@@ -436,9 +436,9 @@ OAuth scope であり、「下書き専用」は実装の制限であってト�
 | `load_draft_credentials_from_env(env_prefix="", scopes=None)` | 明示した token JSON/path のみ。既定scopeは既存のcompose。環境変数は下表と共通 |
 | `client.assert_account(expected_email)` | `users.getProfile` の実メールアドレスと照合。不一致は停止 |
 | `GmailDraftContent.new(sender=, to=, subject=, body_text=, cc=None, bcc=None, attachments=None)` | 書き込みのない新規MIME組み立て |
-| `client.prepare_reply(message_id, expected_email=, body_text=, reply_all=False, self_aliases=(), attachments=None)` | `GmailDraftContent` を返す。元メール取得のみ |
+| `client.prepare_reply(message_id, expected_email=, body_text=, reply_all=True, self_aliases=(), attachments=None)` | `GmailDraftContent` を返す。元メール取得のみ。既定は全員返信 |
 | `client.create_reply_draft(message_id, expected_email=, **reply_options)` | 作成と再取得検証。構造化結果を返す |
-| `client.get_draft(draft_id)` | `GmailDraft(id, message_id, content, fingerprint)`。content.message は本文を含むMIME |
+| `client.get_draft(draft_id)` | `DRAFT` ラベルを確認して `GmailDraft(id, message_id, content, fingerprint)` を返す。content.message は本文を含むMIME |
 | `content.updated(body_text=None, to=None, cc=None, bcc=None, subject=None, attachments=None)` | コピーを編集。Noneは保持、空listはクリア |
 | `client.save_draft(content, expected_email=, draft_id=None, expected_fingerprint=None)` | 新規作成/更新と再取得検証。Fromは実アカウントと一致必須 |
 | `client.update_draft(draft_id, expected_email=, expected_fingerprint=, **changes)` | 取得・変更検知・更新・検証をまとめて実行 |
@@ -465,7 +465,7 @@ CLI: `python -m megaton_lib.gmail_draft {create,reply,get,update,verify} --help`
 
 - `create/reply/update`: 既定preview。`--apply`時だけ書く。APIの読み取りやtoken refreshはpreviewでも発生する。
 - 共通: `--expected-email` または `GMAIL_DRAFT_EXPECTED_EMAIL` が必須。`--format json|text` (既定json)。
-- `reply`: `--message-id`, `--body-file` 必須。`--reply-all`, `--self-alias`, `--attach` に対応。
+- `reply`: `--message-id`, `--body-file` 必須。既定は全員返信（元To/CCを継承、自分と重複を除外）。`--reply-all` は明示指定として維持。`--sender-only` でReply-To（なければFrom）のみに返信し、元To/CCは継承しない。両フラグは排他。`--self-alias`, `--attach` に対応。Pythonでも `reply_all=False` で送信者のみを選択できる。
 - `create`: `--to`, `--subject`, `--body-file` 必須。`--cc`, `--bcc`, `--attach` に対応。
 - `update`: `--draft-id`, `--expected-fingerprint` 必須。`--attach`は置換、`--clear-attachments`は削除。
   `--body-file`, `--to`, `--cc`, `--bcc`, `--clear-cc`, `--clear-bcc`に対応。thread所属の件名変更は拒否。
@@ -482,6 +482,14 @@ JSON契約 `schema_version="gmail-draft/v1"`:
 
 `applied=false`は未書き込み、`true`は書き込み成功、`null`は書き込み結果不明。
 preview/getは`verified=false`。作成後検証失敗でもIDを保持し、再作成しない。
+`drafts.get` の成功だけでは下書きの存在を保証しない。`get_draft` は `DRAFT` がない場合
+（ラベル未取得を含む）や `SENT` / `TRASH` がある場合に `GmailDraftStateError` を送出する。
+CLIと保存後readbackでは `errors=["draft_not_active"]`、`verified=false`、exit 1 とし、
+`draft_id`・`message_id`・追加の `label_ids` に観測値を残す。空の `label_ids` は
+未取得の場合もあり、送信済みとは断定しない。更新前にも同じ検査を行う。
+検査は取得時点の状態であり、直後の送信を防ぐロックではない。
+`verify_draft_summary` は取得済みスナップショットの比較のみ。現在の状態の検証は
+`verify_draft` またはCLI `verify` で再取得する。
 書き込みタイムアウトも自動再試行しない。exit 0=要求した処理成功、1=処理/検証失敗、
 2=argparse引数エラー（JSON契約の対象外）。`verified=true`は送信や受信者への配送を意味しない。
 既存`create_draft()`は返却互換のため生のGmail応答のままで、自動再取得検証はしない。
