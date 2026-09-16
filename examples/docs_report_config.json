@@ -1,0 +1,18 @@
+{
+  "image_comments": [
+    {"heading": {"kind": "paragraph", "text": "Overall", "named_style_type": "HEADING_2"}, "title": "Overall comments", "bullets": ["Consumer-supplied observation A."]},
+    {"heading": {"kind": "paragraph", "text": "Acquisition", "named_style_type": "HEADING_2"}, "title": "Acquisition comments", "bullets": ["Consumer-supplied observation B."]},
+    {"heading": {"kind": "paragraph", "text": "Engagement", "named_style_type": "HEADING_2"}, "title": "Engagement comments", "bullets": ["Consumer-supplied observation C."]}
+  ],
+  "news_heading": {"kind": "paragraph", "text": "NEWS", "named_style_type": "HEADING_2"},
+  "chart": {"path": "output/docs/news.png", "width_pt": 360, "height_pt": 180},
+  "table_values": [
+    ["Page", "Views", "Users", "Clicks", "CTR", "Change"],
+    ["A", "120", "100", "12", "10%", "+2%"],
+    ["B", "90", "70", "9", "10%", "0%"],
+    ["C", "80", "60", "4", "5%", "-1%"],
+    ["D", "60", "50", "3", "5%", "+1%"],
+    ["Total", "350", "280", "28", "8%", "+1%"]
+  ],
+  "column_widths_pt": [100, 55, 55, 55, 55, 55]
+}

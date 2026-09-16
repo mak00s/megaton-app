@@ -119,9 +119,27 @@ in a plain body paragraph, revision-guarded application and text readback.
 Ordinary document editing may use this mechanism; document selection, prose and
 approval policy remain in consumers. User OAuth identity is checked by the
 standard loader. General document authoring, formatting, Drive search, creation,
-sharing, deletion and automatic connector/browser fallback are out of scope.
+sharing, deletion and automatic connector/browser fallback are out of scope
+except for the limited report mutations and temporary image copies below.
 Unlike Gmail drafts, applying an edit changes the shared original immediately.
 Dry-run is the default and saved plans must be reviewed before explicit apply.
+
+Caller-selected analytics reports may additionally use reviewed structured body
+mutations: paragraphs, headings, bullets, supported text/paragraph styles, inline
+PNG/JPEG and unmerged rectangular tables. Consumer-owned anchors, prose, charts
+and numeric values stay outside the library. These operations use a separate
+versioned plan, approval digest, durable execution receipt, guarded batches and
+structural readback; they do not replace entire documents. This is not a general
+Google Docs editor. Unsupported rich content, suggestions and ambiguous anchors
+must be rejected, not flattened. The earlier single-text-edit contract remains.
+
+Temporary image hosting is a narrow delivery prerequisite: only new copies in
+an explicitly selected Drive folder may be publicly shared after explicit
+approval. Use independently verified user OAuth, never an implicit service
+account/ADC fallback. Journal uploads and delete the copies after the attempt;
+unknown upload/cleanup outcomes require manual inspection. Existing file
+permissions must not change. No Drive search, source-file sharing or general
+file-management API is exposed.
 
 ### Out of Scope
 

@@ -126,6 +126,7 @@ python -m pytest -q -m unit
 - 原本を直接変更するため、対象文書・タブ・差分を確認し、承認された保存済みplanだけを `apply --apply` で適用する。競合時は再計画・再確認し、結果不明時は再適用しない。
 - ユーザーOAuthと期待メールアドレスを明示する。Gmail tokenやGA/GSCサービスアカウントへの自動流用、コネクタ/ブラウザへの自動切替は禁止。代替手段には対象操作についての明示許可が必要。
 - planとget結果には本文が含まれる。Gitや共有ログへ入れない。認可・操作手順と対象外の編集は `docs/USAGE.md` / `docs/REFERENCE.md` を参照する。
+- 構造化レポート編集は `docs_mutate` の保存Plan・承認digest・Receiptを使う。画像の一時公開は別途明示承認が必要。partial/unknown・cleanup失敗時は停止し、原本とReceiptを確認する。旧一行編集APIの検証を画像・表の検証と混同しない。
 
 ## 13. Documentation
 

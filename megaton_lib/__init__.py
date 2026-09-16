@@ -50,6 +50,9 @@ Reporting & delivery:
     google_workspace : Sheets/Docs/Drive client builders (user OAuth + SA)
     docs_client      : reviewed, revision-guarded edits to selected Google Docs
     docs_edit        : Google Docs get/plan/apply/verify JSON CLI
+    docs_mutations   : reviewed structured report plans and structural readback
+    docs_mutate      : private-file structured report editing CLI
+    docs_assets      : explicitly approved temporary image copies for Docs
     env_utils        : .env loading / required-env checks
     report_validation: ExecutionTracker for report runs + sheet caching
     csv_validation   : validate generated import CSVs against source DataFrames
