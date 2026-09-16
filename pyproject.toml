@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "megaton-app"
-version = "0.37.0"
+version = "0.38.0"
 license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
@@ -24,6 +24,7 @@ dev = [
     "ruff",
 ]
 google = [
+    "Pillow",
     "google-api-python-client",
     "google-auth",
     "google-auth-oauthlib",

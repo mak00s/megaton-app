@@ -413,7 +413,7 @@ Googleの[WriteControl仕様](https://developers.google.com/workspace/docs/api/r
 
 ### Structured Google Docs Mutations
 
-`megaton_lib.docs_mutations` / `python -m megaton_lib.docs_mutate`。未リリース。
+`megaton_lib.docs_mutations` / `python -m megaton_lib.docs_mutate`。v0.38.0以降。
 `DocsClient.plan_mutations(document_id, operations=, tab_id=)` は読み取りのみ。
 `apply_mutation_plan(plan, apply=False, approved_digest=None, receipt_path=None, image_stager=None)` は
 既定preview。適用には承認時に別途保持したdigestと新規Receiptパスを要求する。
@@ -465,7 +465,11 @@ Receipt (`docs-mutation-receipt/v1`) はplan_digest、target、revision、段階
 再取得revisionが返却revisionと一致しなければ次段へ進まない。
 
 検証は本文構造、指定書式、箇条書き、表値・列幅・セル装飾、画像ID/位置/サイズ、
-対象外本文・他タブ・文書スタイルを比較する。寸法許容差は0.05pt、色は1e-6。
+対象外本文・他タブ・文書スタイルを比較する。寸法許容差は0.05pt。
+RGBは実APIの8bit丸めを考慮し、各成分の許容差を0.5/255 + 1e-6とする。
+明示した文字書式がreadbackで省略される場合は対象タブのnamed styleの実値で照合し、
+固定フォント等を仮定しない。改行にはlinkを設定できないため改行のみ期待linkを除外する。
+未指定のrun書式の残留検査は維持する。段落移動では `direction` も保持する。
 画像の視覚的な正しさ、改ページ、業務値の正確さ、コメント関係の維持を保証するものではない。
 `verified` は構造検証、`ok` は構造検証と既知のcleanup成功。通常ログには本文を出さない。
 全体構造不一致ならoperation結果も保守的に未検証とする。
@@ -473,6 +477,12 @@ Receipt (`docs-mutation-receipt/v1`) はplan_digest、target、revision、段階
 画像ステージングは `DriveImageStager.from_oauth_file(token, expected_email=, folder_id=, allow_public=True)`。
 Docsと別途 `drive.file + userinfo.email` の承認済みユーザーOAuthが必要。指定folderへ新規コピーを
 作成し、一時的なanyone-readerを付け、試行後にコピーを削除する。元ファイル権限は変更しない。
+`drive.file` はユーザーの全フォルダへのアクセス権ではない。既存folderは同じOAuthアプリへ
+Google Picker等で許可しておく。URL/IDの指定だけでは許可されず、404になり得る。
+Googleの[desktop Picker手順](https://developers.google.com/workspace/drive/picker/guides/desktop-mobile-picker)
+では `drive.file` 単独で `trigger_onepick=true`、`allow_folder_selection=true`、
+`file_ids=<folder_id>` を指定して選択できる。本人確認用scopeを持つ画像tokenとは別の
+選択フローにし、既存tokenを上書きしない。Drive全体のscopeへ自動拡大しない。
 upload結果不明はfileIdが分からない場合もある。Receiptのplan_digest/operation_idとDrive上の
 appPropertiesを管理者が確認する。cleanup失敗は `ok=false`。共有ポリシーにより公開不可なら停止。
 

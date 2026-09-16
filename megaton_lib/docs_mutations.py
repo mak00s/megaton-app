@@ -16,7 +16,7 @@ from .docs_client import DocsEditError, _has_suggestions, _id, _select, _tab_id,
 
 SCHEMA = "docs-mutations/v1"
 RECEIPT_SCHEMA = "docs-mutation-receipt/v1"
-PARAGRAPH_FIELDS = {"namedStyleType", "alignment", "spaceAbove", "spaceBelow",
+PARAGRAPH_FIELDS = {"namedStyleType", "alignment", "direction", "spaceAbove", "spaceBelow",
                     "indentStart", "indentEnd", "indentFirstLine", "lineSpacing", "keepWithNext"}
 TEXT_FIELDS = {"bold", "italic", "underline", "strikethrough", "fontSize", "foregroundColor", "backgroundColor", "link",
                "weightedFontFamily", "smallCaps", "baselineOffset"}
@@ -70,6 +70,10 @@ def _other_tabs(document, tab_id):
 
 def _subset(expected, actual, *, tolerance=1e-6):
     if isinstance(expected, dict):
+        if isinstance(actual, dict) and set(expected) == {"rgbColor"} and "rgbColor" in actual:
+            # Docs normalizes RGB channels to 8-bit precision and omits zeroes.
+            return all(math.isclose(expected["rgbColor"].get(k, 0), actual["rgbColor"].get(k, 0),
+                                    abs_tol=0.5 / 255 + 1e-6, rel_tol=0) for k in ("red", "green", "blue"))
         return isinstance(actual, dict) and all(k in actual and _subset(v, actual[k], tolerance=0.05 if k == "magnitude" else 1e-6)
                                                 for k, v in expected.items())
     if isinstance(expected, list):
@@ -94,6 +98,8 @@ def _para(block, tab):
     styles = {"namedStyleType": "NORMAL_TEXT", **p.get("paragraphStyle", {})}
     result = {"kind": "paragraph", "text": text, "paragraph_style": styles,
               "bullet": bool(bullet), "runs": []}
+    named = {s["namedStyleType"]: s.get("textStyle", {}) for s in tab.get("namedStyles", {}).get("styles", [])}
+    result["inherited_text_style"] = {**named.get("NORMAL_TEXT", {}), **named.get(styles["namedStyleType"], {})}
     for e in runs:
         if "textRun" in e:
             result["runs"].append({"text": e["textRun"]["content"],
@@ -108,6 +114,14 @@ def _para(block, tab):
         result.update(kind="image" if len(images) == 1 and text == "\n" else "mixed", objects=images)
         result["images"] = [_semantic(tab.get("inlineObjects", {}).get(i, {}).get("inlineObjectProperties", {})) for i in images]
     return result
+
+
+def _without_inherited_style(value):
+    if isinstance(value, dict):
+        return {k: _without_inherited_style(v) for k, v in value.items() if k != "inherited_text_style"}
+    if isinstance(value, list):
+        return [_without_inherited_style(v) for v in value]
+    return value
 
 
 def _nodes(tab):
@@ -134,7 +148,7 @@ def _nodes(tab):
             node = {"kind": "opaque"}
         semantic = _semantic(block)
         # Include image/list properties, which live outside the paragraph body.
-        node["fingerprint"] = _digest([semantic, node])
+        node["fingerprint"] = _digest([semantic, _without_inherited_style(node)])
         node["start"] = block.get("startIndex", 0)
         node["end"] = block.get("endIndex", 0)
         node["raw"] = block
@@ -541,14 +555,19 @@ def _node_matches(expected, actual, objects):
         wanted.extend([{**run["style"], **expected.get("text_style", {})}] * len(run["text"]))
     observed = []
     for run in actual.get("runs", []):
-        observed.extend([{**dict.fromkeys(BOOLEAN_TEXT_FIELDS, False), **run["style"]}] * len(run["text"]))
+        observed.extend([run["style"]] * len(run["text"]))
     if len(wanted) != len(observed):
         return False
     for index, (e, a) in enumerate(zip(wanted, observed)):
         reset = expected.get("text_style_mode") == "reset"
         if not reset and expected["text"][index] == "\n":
             continue
-        if not _subset(e, a):
+        if expected["text"][index] == "\n":
+            e = {k: v for k, v in e.items() if k != "link"}
+        inherited = actual.get("inherited_text_style", {})
+        effective = {**dict.fromkeys(BOOLEAN_TEXT_FIELDS, False),
+                     **{k: v for k, v in inherited.items() if k in e and k != "link"}, **a}
+        if not _subset(e, effective):
             return False
         if reset and any(k not in e and not (k in BOOLEAN_TEXT_FIELDS and v is False) for k, v in a.items()):
             return False

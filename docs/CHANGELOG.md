@@ -2,8 +2,13 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-## Unreleased
+## 2026-09-16 (v0.38.0)
 
+- Live Docs checks now cover paragraph moves (preserving text direction), UTF-16
+  replacement, style reset/patch, bullets, 6x6 tables and stale-revision rejection.
+  Readback accounts for 8-bit RGB normalization, named-style inheritance of
+  explicitly requested values and non-linkable newline characters, without
+  accepting unspecified run-style overrides.
 - Structured Docs plans reject table-start insertions and move destinations before
   approval. New/replaced text, table cells and moved paragraphs reset inherited
   text styles and verify that no unspecified overrides remain; existing style
@@ -18,8 +23,14 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
   copy cleanup and image object-ID/size readback. No existing file permissions
   change. The single-edit `DocsEditPlan` and `docs_edit` CLI remain compatible.
 - Added an offline-tested three-image-comment/chart/6x6-table report example.
-  Live Docs rendering, public image fetch and legacy-output equivalence remain
-  acceptance checks, not claims made by the offline tests.
+  Live text/table structure and rendering have also been checked on a test document.
+  A local PNG was also staged in an explicitly approved Drive folder, inserted,
+  checked by object ID/position/size and visually after temporary-file deletion.
+  Existing drive.file folders require per-app Picker authorization; this is now
+  documented. Multi-tab edits were exercised through the megaton-notebooks CLI
+  while preserving the original tab. Its legacy publishing function is AST-identical
+  except for its name and the snapshot helper is unchanged; production report reruns
+  were not performed. The Google extra now includes Pillow for local PNG/JPEG plans.
 
 ## 2026-09-16 (v0.37.0)
 

@@ -115,6 +115,9 @@ def test_new_text_resets_full_mask_including_empty_paragraph(kind):
 def test_reset_verification_rejects_inherited_fields(extra):
     block = paragraph("new")
     block["paragraph"]["elements"][0]["textRun"]["textStyle"].update(extra)
+    if "link" in extra:
+        block["paragraph"]["elements"][0]["textRun"]["content"] = "new"
+        block["paragraph"]["elements"].append({"textRun": {"content": "\n", "textStyle": {}}})
     actual = m.get_normalized_outline(document([block, paragraph("")]))[0]
     expected = m._paragraph("new")
     assert not m._node_matches(expected, actual, {})
@@ -133,6 +136,31 @@ def test_reset_verifies_newline_and_accepts_default_false():
     block["paragraph"]["elements"][0]["textRun"]["textStyle"]["link"] = {"url": "https://example.com"}
     actual = m.get_normalized_outline(document([block]))[0]
     assert not m._node_matches(expected, actual, {})
+
+
+def test_api_normalized_color_font_and_newline_link():
+    expected = m._paragraph({'text': 'Linked', 'text_style': {
+        'weightedFontFamily': {'fontFamily': 'Arial'}, 'link': {'url': 'https://example.com'},
+        'foregroundColor': {'color': {'rgbColor': {'red': 0.1}}}}})
+    actual = {'kind': 'paragraph', 'text': 'Linked\n', 'bullet': False,
+              'paragraph_style': {'namedStyleType': 'NORMAL_TEXT'},
+              'inherited_text_style': {'weightedFontFamily': {'fontFamily': 'Arial', 'weight': 400}},
+              'runs': [{'text': 'Linked', 'style': {'link': {'url': 'https://example.com'},
+                        'foregroundColor': {'color': {'rgbColor': {'red': 26 / 255}}}}},
+                       {'text': '\n', 'style': {'foregroundColor': {'color': {'rgbColor': {'red': 26 / 255}}}}}]}
+    assert m._node_matches(expected, actual, {})
+    actual['inherited_text_style']['weightedFontFamily']['fontFamily'] = 'Courier New'
+    assert not m._node_matches(expected, actual, {})
+    actual['inherited_text_style']['weightedFontFamily']['fontFamily'] = 'Arial'
+    actual['runs'][0]['style']['foregroundColor']['color']['rgbColor']['red'] = 27 / 255
+    assert not m._node_matches(expected, actual, {})
+
+
+def test_named_style_defaults_are_read_from_selected_tab():
+    d = document()
+    d['tabs'][0]['documentTab']['namedStyles'] = {'styles': [
+        {'namedStyleType': 'NORMAL_TEXT', 'textStyle': {'weightedFontFamily': {'fontFamily': 'Arial'}}}]}
+    assert m.get_normalized_outline(d)[0]['inherited_text_style']['weightedFontFamily']['fontFamily'] == 'Arial'
 
 
 def test_existing_style_patch_keeps_link_and_uses_only_requested_mask():
@@ -165,6 +193,7 @@ def test_inherited_style_readback_does_not_report_verified(tmp_path):
 
 def test_move_resets_destination_and_keeps_source_style():
     block = paragraph("Source")
+    block["paragraph"]["paragraphStyle"]["direction"] = "LEFT_TO_RIGHT"
     style = {"fontSize": {"magnitude": 18, "unit": "PT"}, "link": {"url": "https://example.com"}}
     block["paragraph"]["elements"][0]["textRun"]["textStyle"] = style
     d = document([block, paragraph("Target"), paragraph("")])
@@ -176,6 +205,8 @@ def test_move_resets_destination_and_keeps_source_style():
     assert update["textStyle"] == style
     assert set(update["fields"].split(",")) == m.TEXT_FIELDS
     assert p["after"][1]["text_style_mode"] == "reset"
+    paragraph_update = next(r["updateParagraphStyle"] for r in requests if "updateParagraphStyle" in r)
+    assert paragraph_update["paragraphStyle"]["direction"] == "LEFT_TO_RIGHT"
 
 
 @pytest.mark.parametrize("error", [DocsEditError("Anchor must be unique."), RuntimeError("SECRET BODY")])
