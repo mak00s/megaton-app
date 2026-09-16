@@ -2,6 +2,31 @@
 
 CLI は [REFERENCE.md](REFERENCE.md)。このページは **Python から直接呼ぶとき**の最短ルート。
 
+## Google Docs の構造化レポート編集
+
+既存 `DocsEditPlan` は単一行編集のまま。複合編集は別の `DocsMutationPlan` を使う。
+
+```python
+from megaton_lib.docs_client import DocsClient
+from megaton_lib.docs_mutations import paragraph_anchor, insert_bullets_after_anchor
+
+client = DocsClient.from_oauth_file("credentials/docs.json", expected_email="sim@b-unit.jp")
+plan = client.plan_mutations(document_id, tab_id=tab_id, operations=[
+    insert_bullets_after_anchor(paragraph_anchor("Reviewed heading"),
+                               ["Consumer-supplied finding"], operation_id="findings")
+])
+preview = client.apply_mutation_plan(plan)  # no writes
+# Persist the confidential plan, review it, retain plan.digest independently.
+result = client.apply_mutation_plan(plan, apply=True, approved_digest=approved_digest,
+                                    receipt_path="output/docs/run-receipt.json")
+verification = client.verify_mutation_plan(plan, receipt=result)
+```
+
+`docs_mutations` のヘルパーは操作仕様を返すだけで、直接APIを書かない。
+画像を含む場合だけ `DriveImageStager` を明示注入する。既存token・公開先の自動探索はしない。
+CLI、安全性、対応範囲は [REFERENCE](REFERENCE.md#structured-google-docs-mutations)、
+3画像コメント・PNG・6x6表の例は [USAGE](USAGE.md#structured-report-example) を参照。
+
 ## 最初に覚える入口は1つ
 
 ```python

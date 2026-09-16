@@ -371,6 +371,9 @@ Failure:
 
 ### Google Docs Edits
 
+複合レポート編集は別契約の [Structured Google Docs Mutations](#structured-google-docs-mutations)。
+以下の制限は既存の単一行編集APIに適用する。
+
 `megaton_lib.docs_client` / `python -m megaton_lib.docs_edit`。v0.36.0以降。
 レポート・提案書・議事録等の呼び出し元指定文書に限定し、Drive管理は含まない。
 
@@ -407,6 +410,71 @@ write_statusを含む。verifyのscopeは `target_paragraph_text` であり、�
 再計算と不一致なら拒否するが、承認後にファイルを書き換えないことは呼び出し側の責務。
 Googleの[WriteControl仕様](https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/batchUpdate#writecontrol)と
 [タブ仕様](https://developers.google.com/workspace/docs/api/how-tos/tabs)に従う。
+
+### Structured Google Docs Mutations
+
+`megaton_lib.docs_mutations` / `python -m megaton_lib.docs_mutate`。未リリース。
+`DocsClient.plan_mutations(document_id, operations=, tab_id=)` は読み取りのみ。
+`apply_mutation_plan(plan, apply=False, approved_digest=None, receipt_path=None, image_stager=None)` は
+既定preview。適用には承認時に別途保持したdigestと新規Receiptパスを要求する。
+`verify_mutation_plan(plan, receipt=None)` は再取得だけ。画像検証にはobjectIdを含むReceiptが必要。
+
+Plan (`docs-mutations/v1`) はdocument/tab/revision、操作一覧、段階ごとの前後構造、
+範囲（本文blockの半開区間）、隣接アンカー、画像ファイルのSHA-256、digestを保持する。
+APIのUTF-16 indexは各段階の最新snapshotから内部解決し、利用者は固定indexを持たない。
+CLI保存形式は `{"schema_version":"docs-mutations/v1","mode":"dry_run","plan":...}`。
+Planは本文を含む。ハッシュは認証署名ではないため、承認済みdigestをPlanとは別に保持する。
+
+対応操作（各操作の `id` は一意な英数字・ハイフン等）:
+- `insert_paragraphs`: `anchor`, `position=before|after`, `paragraphs`。各段落は文字列または
+  `text/paragraph_style/text_style/bullet`。改行を含む本文は段落リストへ分ける。
+- `replace_text`: 単一textRun段落内の一意な `match` を `text` に置換。空文字で範囲削除。
+- `insert_text`: 単一textRun段落内の `match`（省略時は段落全文）の直前/直後へ単一行 `text` を挿入。
+- `delete_paragraphs` / `replace_paragraphs`: `anchor` から `last` までの段落ブロック。
+- `move_paragraphs`: `anchor/last/destination/position`。現在は非箇条書き・単一textRunの
+  再現可能な書式のみ。mixed runs、特殊要素、末尾段落の削除・移動は拒否。
+- `style_paragraph`: `paragraph_style/text_style/bullet`。箇条書きはフラットなDISC preset。
+- `insert_image`: `image_path/width_pt/height_pt`。ローカルPNG/JPEG、50MB未満・25MP以下。
+- `insert_table`: `values`（矩形の文字列配列）、`column_widths_pt`、`header_rows/total_rows`、
+  `header_color/total_color`。セル内改行も対応。`style_table_rows` で行指定の追加装飾が可能。
+
+`paragraph_anchor(text, named_style_type=, within_heading=)`、画像objectId、表fingerprintで
+一意照合する。同一見出しが複数ある文書ではセクションを指定する。新規単一要素への参照は
+`{"operation_id":"news-chart"}`。`find_unique_paragraph`、`find_inline_object_after_heading`、
+`get_normalized_outline` は検索・確認用。画像アンカーは独立したinline image段落に限定。
+挿入先が表の開始位置になるplanは、段落・画像・表の挿入と段落移動のいずれも拒否する。
+表の前の段落をanchorに `position="before"` を指定し、変更後の位置を確認する。自動補正はしない。
+最終段落の後ろへの挿入は未対応なので末尾空段落の前を指定する。
+結合セル、ネスト表、suggestions、脚注、数式、smart chip、コメント等の移動・編集は対象外。
+
+新規・置換段落と新規セル内容の文字書式は「未指定をリセット、指定を適用」。
+bold/italic/underline/strikethrough、fontSize、foregroundColor/backgroundColor、link、
+weightedFontFamily、smallCaps、baselineOffsetを改行・空段落を含めてリセット対象とする。
+段落移動は同じリセット後に移動元の書式を適用する。既存の `style_paragraph` /
+`style_table_rows` は指定フィールドのみ更新し、他の書式を維持する。
+新規・移動内容のreadbackでは、期待集合にない文字書式キーが残れば不一致とする
+（未設定、または真偽値フィールドの既定falseは許容）。継承される文書既定スタイルの
+固定値を仮定する検証ではない。未リリース版で作った旧planは再生成・再確認する。
+CLIの `validation_failed` は安全な `DocsEditError` の `message` を返す。
+その他のAPI例外メッセージは出力しない。
+
+Receipt (`docs-mutation-receipt/v1`) はplan_digest、target、revision、段階とoperationごとの
+結果、生成objectId、一時画像ID・cleanup状態を保持。write_statusは
+`not_started/unknown/rejected/partial/acknowledged`。検証だけでReceiptがなければ `not_observed`。
+部分成功や結果不明の自動再開・再適用・rollbackはない。各batchは `requiredRevisionId` 固定、
+再取得revisionが返却revisionと一致しなければ次段へ進まない。
+
+検証は本文構造、指定書式、箇条書き、表値・列幅・セル装飾、画像ID/位置/サイズ、
+対象外本文・他タブ・文書スタイルを比較する。寸法許容差は0.05pt、色は1e-6。
+画像の視覚的な正しさ、改ページ、業務値の正確さ、コメント関係の維持を保証するものではない。
+`verified` は構造検証、`ok` は構造検証と既知のcleanup成功。通常ログには本文を出さない。
+全体構造不一致ならoperation結果も保守的に未検証とする。
+
+画像ステージングは `DriveImageStager.from_oauth_file(token, expected_email=, folder_id=, allow_public=True)`。
+Docsと別途 `drive.file + userinfo.email` の承認済みユーザーOAuthが必要。指定folderへ新規コピーを
+作成し、一時的なanyone-readerを付け、試行後にコピーを削除する。元ファイル権限は変更しない。
+upload結果不明はfileIdが分からない場合もある。Receiptのplan_digest/operation_idとDrive上の
+appPropertiesを管理者が確認する。cleanup失敗は `ok=false`。共有ポリシーにより公開不可なら停止。
 
 ### Gmail Draft Helpers
 

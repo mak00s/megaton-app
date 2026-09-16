@@ -2,6 +2,25 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## Unreleased
+
+- Structured Docs plans reject table-start insertions and move destinations before
+  approval. New/replaced text, table cells and moved paragraphs reset inherited
+  text styles and verify that no unspecified overrides remain; existing style
+  edits remain field-scoped. CLI validation failures include safe diagnostic messages.
+- Added opt-in structured report editing through `DocsClient.plan_mutations`,
+  `apply_mutation_plan`, `verify_mutation_plan` and `python -m megaton_lib.docs_mutate`.
+  Versioned private plans, independently approved digests and execution receipts
+  guard paragraphs/bullets, literal text replacement, scoped styles, inline images
+  and rectangular tables. Each write uses requiredRevisionId with no retries;
+  partial/unknown outcomes never trigger automatic replay or rollback.
+- Added explicit user-OAuth temporary Drive image staging, opt-in public access,
+  copy cleanup and image object-ID/size readback. No existing file permissions
+  change. The single-edit `DocsEditPlan` and `docs_edit` CLI remain compatible.
+- Added an offline-tested three-image-comment/chart/6x6-table report example.
+  Live Docs rendering, public image fetch and legacy-output equivalence remain
+  acceptance checks, not claims made by the offline tests.
+
 ## 2026-09-16 (v0.37.0)
 
 - Gmail replies now default to reply-all in both Python and the CLI, preserving

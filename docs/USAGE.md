@@ -117,6 +117,45 @@ python -m megaton_lib.docs_edit --token credentials/docs_token.json \
 確認する。実Docへの適用・視覚的確認は個別の承認付き検証であり、モックテストとは別。
 契約と制限は[REFERENCE](REFERENCE.md#google-docs-edits)、エージェントの安全規則は[AGENTS](../AGENTS.md#12-google-docs-edits)。
 
+### Structured Report Example
+
+複合編集は `python -m megaton_lib.docs_mutate --help`。既存 `docs_edit` の一行編集と別経路。
+3つの既存画像の後ろに見出し＋箇条書きを挿入し、NEWSの後ろにPNGと6x6表を挿入する例は
+[`examples/docs_report_mutations.py`](../examples/docs_report_mutations.py) と
+[`docs_report_config.json`](../examples/docs_report_config.json)。見出し・文章・表値は呼び出し側の設定。
+既存分析文は挿入によって後ろへ移るだけで削除・再生成しない。
+PNGを先にローカルで用意し、config内のパスを設定する。サンプル値は説明用で実データではない。
+
+```bash
+umask 077
+mkdir -p output/docs/report
+# Reads only; no Drive upload. Run from the checkout with its package installed.
+python examples/docs_report_mutations.py --token "$DOCS_TOKEN_PATH" \
+  --expected-email sim@b-unit.jp --document-id DOCUMENT_ID --tab-id t.0 \
+  --config output/docs/report/config.json --output output/docs/report/plan.json
+python -m megaton_lib.docs_mutate --token "$DOCS_TOKEN_PATH" --expected-email sim@b-unit.jp \
+  apply --plan output/docs/report/plan.json
+# Review the private plan file, including before/after structures and image hashes.
+# Retain its digest independently as APPROVED_DIGEST; do not edit the saved plan.
+python -m megaton_lib.docs_mutate --token "$DOCS_TOKEN_PATH" --expected-email sim@b-unit.jp \
+  apply --plan output/docs/report/plan.json --apply --approved-digest "$APPROVED_DIGEST" \
+  --receipt output/docs/report/receipt.json --image-token "$DRIVE_IMAGE_TOKEN_PATH" \
+  --image-folder-id APPROVED_FOLDER_ID --allow-public-images
+python -m megaton_lib.docs_mutate --token "$DOCS_TOKEN_PATH" --expected-email sim@b-unit.jp \
+  verify --plan output/docs/report/plan.json --receipt output/docs/report/receipt.json
+```
+
+上記のapplyは、文書編集に加えて画像の一時公開・コピー削除を承認した場合のみ実行する。
+Docs tokenはdocuments + userinfo.email、画像tokenはdrive.file + userinfo.emailのユーザーOAuth。
+指定フォルダへのアクセス・共有ポリシーを事前確認し、認可やAPI有効化を自動実行しない。
+Plan/getの本文は新規0600ファイルへ保存し、stdoutは本文のない要約のみ。
+Receiptも秘密情報としてGit対象外にする。`partial/unknown` は自動再開しない。
+同じReceiptパスへのapplyは拒否されるが、別パスを作っての再実行を安全にする機能ではない。
+表は作成・値入力・装飾の3段階。途中競合で空表や未装飾表が残る可能性はReceiptに記録する。
+
+オフラインfixtureはAPIリクエスト・構造検証の証拠であり、実文書の見た目や画像の取得成功を
+保証しない。本番移行前に、承認済み検証用文書で上記手順と旧出力の比較を実施する。
+
 ### Gmailの下書き専用操作
 
 返信はCLI・Python APIとも全員返信が既定。元To/CCを継承し、自分と重複宛先を除外する。

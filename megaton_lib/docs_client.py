@@ -188,6 +188,20 @@ class DocsClient:
     def plan(self, document_id: str, **kwargs) -> DocsEditPlan:
         return plan_edit(self.get(document_id), **kwargs)
 
+    def plan_mutations(self, document_id: str, *, operations, tab_id=None):
+        """Plan report-body edits without writes; see docs_mutations for helpers."""
+        from .docs_mutations import plan_mutations, _read_document
+        return plan_mutations(_read_document(self, document_id), operations=operations, tab_id=tab_id)
+
+    def apply_mutation_plan(self, plan, *, apply=False, approved_digest=None, receipt_path=None, image_stager=None):
+        from .docs_mutations import apply_mutation_plan
+        return apply_mutation_plan(self, plan, apply=apply, approved_digest=approved_digest,
+                                   receipt_path=receipt_path, image_stager=image_stager)
+
+    def verify_mutation_plan(self, plan, *, receipt=None):
+        from .docs_mutations import verify_mutation_plan
+        return verify_mutation_plan(self, plan, receipt=receipt)
+
     def verify(self, plan: DocsEditPlan) -> dict:
         """Read only; verify target paragraph text, not layout or collaborators' edits."""
         document = self.get(plan.document_id)
