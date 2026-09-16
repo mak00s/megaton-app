@@ -2,6 +2,20 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-09-16 (v0.37.0)
+
+- Gmail replies now default to reply-all in both Python and the CLI, preserving
+  original To/CC while excluding self and duplicates. Use `reply_all=False` or
+  `--sender-only` for the previous sender-only behavior; explicit `--reply-all`
+  remains supported. Bcc is never inherited.
+
+- Gmail draft retrieval now requires the message's DRAFT label and rejects
+  SENT/TRASH or missing labels. Old draft IDs returning sent messages no longer
+  pass verification or update preflight; CLI/readback errors retain IDs and
+  observed labels without automatically recreating a draft. Offline fakes of
+  `drafts.get` must now include `"labelIds": ["DRAFT"]` on the message, as
+  real responses do.
+
 ## 2026-09-15 (v0.36.0)
 
 - Added narrow Google Docs get/plan/apply/verify support with explicit user OAuth
