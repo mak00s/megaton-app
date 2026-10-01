@@ -1121,6 +1121,15 @@ object and are intended for jobs that deliberately bypass `megaton`.
 | `update_cells(mg, sheet_url, sheet_name, values)` | Update multiple A1 cells |
 | `save_sheet_table(mg, sheet_url, sheet_name, df, min_rows=None, min_cols=None, hide_gridlines=None, tab_color=None, ...)` | Save a DataFrame and optionally format the selected sheet via `mg.sheet.*` |
 | `save_sheet_from_template(mg, sheet_name, df, ...)` | Write with template-based sheet creation |
+| `write_sheet_blocks(mg, *, sheet_name, blocks, sheet_url=None, create_if_missing=True, clear_sheet=False, value_input_option=None)` | Write `(A1_range, rows)` blocks using named gspread arguments; optionally parse formulas/date-like values with `USER_ENTERED` or preserve literal values with `RAW` |
+
+`write_sheet_blocks()` returns whether any non-empty block was written. Omitting
+`value_input_option` preserves the worksheet driver's default (RAW in current
+gspread). `USER_ENTERED` uses the spreadsheet's locale to interpret date-like
+strings and numbers. `clear_sheet=True` clears existing values before writing;
+multiple blocks are separate updates, not an atomic transaction. This is workflow
+composition over the existing worksheet driver, not a second low-level Sheets
+implementation. These changes are on main and are not in the v0.38.0 release.
 
 #### Direct-gspread helpers
 
@@ -1401,6 +1410,9 @@ Notes:
 
 - Prefer `build_gtm_preview_override({"previewUrl": "<tag assistant url>"}, require=True)` when you already have a Tag Assistant preview link.
 - GTM preview support rewrites matching `gtm.js` / `ns.html` requests to include `gtm_auth`, `gtm_preview`, and `gtm_cookies_win`.
+- Matching accepts the target container's `id` as either the first or a later
+  query parameter; other container IDs are left unchanged. The first-parameter
+  matching fix is on main and is not in the v0.38.0 release.
 - The preview auth token is intentionally not persisted in validation metadata.
 
 ### Adobe Tags Bootstrap (`megaton_lib.audit.providers.tag_config`)

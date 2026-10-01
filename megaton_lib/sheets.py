@@ -456,11 +456,14 @@ def write_sheet_blocks(
     sheet_url: str | None = None,
     create_if_missing: bool = True,
     clear_sheet: bool = False,
+    value_input_option: str | None = None,
 ) -> bool:
     """Write one or more rectangular blocks to a worksheet.
 
     Each block is a tuple of ``(a1, values)`` where ``values`` is the 2-D list
-    accepted by gspread ``Worksheet.update``.
+    accepted by gspread ``Worksheet.update``. Set ``value_input_option`` to
+    ``"USER_ENTERED"`` when formulas and date-like values should be parsed by
+    Google Sheets instead of stored as literal strings.
     """
     if sheet_url and not mg.open.sheet(sheet_url):
         raise RuntimeError(f"Could not open sheet URL: {sheet_url}")
@@ -496,6 +499,9 @@ def write_sheet_blocks(
     for a1, values in blocks:
         if not values:
             continue
-        ws.update(a1, values)
+        update_kwargs = {"values": values, "range_name": a1}
+        if value_input_option is not None:
+            update_kwargs["value_input_option"] = value_input_option
+        ws.update(**update_kwargs)
         wrote = True
     return wrote

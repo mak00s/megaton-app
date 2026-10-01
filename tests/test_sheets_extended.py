@@ -215,8 +215,8 @@ def test_write_sheet_blocks_creates_selects_and_updates():
     sheet.create.assert_called_once_with("MONTHLY")
     mg.sheets.select.assert_called_once_with("MONTHLY")
     worksheet.clear.assert_called_once()
-    worksheet.update.assert_any_call("A1", [["Title"]])
-    worksheet.update.assert_any_call("A2", [["2026"]])
+    worksheet.update.assert_any_call(range_name="A1", values=[["Title"]])
+    worksheet.update.assert_any_call(range_name="A2", values=[["2026"]])
 
 
 class _BatchSpreadsheet:

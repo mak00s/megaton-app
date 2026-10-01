@@ -14,6 +14,7 @@ from megaton_lib.sheets import (
     save_sheet_from_template,
     update_cells,
     upsert_or_skip,
+    write_sheet_blocks,
 )
 
 
@@ -110,6 +111,30 @@ def test_create_when_no_template_matches_regex():
     assert mg.gs._driver.duplicate_sheet.call_count == 0
     mg.gs.sheet.create.assert_called_once_with("202502")
     mg.save.to.sheet.assert_called_once()
+
+
+def test_write_sheet_blocks_can_parse_user_entered_formulas():
+    worksheet = SimpleNamespace(update=Mock())
+    sheet = SimpleNamespace(select=Mock(return_value=True), _driver=worksheet)
+    mg = SimpleNamespace(
+        open=SimpleNamespace(sheet=Mock(return_value=True)),
+        gs=SimpleNamespace(sheets=["trend"], sheet=sheet, _driver=SimpleNamespace()),
+    )
+
+    wrote = write_sheet_blocks(
+        mg,
+        sheet_url="https://example.com",
+        sheet_name="trend",
+        blocks=[("A1", [["=DATE(2026,7,1)"]])],
+        value_input_option="USER_ENTERED",
+    )
+
+    assert wrote is True
+    worksheet.update.assert_called_once_with(
+        values=[["=DATE(2026,7,1)"]],
+        range_name="A1",
+        value_input_option="USER_ENTERED",
+    )
 
 
 # ── upsert_or_skip ──────────────────────────────────────────────
