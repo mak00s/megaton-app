@@ -146,6 +146,25 @@ save_sheet_table(mg, sheet_url=URL, sheet_name="out", df=df)
 upsert_or_skip(mg, "monthly", df, keys=["month"])
 ```
 
+For separate cell blocks, `write_sheet_blocks()` can explicitly request formula
+and date parsing (available on main; not yet released):
+
+```python
+from megaton_lib.sheets import write_sheet_blocks
+
+write_sheet_blocks(
+    mg,
+    sheet_url=URL,
+    sheet_name="monthly",
+    blocks=[("A1", [["Month", "Total"]]), ("A2", [["=DATE(2026,9,1)", "=SUM(C2:E2)"]])],
+    value_input_option="USER_ENTERED",
+)
+```
+
+Use `RAW` for literal values. Omitting the option retains the worksheet driver's
+default. `USER_ENTERED` interprets date-like strings according to the spreadsheet
+locale. Blocks are written separately; this helper does not provide atomic writes.
+
 低レベル(batchUpdate等)は `megaton.gsheet_lowlevel`（`megaton_lib.gspread_lowlevel` は互換shim）。
 `batch_update_spreadsheet()` は操作内容に応じてretryを判断し、add/delete/append等の構造変更は単発送信する。
 外側から無条件retryで包まない。再試行可能な呼び出しの429待機は30秒フロア。

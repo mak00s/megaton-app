@@ -2,6 +2,18 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## Unreleased
+
+- Fixed GTM preview routing when `id` is the first query parameter in `gtm.js`
+  or `ns.html` requests. Previously those requests could load the live container
+  instead of the requested workspace preview. Regression tests cover parameter
+  order and reject other container IDs; the Talks consumer was checked on four
+  live-site pages using its unpublished workspace preview.
+- `write_sheet_blocks()` now uses named `values` and `range_name` arguments for
+  compatibility with current gspread. Added optional `value_input_option`:
+  `USER_ENTERED` parses formulas and date-like values, while `RAW` keeps literal
+  values. Omitting the option preserves the worksheet driver's default.
+
 ## 2026-09-16 (v0.38.0)
 
 - Live Docs checks now cover paragraph moves (preserving text direction), UTF-16
