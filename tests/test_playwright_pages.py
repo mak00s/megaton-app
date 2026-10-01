@@ -587,6 +587,14 @@ def test_configure_gtm_preview_override_rewrites_gtm_request():
     configure_gtm_preview_override(page, override)
 
     assert len(page.route_calls) == 2
+    for index, path in enumerate(("gtm.js", "ns.html")):
+        pattern = page.route_calls[index][0]
+        base = f"https://www.googletagmanager.com/{path}"
+        assert pattern.match(f"{base}?id=GTM-TJKK7S5")
+        assert pattern.match(f"{base}?id=GTM-TJKK7S5&l=dataLayer")
+        assert pattern.match(f"{base}?l=dataLayer&id=GTM-TJKK7S5")
+        assert not pattern.match(f"{base}?id=GTM-TJKK7S50")
+        assert not pattern.match(f"{base}?other_id=GTM-TJKK7S5")
     handler = page.route_calls[0][1]
     route = FakeRoute()
     request = FakeRequest(

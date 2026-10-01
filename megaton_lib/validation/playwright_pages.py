@@ -337,7 +337,7 @@ def configure_gtm_preview_override(
     """Configure Playwright routes to load a GTM container in preview mode."""
     for path in ("gtm.js", "ns.html"):
         pattern = re.compile(
-            rf"^https://www\.googletagmanager\.com/{re.escape(path)}\?.*([?&])id={re.escape(override.container_id)}(?:[&#].*)?$"
+            rf"^https://www\.googletagmanager\.com/{re.escape(path)}\?(?:[^#]*&)?id={re.escape(override.container_id)}(?:[&#].*)?$"
         )
 
         def _handle_gtm_preview(route, request, *, _override=override):  # type: ignore[no-untyped-def]
