@@ -171,7 +171,10 @@ Gmailへのサービスアカウントアクセスには別途ドメイン全体
 サポートせず拒否する。`GOOGLE_APPLICATION_CREDENTIALS` / ADCへもフォールバックしない。
 
 `create/get/update/verify` は `gmail.compose` のみで利用できる。
-`reply`用tokenには `gmail.readonly` と `gmail.compose` が必要。新規送付用のcompose-only token
+`reply`用tokenには `gmail.readonly` と `gmail.compose`、または既存の `gmail.modify` が必要。
+既存tokenは保存されたscopeのままrefreshし、操作に必要な権限を満たすか検証する。
+新規認可は引き続き最小scopeを推奨し、既存tokenの権限拡大や書き換えは行わない。
+新規送付用のcompose-only token
 がある場合、scope名を環境変数やJSONに追記しても権限は増えない。ユーザーがOAuth認可を行う。
 既存tokenを残すには、別のtokenパスで明示的に初回認可する（この操作はブラウザを開く）。
 
@@ -953,3 +956,52 @@ python -m pytest -q --cov=scripts.query --cov-report=term-missing --cov-fail-und
 |------------|------|
 | [REFERENCE.md](REFERENCE.md) | JSON スキーマ、CLI 全オプション、パイプライン、megaton API、認証 |
 | [CHANGELOG.md](CHANGELOG.md) | 変更履歴 |
+
+## Box APIでのレポート転送（導入準備）
+
+`megaton_lib.box_api` は選択した分析ファイルの取得・納品専用です。
+Chromeログインを使わず、本人User OAuthでBox APIを呼びます。
+現在のAnalytics Ops Read Onlyアプリ・クラウドのrefresh tokenは流用しません。
+
+1. Box Developer Consoleに別のUser OAuthアプリ `Analytics Artifact Delivery`
+   を作成。必要なcontent read/writeだけを選び、管理・Sign・as-user権限は付けません。
+   read/writeはユーザーがアクセスできるBoxコンテンツ全体に及び、フォルダ限定の
+   OAuth権限ではありません。コードは呼出元が選んだ納品先だけを操作します。
+2. Redirect URIは `http://localhost:8766/callback`。
+   client_id/client_secretのJSONをリポジトリ外に保存し、`chmod 600`。
+3. このcheckoutを仮想環境へインストール後、次を実行します。
+
+   ```bash
+   python -m pip install -e /path/to/megaton-app
+   python /path/to/megaton-app/scripts/authorize_box_artifacts.py \
+     --client-config ~/.config/megaton/box-artifacts-client.json \
+     --token-file ~/.config/megaton/box-artifacts-token.json \
+     --expected-login user@example.com
+   ```
+
+   印刷されたURLを開き、専用アプリの同意画面で本人が許可します。
+   client secret・token・callback codeはチャットに貼りません。
+   actor照合成功後だけトークンが有効になります。同意だけでは納品しません。
+4. ローカル環境に次を設定します（token値そのものは環境変数に置きません）。
+
+   ```bash
+   export BOX_API_TOKEN_FILE="$HOME/.config/megaton/box-artifacts-token.json"
+   export BOX_API_EXPECTED_LOGIN="user@example.com"
+   export BOX_API_WRITE_ENABLED=1
+   ```
+
+refreshはPOSIXローカルファイルロックで直列化し、新refresh tokenを原子的に保存。
+接続前の `ConnectTimeout` はpendingを解除し、次の呼出しで再試行できます。
+一般の切断・read timeout・503は回転の成否を判別できないためpendingを維持し、
+再認可が必要です。自動再送は行いません。
+複数マシン・GHAにこの回転tokenをコピーしないでください。
+GHA移行は中央のtoken管理方法を決めてから別途行います。
+
+API導入前の依存pin（invoice v0.20.0 / notebooks v0.33.0）にはこのモジュールが
+ありません。ローカルでeditable installし、検証後に公開リリースのpinへ移行します。
+この変更だけではGHAの既存認証・納品経路は切り替わりません。
+
+Gmailの明示的な `authorize()` は既存grantのscope不足でも同意フローに進みます。
+通常のcredentials loaderはscope不足で停止し、勝手に同意画面を開きません。
+scope包含判定はGmailのread/compose/modify/metadata/send/insert/labelsについて
+文書で確認できる関係のみ扱い、管理用scopeを推測で付与しません。

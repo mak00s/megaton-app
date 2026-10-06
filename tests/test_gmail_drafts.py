@@ -434,6 +434,61 @@ def test_auth_loader_uses_shared_prefix_and_scopes(monkeypatch):
     assert captured == [("token", module.SCOPES_REPLY)]
 
 
+@pytest.mark.parametrize("granted,required", [
+    (["https://www.googleapis.com/auth/gmail.modify"], module.SCOPES_REPLY),
+    (["https://mail.google.com/"], module.SCOPES_REPLY),
+    (module.SCOPES_REPLY, module.SCOPES_DRAFT),
+    (module.SCOPES_DRAFT, module.SCOPES_DRAFT),
+    (module.SCOPES_DETECT, module.SCOPES_DETECT),
+])
+def test_oauth_refresh_preserves_original_grant(monkeypatch, granted, required):
+    captured = []
+    creds = SimpleNamespace(granted_scopes=None)
+    monkeypatch.setattr(module.Credentials, "from_authorized_user_info",
+                        lambda info, scopes: captured.append(scopes) or creds)
+    monkeypatch.setattr(module, "refresh_credentials", lambda value: value)
+    assert module.credentials_from_authorized_user_info({"scopes": granted}, required) is creds
+    assert captured == [granted]
+
+
+@pytest.mark.parametrize("granted", [module.SCOPES_DETECT, module.SCOPES_DRAFT, [],
+    ["https://www.googleapis.com/auth/gmail.send"]])
+def test_insufficient_reply_grant_stops_before_refresh(monkeypatch, granted):
+    def unexpected_refresh(*args, **kwargs):
+        pytest.fail("Insufficient grant must not trigger OAuth refresh")
+    monkeypatch.setattr(module.Credentials, "from_authorized_user_info", unexpected_refresh)
+    with pytest.raises(ValueError, match="lacks required"):
+        module.credentials_from_authorized_user_info({"scopes": granted}, module.SCOPES_REPLY)
+
+
+def test_oauth_refresh_checks_actual_granted_scopes(monkeypatch):
+    creds = SimpleNamespace(granted_scopes=module.SCOPES_DETECT)
+    monkeypatch.setattr(module.Credentials, "from_authorized_user_info", lambda *args: creds)
+    monkeypatch.setattr(module, "refresh_credentials", lambda value: value)
+    with pytest.raises(ValueError, match="lacks required"):
+        module.credentials_from_authorized_user_info({"scopes": module.SCOPES_REPLY}, module.SCOPES_REPLY)
+
+
+def test_oauth_token_without_scope_metadata_preserves_legacy_behavior(monkeypatch):
+    captured = []
+    creds = SimpleNamespace(granted_scopes=None)
+    monkeypatch.setattr(module.Credentials, "from_authorized_user_info",
+                        lambda info, scopes: captured.append(scopes) or creds)
+    monkeypatch.setattr(module, "refresh_credentials", lambda value: value)
+    module.credentials_from_authorized_user_info({}, module.SCOPES_REPLY)
+    assert captured == [module.SCOPES_REPLY]
+
+
+def test_oauth_scope_string_is_normalized(monkeypatch):
+    captured = []
+    creds = SimpleNamespace(granted_scopes=None)
+    monkeypatch.setattr(module.Credentials, "from_authorized_user_info",
+                        lambda info, scopes: captured.append(scopes) or creds)
+    monkeypatch.setattr(module, "refresh_credentials", lambda value: value)
+    module.credentials_from_authorized_user_info({"scopes": " ".join(module.SCOPES_REPLY)}, module.SCOPES_REPLY)
+    assert captured == [module.SCOPES_REPLY]
+
+
 def test_authorize_existing_token_checks_actual_identity(setup, monkeypatch, tmp_path):
     client, service = setup
     token = tmp_path / "token.json"
@@ -668,3 +723,29 @@ def test_cli_timeout_preserves_unknown_outcome(cli_setup, tmp_path, capsys):
     assert result["applied"] is None
     assert "to" in result and "attachments" in result and "thread_id" in result
     assert len(service.writes) == 1
+
+
+def test_explicit_authorize_reconsents_insufficient_existing_grant(setup, monkeypatch, tmp_path):
+    client, service = setup
+    token=tmp_path/'token.json'
+    token.write_text('old token')
+    def insufficient(*args):
+        raise module.GmailScopeError('insufficient grant')
+    monkeypatch.setattr(module,'credentials_from_authorized_user_file',insufficient)
+    creds=SimpleNamespace(to_json=lambda:'{"token":"replacement"}')
+    run=SimpleNamespace(run_local_server=lambda **kw:creds)
+    monkeypatch.setitem(sys.modules,'google_auth_oauthlib.flow',SimpleNamespace(InstalledAppFlow=SimpleNamespace(from_client_secrets_file=lambda *args:run)))
+    monkeypatch.setattr(module,'GmailClient',lambda creds:client)
+    assert module.authorize(tmp_path/'client.json',token,module.SCOPES_REPLY,service.account) is creds
+    assert json.loads(token.read_text())['token']=='replacement'
+
+
+@pytest.mark.parametrize('grant,required', [('modify','metadata'),('modify','send'),('modify','insert'),('modify','labels'),('compose','send'),('readonly','metadata')])
+def test_documented_additional_scope_equivalents(grant, required):
+    prefix='https://www.googleapis.com/auth/gmail.'
+    module._require_gmail_scopes([prefix+grant],[prefix+required])
+
+
+def test_modify_does_not_imply_unrelated_admin_scopes():
+    with pytest.raises(module.GmailScopeError):
+        module._require_gmail_scopes(['https://www.googleapis.com/auth/gmail.modify'],['https://www.googleapis.com/auth/gmail.settings.sharing'])

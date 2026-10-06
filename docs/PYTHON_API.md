@@ -187,3 +187,10 @@ locale. Blocks are written separately; this helper does not provide atomic write
 5. 一致でコミット、コピー削除
 
 slqm 移行（2026-06）はこの手順で `_page`/`_page-d`/`_page-m`/`_all-m` 全セル一致を確認済み。
+
+## Box API artifact transfer
+
+`megaton_lib.box_api.upload_files_to_box_folder_via_api_sync(...)` と
+`await megaton_lib.box_api.download_from_box_via_api(...)` がAPI経路です。
+認証設定・制限はUSAGE/REFERENCEのBox節を参照してください。
+既存 `megaton_lib.box_ui` は明示選択用の互換経路として残ります。

@@ -4,6 +4,11 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+- Gmail OAuth loading now preserves an existing token's recorded scopes when
+  refreshing, avoiding `invalid_scope` for `gmail.modify` tokens used by the
+  draft CLI. Required operation scopes are checked before refresh and against
+  reported granted scopes; no token rewriting, reauthorization, or send API.
+
 - Fixed GTM preview routing when `id` is the first query parameter in `gtm.js`
   or `ns.html` requests. Previously those requests could load the live container
   instead of the requested workspace preview. Regression tests cover parameter
@@ -613,3 +618,16 @@ Detailed changes by date:
 ### 2026-02-03
 
 - Added authentication checks
+
+### Unreleased: Box API artifact transfer
+
+- Add owner-verified User OAuth file rotation and narrow report upload/download.
+- Verify SHA1 and destination; refuse unknown-write retries and public sharing.
+- Add dedicated artifact OAuth setup CLI; read-only Analytics Ops auth stays separate.
+
+### Unreleased: Box API review fixes
+
+- Accept enterprise shared URLs, remove header query/fragment, and reject non-string folder inputs before writes.
+- Preserve uploaded IDs with separate link failure results; reject existing ZIP before downloading contents.
+- Allow retry after pre-send ConnectTimeout; keep uncertain refresh outcomes blocked.
+- Explicit Gmail authorize supports reconsent for insufficient grants; extend documented mail-scope implications.

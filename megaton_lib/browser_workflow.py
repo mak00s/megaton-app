@@ -54,6 +54,7 @@ _WORKFLOWS = {
         "purpose": "Deliver analytics reports or evidence with an explicit write decision.",
         "entrypoints": [
             "megaton_lib.report_gmail_draft.create_report_gmail_draft_from_env",
+            "megaton_lib.box_api.upload_files_to_box_folder_via_api_sync",
             "megaton_lib.box_ui.upload_files_to_box_folder_via_ui_sync",
         ],
         "next": "Use an existing report delivery CLI; plan first, then explicitly approve its write mode.",

@@ -506,6 +506,11 @@ appPropertiesを管理者が確認する。cleanup失敗は `ok=false`。共有�
 `SCOPES_REPLY` は `gmail.readonly` + `gmail.compose`。CLIでこれを要求するのは`reply`のみ。
 `create/get/update/verify` は `SCOPES_DRAFT` (composeのみ) を要求し、既存のcompose-only
 tokenをそのまま利用できる。既に付与されたscopeをこの選択で取り消すわけではない。
+token JSONにscopeが記録されている場合、必要な操作のscopeを満たすか確認し、記録された
+scopeのままrefreshする。既存の`gmail.modify`（または`https://mail.google.com/`）は
+readonly/composeを包含するものとして扱う。権限不足はrefresh前に停止し、refresh応答に
+granted scopesがある場合も検証する。scope情報のない旧tokenは従来通り要求scopeで読み込む。
+tokenの書き戻し・自動再認可はしない。
 compose 自体は送信可能な
 OAuth scope であり、「下書き専用」は実装の制限であってトークンの権限制限ではない。
 
@@ -2075,3 +2080,32 @@ info = describe_auth_context(creds_hint="corp")
 
 - [megaton on GitHub](https://github.com/mak00s/megaton)
 - [Streamlit Documentation](https://docs.streamlit.io/)
+
+## Box artifact API contract
+
+- `BoxArtifactClient`: expected_loginを必須照合。固定API/upload hostのみ。
+- `upload_files_to_box_folder_via_api_sync`: normal folder URL、正確な子フォルダ名
+  （最大2階層）、local file_paths。非文字列の子フォルダ名は認証・書込前に拒否。1ファイル50MiBまで。
+  子フォルダ一覧は最大2,000件、全ページで同名を照合。
+- 同一SHA1はskip。異なる同名ファイルは既定error、`existing_policy="version"`
+  で既存IDへIf-Match版更新。新規POST409を版更新へ自動変換しません。
+- write後のID/name/parent/SHA1を読み戻し確認。Timeout/5xx/不正write応答は
+  `write_outcome_unknown`、自動再送・UI fallbackなし。
+  バッチはtransactionではなく途中まで完了し得ます。共有リンク失敗もupload後に
+  起こり得ます。共有リンク失敗は例外にせず `shared_link_status=failed` /
+  `shared_link_error` とupload済みIDを返します（folderは `folder_` prefix）。
+  upload本体の失敗は従来どおり停止し、Box上の内容確認後に再開します。
+- 結果は既存UIのupload/file/folder shared linkキーを維持し、file_id/sha1/
+  upload_status（created/versioned/skipped_identical）を追加。
+- 既存共有リンクは要求accessが一致する場合のみ再利用。新リンクはinvitedのみ。
+  company/openは既存リンク再利用の指定として受け付けます。新規作成・権限拡大は
+  拒否し、upload結果に共有リンク失敗を記録します。upload成功と共有成功を混同しません。
+- URLは通常のBox hostに加え企業サブドメイン（例 `example-brand.box.com`）に対応。
+  共有URLのquery/fragmentはヘッダーに含めず、Bearerは固定API hostにのみ送ります。
+- `download_from_box_via_api`: file URL/shared URLまたはfolder URL。
+  folderはexpected_folder_file_names必須、正確に一致するfileのみZIPへ束ねる。
+  合計250MiB、既存のZIP出力は内容取得前に拒否し、最終確定時にも上書きしません。
+  SHA1/size確認後にlocal確定。
+  HTTPS Box CDNへのredirectだけ許可し、Bearer/cookieをCDNへ渡さない。
+- HTTPエラーは安全なcodeのみ。レスポンス本文・秘密を例外に含めない。
+  401/403/429は停止して明示復旧（自動retryなし）。

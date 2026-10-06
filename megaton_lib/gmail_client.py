@@ -83,7 +83,46 @@ def credentials_from_authorized_user_info(
         token_info = json.loads(token_info)
     if token_info.get("type") == "service_account" or "private_key" in token_info:
         raise ValueError("Gmail requires a user OAuth token, not a service account.")
-    return refresh_credentials(Credentials.from_authorized_user_info(token_info, scopes))
+    # Requested scopes describe the operation, not a new OAuth grant. Refresh
+    # with the token's original grant; substituting narrower scope names can
+    # produce invalid_scope even when gmail.modify covers the operation.
+    token_scopes = token_info.get("scopes")
+    if token_scopes is not None:
+        if isinstance(token_scopes, str):
+            token_scopes = token_scopes.split()
+        if not isinstance(token_scopes, list) or not all(
+            isinstance(scope, str) for scope in token_scopes
+        ):
+            raise ValueError("Invalid OAuth token scopes")
+        _require_gmail_scopes(token_scopes, scopes)
+    creds = refresh_credentials(Credentials.from_authorized_user_info(
+        token_info, scopes if token_scopes is None else token_scopes
+    ))
+    if creds.granted_scopes is not None:
+        _require_gmail_scopes(creds.granted_scopes, scopes)
+    return creds
+
+
+class GmailScopeError(ValueError):
+    """Existing grant cannot perform the caller's requested Gmail operation."""
+
+
+def _require_gmail_scopes(granted: Sequence[str], required: Sequence[str]) -> None:
+    """Check only documented Gmail equivalents; never expand an OAuth grant."""
+    available = set(granted)
+    prefix = "https://www.googleapis.com/auth/gmail."
+    mail_operations = {prefix + name for name in
+                       ("readonly", "compose", "modify", "metadata", "send", "insert", "labels")}
+    if "https://mail.google.com/" in available:
+        available.update(mail_operations)
+    if prefix + "modify" in available:
+        available.update(mail_operations - {prefix + "modify"})
+    if prefix + "compose" in available:
+        available.add(prefix + "send")
+    if prefix + "readonly" in available:
+        available.add(prefix + "metadata")
+    if not set(required).issubset(available):
+        raise GmailScopeError("OAuth token lacks required Gmail scopes; no automatic reauthorization")
 
 
 def credentials_from_authorized_user_file(token_path: str | Path, scopes: list[str]) -> Credentials:
@@ -118,7 +157,7 @@ def authorize(
     if token_path.exists():
         try:
             creds = credentials_from_authorized_user_file(token_path, scopes)
-        except RuntimeError:
+        except (RuntimeError, GmailScopeError):
             pass
         else:
             if expected_email:
