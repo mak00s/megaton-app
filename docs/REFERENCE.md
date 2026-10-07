@@ -186,9 +186,48 @@ Notes:
 
 Notes:
 - AA integration uses a built-in Adobe Analytics 2.0 REST client (OAuth + retry/backoff + paging).
-- GTM access uses service-account credentials resolved by `MEGATON_CREDS_PATH` / `credentials/`.
+- Existing audit/export GTM access uses service-account credentials resolved by `MEGATON_CREDS_PATH` / `credentials/`.
+- Dedicated user-OAuth review uses `GtmClient` / `gtm_review` below; it never falls back to service accounts.
 - Adobe Analytics can also auto-detect OAuth JSON files in `ADOBE_CREDS_PATH` or `credentials/`.
 - Adobe OAuth JSON shape: `client_id`, `client_secret`, `org_id` (or `ims_org_id`), optional `scopes`.
+
+### Read-only GTM user OAuth (`megaton_lib.gtm_client` / `gtm_review`)
+
+| Entry | Contract |
+|---|---|
+| `authorize_gtm_user(client_secrets_path=..., token_path=..., expected_email=..., access="read")` | Explicit initial desktop consent. `access="edit"` also requests container/version editing, never publication. Existing token is verified/reused, never overwritten or upgraded. Verifies identity before private atomic save. |
+| `GtmClient.from_oauth_file(token_path, expected_email=...)` | Existing dedicated user token only. Requires recorded readonly + userinfo.email scopes; accepts optional container/version edit scopes but rejects SA, publish/delete/access administration and other API scopes. Verifies the Google account before GTM access. No interactive/ADC/SA fallback. |
+| `client.containers()` | Paginated inventory of accessible accounts/containers. |
+| `client.review(container_path)` | Reads every workspace, resource snapshots, workspace status and the live published version. No writes or conflict resolution. |
+
+CLI: `python -m megaton_lib.gtm_review {auth,containers,review}`.
+All commands require `--token` and `--expected-email`; `auth` requires `--client-secrets`,
+reads require `--output`, and `review` requires one or more `--container-path` values.
+`auth --access read|edit` selects the initial grant (default read); review commands remain read-only.
+Paths are numeric API paths (`accounts/123/containers/456`), not public `GTM-*` IDs or browser URLs.
+No project-specific IDs/accounts or credential-path discovery defaults are built in.
+
+Authorization requests `https://www.googleapis.com/auth/tagmanager.readonly` and
+`https://www.googleapis.com/auth/userinfo.email`. Recorded `openid` is also accepted.
+Explicit edit consent additionally requests `tagmanager.edit.containers` and
+`tagmanager.edit.containerversions`; `tagmanager.publish` is never requested or accepted.
+Missing scope metadata fails closed; adding scope strings to JSON cannot grant access.
+Saved scopes are preserved on refresh and reported granted scopes rechecked when available.
+If oauthlib reports a changed grant (for example, added `openid`), both its reported scopes
+and token-response scopes must pass the same allowlist before credentials can be recovered.
+No global scope-relaxation setting is enabled.
+The token is never rewritten during reads. Refresh failure never starts new consent.
+
+Review schema v1: `mode=read_only`, `container`, `live_version`, `workspaces[]`
+(`workspace`, `status`, `resources`), `fetched_at` (UTC), `snapshot_atomic=false`.
+This is the `client.review()` result. The `review` CLI wraps these results in
+`{schema_version: 1, mode: "read_only", reviews: [...]}`; `containers` outputs
+`{schema_version: 1, mode: "read_only", containers: [...], fetched_at: ...}`.
+`status` is GTM's delta from the workspace base, not automatically the delta from live.
+No published-version baseline is synthesized if the live API fails. API failures stop the
+command without replacing a previous output. Outputs are atomically written with mode 0600.
+API/OAuth exception contents are not dumped to terminal because they can contain secrets.
+This snapshot supports static review; it does not prove endpoint reachability or production tag delivery.
 
 ## Consumer Contract Check (`scripts/check_consumer_contracts.py`)
 

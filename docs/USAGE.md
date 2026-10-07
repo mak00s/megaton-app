@@ -64,6 +64,54 @@ python scripts/query.py --list-ga4-properties
 
 ---
 
+### GTMのユーザーOAuthによる読み取り専用レビュー
+
+SAを登録せず、対象ユーザーが既に持つGTM権限で設定を取得する。
+`python -m megaton_lib.gtm_review --help` が専用入口。従来のSAベースaudit/exportとは別経路で、
+認証失敗時にSA・ADC・Chrome操作へ切り替えない。依存は `pip install -e ".[google]"`。
+
+初回だけ、OAuthクライアントのGCP projectでTag Manager APIを有効にし、
+「デスクトップアプリ」のクライアントJSONを共通 `credentials/` に置く。
+テスト中のOAuthアプリは対象アカウントをテストユーザーに追加する。
+既定の認可はGTM readonlyとアカウント確認用userinfo.emailのみ。
+`auth --access edit` を明示した場合だけ、タグ/トリガー等とコンテナversionの編集権限も要求する。
+公開・コンテナ削除・アカウント管理・ユーザー権限管理は要求せず、それらを含むtokenは拒否する。
+編集用tokenでも、このレビューCLIがGTMを変更することはない。
+クライアントJSONと専用tokenはGit対象外にし、Gmail/Docs tokenを流用しない。
+
+```bash
+# 初回認可のみブラウザを開く。本人がログイン・許可する。
+# expected-emailは呼び出し元が選ぶ。保存前に実アカウントを確認する。
+python -m megaton_lib.gtm_review auth \
+  --client-secrets /absolute/shared/credentials/gtm_oauth_client.json \
+  --token /absolute/shared/credentials/gtm_token.json \
+  --expected-email YOUR_ACCOUNT
+
+# 編集用認可は初回に --access edit を明示する。既存read tokenは自動昇格しない。
+# 公開scopeは付与されない。実際の編集は別途、対象と変更内容の承認が必要。
+
+# 以下はAPI読み取りのみ。tokenと出力は必ず明示する。
+python -m megaton_lib.gtm_review containers \
+  --token /absolute/shared/credentials/gtm_token.json \
+  --expected-email YOUR_ACCOUNT --output output/gtm/containers.json
+
+# inventoryに返ったnumeric pathを使う。複数対象は--container-pathを繰り返す。
+python -m megaton_lib.gtm_review review \
+  --token /absolute/shared/credentials/gtm_token.json \
+  --expected-email YOUR_ACCOUNT \
+  --container-path accounts/ACCOUNT_ID/containers/CONTAINER_ID \
+  --output output/gtm/review.json
+```
+
+`auth`は既存tokenがあれば検証して再利用し、上書き・自動再認可しない。
+失効・scope不足は停止し、明示的な再認可を新しい専用tokenパスで行う。
+新tokenは本人確認後に0600で保存。通常の取得はtokenを読み取り、必要ならメモリ内で更新する。
+レビューJSONには全workspaceの変更/競合、タグ・トリガー・変数・フォルダ・テンプレート・
+組み込み変数と公開済みversionを保持する。競合解決・workspace sync・preview作成・公開は行わない。
+workspace statusはbase versionとの差であり、公開済みとの差は`live_version`と比較する。
+API取得は非atomicなので、他の編集者が変更中なら取得時点のずれに注意する。
+出力はタグコードやURLを含む機密スナップショットとしてGit対象外で保管する。
+
 ### Google Docsの限定編集
 
 `python -m megaton_lib.docs_edit --help` は文書ID指定の取得・編集計画・適用・検証の入口。

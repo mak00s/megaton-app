@@ -4,6 +4,14 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+- Added dedicated non-publishing GTM user OAuth through `GtmClient` and
+  `python -m megaton_lib.gtm_review auth|containers|review`. Initial consent verifies
+  the account before privately saving a separate token; normal reads never open
+  consent or fall back to SA/ADC. Snapshots include all workspaces, changes/conflicts
+  and the actually published version. Explicit `auth --access edit` grants container/version
+  editing without publication; review commands still never mutate GTM.
+  Existing SA audit/export remains unchanged.
+
 - Gmail OAuth loading now preserves an existing token's recorded scopes when
   refreshing, avoiding `invalid_scope` for `gmail.modify` tokens used by the
   draft CLI. Required operation scopes are checked before refresh and against
