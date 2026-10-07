@@ -106,8 +106,12 @@ python -m megaton_lib.gtm_review review \
 `auth`は既存tokenがあれば検証して再利用し、上書き・自動再認可しない。
 失効・scope不足は停止し、明示的な再認可を新しい専用tokenパスで行う。
 新tokenは本人確認後に0600で保存。通常の取得はtokenを読み取り、必要ならメモリ内で更新する。
-レビューJSONには全workspaceの変更/競合、タグ・トリガー・変数・フォルダ・テンプレート・
-組み込み変数と公開済みversionを保持する。競合解決・workspace sync・preview作成・公開は行わない。
+レビューJSONには全workspaceの変更/競合と公開済みversionを保持する。
+設定取得はコンテナの`features`に従い、タグ・トリガー・変数・フォルダ・テンプレート・
+組み込み変数・clients・transformations・zones・Google tag configを対象とする。
+非対応の種類は`unsupported_resources`に記録し、取得済みの空リストと区別する。
+feature情報が欠落/不正、または対応する設定APIの取得に失敗した場合は停止し、既存出力を保つ。
+競合解決・workspace sync・preview作成・公開は行わない。
 workspace statusはbase versionとの差であり、公開済みとの差は`live_version`と比較する。
 API取得は非atomicなので、他の編集者が変更中なら取得時点のずれに注意する。
 出力はタグコードやURLを含む機密スナップショットとしてGit対象外で保管する。

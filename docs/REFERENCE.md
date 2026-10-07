@@ -198,7 +198,7 @@ Notes:
 | `authorize_gtm_user(client_secrets_path=..., token_path=..., expected_email=..., access="read")` | Explicit initial desktop consent. `access="edit"` also requests container/version editing, never publication. Existing token is verified/reused, never overwritten or upgraded. Verifies identity before private atomic save. |
 | `GtmClient.from_oauth_file(token_path, expected_email=...)` | Existing dedicated user token only. Requires recorded readonly + userinfo.email scopes; accepts optional container/version edit scopes but rejects SA, publish/delete/access administration and other API scopes. Verifies the Google account before GTM access. No interactive/ADC/SA fallback. |
 | `client.containers()` | Paginated inventory of accessible accounts/containers. |
-| `client.review(container_path)` | Reads every workspace, resource snapshots, workspace status and the live published version. No writes or conflict resolution. |
+| `client.review(container_path)` | Reads every workspace, supported resource snapshots selected by container `features`, workspace status and the live published version. No writes or conflict resolution. |
 
 CLI: `python -m megaton_lib.gtm_review {auth,containers,review}`.
 All commands require `--token` and `--expected-email`; `auth` requires `--client-secrets`,
@@ -219,7 +219,13 @@ No global scope-relaxation setting is enabled.
 The token is never rewritten during reads. Refresh failure never starts new consent.
 
 Review schema v1: `mode=read_only`, `container`, `live_version`, `workspaces[]`
-(`workspace`, `status`, `resources`), `fetched_at` (UTC), `snapshot_atomic=false`.
+(`workspace`, `status`, `resources`, `unsupported_resources`), `fetched_at` (UTC), `snapshot_atomic=false`.
+Resource types are tags, triggers, variables, folders, templates, built-in variables,
+clients, transformations, zones and Google tag config (`gtag_config`). Only types with
+a true corresponding container `features.support*` flag are fetched. False or omitted
+flags identify unsupported types in `unsupported_resources`; these are not represented
+as empty fetched lists. Missing/invalid feature metadata stops the review. A supported
+resource API failure also stops it rather than silently producing a partial snapshot.
 This is the `client.review()` result. The `review` CLI wraps these results in
 `{schema_version: 1, mode: "read_only", reviews: [...]}`; `containers` outputs
 `{schema_version: 1, mode: "read_only", containers: [...], fetched_at: ...}`.

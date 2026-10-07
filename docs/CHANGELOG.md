@@ -8,7 +8,10 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
   `python -m megaton_lib.gtm_review auth|containers|review`. Initial consent verifies
   the account before privately saving a separate token; normal reads never open
   consent or fall back to SA/ADC. Snapshots include all workspaces, changes/conflicts
-  and the actually published version. Explicit `auth --access edit` grants container/version
+  and the actually published version. Workspace resources follow container feature
+  flags, including server-side clients/transformations, zones and Google tag config;
+  unsupported types are identified separately and supported-resource failures stop
+  the review without replacing previous output. Explicit `auth --access edit` grants container/version
   editing without publication; review commands still never mutate GTM.
   Existing SA audit/export remains unchanged.
 

@@ -258,16 +258,17 @@ def test_container_inventory_paginates_accounts_and_containers():
 def test_review_reads_every_workspace_and_live_without_mutations():
     service = MagicMock()
     containers = service.accounts().containers()
-    containers.get().execute.return_value = {"publicId": "GTM-A"}
+    containers.get().execute.return_value = {
+        "publicId": "GTM-A",
+        "features": {feature: True for _, _, feature in gtm_client._WORKSPACE_RESOURCES},
+    }
     containers.versions().live().execute.return_value = {"containerVersionId": "12"}
     workspaces = containers.workspaces()
     workspaces.list().execute.return_value = {"workspace": [
         {"path": "accounts/1/containers/2/workspaces/3"},
         {"path": "accounts/1/containers/2/workspaces/4"},
     ]}
-    for plural, singular in (("tags", "tag"), ("triggers", "trigger"), ("variables", "variable"),
-                             ("folders", "folder"), ("templates", "template"),
-                             ("built_in_variables", "builtInVariable")):
+    for plural, singular, _ in gtm_client._WORKSPACE_RESOURCES:
         getattr(workspaces, plural)().list().execute.return_value = {singular: [{"name": plural}]}
     workspaces.getStatus().execute.return_value = {"workspaceChange": [{"changeStatus": "updated"}]}
     service.reset_mock()
@@ -275,10 +276,75 @@ def test_review_reads_every_workspace_and_live_without_mutations():
     assert len(result["workspaces"]) == 2
     assert result["live_version"]["containerVersionId"] == "12"
     assert result["workspaces"][0]["resources"]["templates"] == [{"name": "templates"}]
+    resources = result["workspaces"][0]["resources"]
+    assert set(resources) == {"tags", "triggers", "variables", "folders", "templates",
+                              "built_in_variables", "clients", "transformations", "zones", "gtag_config"}
+    assert resources["clients"] == [{"name": "clients"}]
+    assert resources["transformations"] == [{"name": "transformations"}]
+    assert result["workspaces"][0]["unsupported_resources"] == []
     assert not result["snapshot_atomic"]
     for call in service.mock_calls:
         assert not any(f".{name}(" in str(call) for name in
                        ("create", "update", "delete", "sync", "publish", "quick_preview", "resolve_conflict"))
+
+
+def test_review_only_reads_supported_resources_and_paginates_server_settings():
+    service = MagicMock()
+    containers = service.accounts().containers()
+    containers.get().execute.return_value = {"features": {
+        "supportClients": True, "supportTransformations": True, "supportTags": False,
+    }}
+    containers.versions().live().execute.return_value = {"containerVersionId": "12"}
+    workspaces = containers.workspaces()
+    path = "accounts/1/containers/2/workspaces/3"
+    workspaces.list().execute.return_value = {"workspace": [{"path": path}]}
+    workspaces.clients().list().execute.side_effect = [
+        {"client": [{"clientId": "1"}], "nextPageToken": "next"},
+        {"client": [{"clientId": "2"}]},
+    ]
+    workspaces.transformations().list().execute.return_value = {"transformation": [{"name": "redact"}]}
+    workspaces.getStatus().execute.return_value = {}
+    service.reset_mock()
+    snapshot = gtm_client.GtmClient(service).review("accounts/1/containers/2")["workspaces"][0]
+    assert snapshot["resources"] == {
+        "clients": [{"clientId": "1"}, {"clientId": "2"}],
+        "transformations": [{"name": "redact"}],
+    }
+    assert set(snapshot["unsupported_resources"]) == {
+        "tags", "triggers", "variables", "folders", "templates", "built_in_variables", "zones", "gtag_config",
+    }
+    workspaces.clients().list.assert_any_call(parent=path, pageToken="next")
+    for name in snapshot["unsupported_resources"]:
+        getattr(workspaces, name).assert_not_called()
+
+
+@pytest.mark.parametrize("features", [None, [], {"supportClients": "true"}])
+def test_review_rejects_missing_or_invalid_feature_metadata(features):
+    service = MagicMock()
+    containers = service.accounts().containers()
+    containers.get().execute.return_value = {"features": features}
+    with pytest.raises(RuntimeError, match="feature metadata"):
+        gtm_client.GtmClient(service).review("accounts/1/containers/2")
+    containers.versions.assert_not_called()
+    containers.workspaces.assert_not_called()
+
+
+def test_cli_supported_resource_error_preserves_previous_snapshot(tmp_path, monkeypatch, capsys):
+    output = tmp_path / "review.json"
+    output.write_text("previous snapshot")
+    service = MagicMock()
+    containers = service.accounts().containers()
+    containers.get().execute.return_value = {"features": {"supportClients": True}}
+    containers.workspaces().list().execute.return_value = {
+        "workspace": [{"path": "accounts/1/containers/2/workspaces/3"}],
+    }
+    containers.workspaces().clients().list().execute.side_effect = RuntimeError("SECRET=fixture")
+    monkeypatch.setattr(gtm_review.GtmClient, "from_oauth_file",
+                        lambda *a, **k: gtm_client.GtmClient(service))
+    assert gtm_review.main(["review", "--token", "fixture.json", "--expected-email", "test@example.com",
+                           "--container-path", "accounts/1/containers/2", "--output", str(output)]) == 1
+    assert output.read_text() == "previous snapshot"
+    assert "SECRET" not in capsys.readouterr().err
 
 
 def test_repeated_pagination_token_fails_instead_of_partial_success():

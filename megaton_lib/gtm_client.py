@@ -20,6 +20,19 @@ SCOPES_EDIT = SCOPES_READ + [
     "https://www.googleapis.com/auth/tagmanager.edit.containerversions",
 ]
 
+_WORKSPACE_RESOURCES = (
+    ("tags", "tag", "supportTags"),
+    ("triggers", "trigger", "supportTriggers"),
+    ("variables", "variable", "supportVariables"),
+    ("folders", "folder", "supportFolders"),
+    ("templates", "template", "supportTemplates"),
+    ("built_in_variables", "builtInVariable", "supportBuiltInVariables"),
+    ("clients", "client", "supportClients"),
+    ("transformations", "transformation", "supportTransformations"),
+    ("zones", "zone", "supportZones"),
+    ("gtag_config", "gtagConfig", "supportGtagConfigs"),
+)
+
 
 def _access_scopes(access: str) -> list[str]:
     if access not in {"read", "edit"}:
@@ -182,23 +195,28 @@ class GtmClient:
         path = _numeric_path(container_path)
         containers = self._service.accounts().containers()
         container = containers.get(path=path).execute()
+        features = container.get("features")
+        if not isinstance(features, dict) or any(
+            not isinstance(value, bool) for value in features.values()
+        ):
+            raise RuntimeError("GTM container feature metadata is missing or invalid; review stopped.")
         live = containers.versions().live(parent=path).execute()
         workspaces = containers.workspaces()
         snapshots = []
         for workspace in self._list(workspaces, "workspace", parent=path):
             ws_path = _numeric_path(workspace["path"], r"/workspaces/\d+")
             resources = {}
-            for plural, singular in (("tags", "tag"), ("triggers", "trigger"),
-                                     ("variables", "variable"), ("folders", "folder"),
-                                     ("templates", "template"), ("built_in_variables", "builtInVariable")):
-                if plural == "built_in_variables":
-                    resource = workspaces.built_in_variables()
-                else:
-                    resource = getattr(workspaces, plural)()
+            unsupported = []
+            for plural, singular, feature in _WORKSPACE_RESOURCES:
+                if not features.get(feature, False):
+                    unsupported.append(plural)
+                    continue
+                resource = getattr(workspaces, plural)()
                 resources[plural] = self._list(resource, singular, parent=ws_path)
             snapshots.append({"workspace": workspace,
                               "status": workspaces.getStatus(path=ws_path).execute(),
-                              "resources": resources})
+                              "resources": resources,
+                              "unsupported_resources": unsupported})
         return {"schema_version": 1, "mode": "read_only", "container": container,
                 "live_version": live, "workspaces": snapshots,
                 "fetched_at": datetime.now(timezone.utc).isoformat(),
