@@ -19,7 +19,7 @@ else:
 from .adobe_analytics import dump_digital_data
 from .followups import JST, append_pending_verification_task, next_aa_reflection_time
 from .playwright_pages import run_page_session
-ADOBE_BEACON_HOSTS = ("edge.adobedc.net", "s-adobe.example-commerce.jp")
+ADOBE_BEACON_HOSTS = ("edge.adobedc.net", "analytics.example.com")
 DEFAULT_BEACON_SCORE_PATHS = (
     "commerce.productViews.value",
     "commerce.productListAdds.value",

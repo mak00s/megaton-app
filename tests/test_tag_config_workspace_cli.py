@@ -17,7 +17,7 @@ def _factory(*, property_id: str, page_size: int = 100) -> AdobeTagsConfig:
     )
 
 
-def _env_file(root, account: str = "example", property_id: str = "PR123", library_id: str = "LB1") -> None:
+def _env_file(root, account: str = "account-a", property_id: str = "PR123", library_id: str = "LB1") -> None:
     (root / f".env.{account}").write_text(
         "\n".join(
             [
@@ -58,7 +58,7 @@ def test_tags_workspace_main_status_json_exits_with_result_code(monkeypatch, tmp
         tags_workspace_main(
             tags_config_factory=_factory,
             project_root=tmp_path,
-            argv=["--account", "example", "--format", "json", "status", "--since-pull"],
+            argv=["--account", "account-a", "--format", "json", "status", "--since-pull"],
         )
 
     assert exc.value.code == 4
@@ -85,7 +85,7 @@ def test_tags_workspace_main_pull_passes_workers_and_summary_flags(monkeypatch, 
         tags_workspace_main(
             tags_config_factory=_factory,
             project_root=tmp_path,
-            argv=["--account", "example", "--workers", "20", "--summary-only", "pull"],
+            argv=["--account", "account-a", "--workers", "20", "--summary-only", "pull"],
         )
 
     assert exc.value.code == 0
@@ -98,7 +98,7 @@ def test_tags_workspace_main_explicit_account_ignores_stale_env_defaults(monkeyp
     monkeypatch.setenv("ACCOUNT", "account-c")
     monkeypatch.setenv("TAGS_PROPERTY_ID", "PR-ACCOUNT_C")
     monkeypatch.setenv("TAGS_DEV_LIBRARY_ID", "LB-ACCOUNT_C")
-    _env_file(tmp_path, account="example", property_id="PR-EXAMPLE", library_id="LB-EXAMPLE")
+    _env_file(tmp_path, account="account-a", property_id="PR-ACCOUNT_A", library_id="LB-ACCOUNT_A")
     seen = {}
 
     def fake_status(config, **kwargs):
@@ -115,12 +115,12 @@ def test_tags_workspace_main_explicit_account_ignores_stale_env_defaults(monkeyp
         tags_workspace_main(
             tags_config_factory=_factory,
             project_root=tmp_path,
-            argv=["--account", "example", "status", "--since-pull"],
+            argv=["--account", "account-a", "status", "--since-pull"],
         )
 
     assert exc.value.code == 0
-    assert seen["property_id"] == "PR-EXAMPLE"
-    assert seen["library_id"] == "LB-EXAMPLE"
+    assert seen["property_id"] == "PR-ACCOUNT_A"
+    assert seen["library_id"] == "LB-ACCOUNT_A"
 
 
 def test_tags_workspace_main_conflict_list_does_not_require_account(tmp_path, capsys):
@@ -163,7 +163,7 @@ def test_tags_workspace_main_conflict_list_bootstraps_env_when_root_omitted(tmp_
     )
 
     with pytest.raises(SystemExit) as exc:
-        tags_workspace_main(project_root=tmp_path, argv=["--account", "example", "--format", "json", "conflict", "--list"])
+        tags_workspace_main(project_root=tmp_path, argv=["--account", "account-a", "--format", "json", "conflict", "--list"])
 
     assert exc.value.code == 2
     payload = json.loads(capsys.readouterr().out)
@@ -243,7 +243,7 @@ def test_tags_workspace_main_push_apply_runs_local_status_hooks(monkeypatch, tmp
         tags_workspace_main(
             tags_config_factory=_factory,
             project_root=tmp_path,
-            argv=["--account", "example", "push", "--apply"],
+            argv=["--account", "account-a", "push", "--apply"],
         )
 
     assert exc.value.code == 0
@@ -285,7 +285,7 @@ def test_tags_workspace_main_ensure_rule_component_dry_run(monkeypatch, tmp_path
             project_root=tmp_path,
             argv=[
                 "--account",
-                "example",
+                "account-a",
                 "--format",
                 "json",
                 "ensure-rule-component",
@@ -341,7 +341,7 @@ def test_tags_workspace_main_ensure_rule_component_settings_file_apply(monkeypat
             project_root=tmp_path,
             argv=[
                 "--account",
-                "example",
+                "account-a",
                 "ensure-rule-component",
                 "--rule-id",
                 "RL123",
@@ -396,7 +396,7 @@ def test_tags_workspace_main_ensure_rule_component_text_summary(monkeypatch, tmp
             project_root=tmp_path,
             argv=[
                 "--account",
-                "example",
+                "account-a",
                 "ensure-rule-component",
                 "--rule-id",
                 "RL123",
@@ -434,7 +434,7 @@ def test_tags_workspace_main_ensure_rule_component_unknown_rule_clean_error(
             project_root=tmp_path,
             argv=[
                 "--account",
-                "example",
+                "account-a",
                 "ensure-rule-component",
                 "--rule-id",
                 "RL_MISSING",

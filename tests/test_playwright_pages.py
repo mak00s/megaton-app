@@ -558,7 +558,7 @@ def test_build_gtm_preview_override_parses_tagassistant_url():
         {
             "previewUrl": (
                 "https://tagassistant.google.com/#/?id=GTM-XXXXXXX"
-                "&url=https%3A%2F%2Fcorp.example-brand.com%2Fjp%2Frd%2Fsafety%2F"
+                "&url=https%3A%2F%2Fwww.example.com%2Fjp%2Frd%2Fsafety%2F"
                 "&source=TAG_MANAGER"
                 "&canonical_id=6020437"
                 "&gtm_auth=token123"
@@ -593,7 +593,7 @@ def test_configure_gtm_preview_override_rewrites_gtm_request():
         assert pattern.match(f"{base}?id=GTM-XXXXXXX")
         assert pattern.match(f"{base}?id=GTM-XXXXXXX&l=dataLayer")
         assert pattern.match(f"{base}?l=dataLayer&id=GTM-XXXXXXX")
-        assert not pattern.match(f"{base}?id=GTM-XXXXXXX0")
+        assert not pattern.match(f"{base}?id=GTM-XXXXXXXX")
         assert not pattern.match(f"{base}?other_id=GTM-XXXXXXX")
     handler = page.route_calls[0][1]
     route = FakeRoute()

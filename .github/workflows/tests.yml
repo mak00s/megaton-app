@@ -5,6 +5,20 @@ on:
   pull_request:
 
 jobs:
+  repository-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Check for private identifiers and secrets
+        run: python tools/check_repository_hygiene.py
+
   packaging:
     runs-on: ubuntu-latest
     steps:

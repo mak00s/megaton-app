@@ -11,7 +11,7 @@ from typing import Any, Mapping
 
 from ...config import AdobeOAuthConfig, AdobeTagsConfig, DEFAULT_ADOBE_SCOPES
 
-DEFAULT_ANALYSIS_ACCOUNTS = ("example", "account-c", "account-b")
+DEFAULT_ANALYSIS_ACCOUNTS = ("account-a", "account-c", "account-b")
 
 
 def load_env_file(path: str | Path, *, override: bool = False) -> None:

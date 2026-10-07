@@ -96,7 +96,7 @@ def test_company_access_patterns_match_enterprise_specific_label():
     patterns = box_ui.BOX_SHARED_LINK_ACCESS_PATTERNS["company"]
 
     assert any(
-        re.search(pattern, "People in Example Brand with the link", re.I)
+        re.search(pattern, "People in Example Organization with the link", re.I)
         for pattern in patterns
     )
     assert any(
@@ -104,7 +104,7 @@ def test_company_access_patterns_match_enterprise_specific_label():
         for pattern in patterns
     )
     assert any(
-        re.search(pattern, "People at Example Brand with the link", re.I)
+        re.search(pattern, "People at Example Organization with the link", re.I)
         for pattern in patterns
     )
     assert any(
@@ -147,7 +147,7 @@ def test_box_text_implies_invited_shared_link_rejects_broader_access():
         ["Add names or email addresses", "Shared link / shared-link"],
     )
     assert not box_ui._box_text_implies_invited_shared_link(
-        "People in Example Brand with the link",
+        "People in Example Organization with the link",
         ["Add names or email addresses", "Shared link / shared-link"],
     )
 

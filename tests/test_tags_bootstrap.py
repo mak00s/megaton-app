@@ -43,17 +43,17 @@ def test_bootstrap_account_env_explicit_account_overrides_stale_env(monkeypatch,
     monkeypatch.setenv("ACCOUNT", "account-c")
     monkeypatch.setenv("TAGS_PROPERTY_ID", "PR-ACCOUNT_C")
     monkeypatch.setenv("ADOBE_CLIENT_ID", "account-c-id")
-    (tmp_path / ".env.example").write_text(
-        "TAGS_PROPERTY_ID=PR-EXAMPLE\nADOBE_CLIENT_ID=example-id\n",
+    (tmp_path / ".env.account-a").write_text(
+        "TAGS_PROPERTY_ID=PR-ACCOUNT_A\nADOBE_CLIENT_ID=account-a-id\n",
         encoding="utf-8",
     )
 
-    account = bootstrap_account_env("example", project_root=tmp_path)
+    account = bootstrap_account_env("account-a", project_root=tmp_path)
 
-    assert account == "example"
-    assert os.environ["ACCOUNT"] == "example"
-    assert os.environ["TAGS_PROPERTY_ID"] == "PR-EXAMPLE"
-    assert os.environ["ADOBE_CLIENT_ID"] == "example-id"
+    assert account == "account-a"
+    assert os.environ["ACCOUNT"] == "account-a"
+    assert os.environ["TAGS_PROPERTY_ID"] == "PR-ACCOUNT_A"
+    assert os.environ["ADOBE_CLIENT_ID"] == "account-a-id"
 
 
 def test_bootstrap_account_env_reads_pyproject_default(monkeypatch, tmp_path):
@@ -74,31 +74,31 @@ def test_bootstrap_account_env_reads_pyproject_default(monkeypatch, tmp_path):
 def test_bootstrap_account_env_uses_single_matching_env_file(monkeypatch, tmp_path):
     monkeypatch.delenv("ACCOUNT", raising=False)
     monkeypatch.delenv("ADOBE_CLIENT_ID", raising=False)
-    (tmp_path / ".env.example").write_text("ADOBE_CLIENT_ID=example-id\n", encoding="utf-8")
+    (tmp_path / ".env.account-a").write_text("ADOBE_CLIENT_ID=account-a-id\n", encoding="utf-8")
 
     account = bootstrap_account_env(project_root=tmp_path)
 
-    assert account == "example"
-    assert os.environ["ADOBE_CLIENT_ID"] == "example-id"
+    assert account == "account-a"
+    assert os.environ["ADOBE_CLIENT_ID"] == "account-a-id"
 
 
 def test_bootstrap_account_env_resolves_from_property_hint(monkeypatch, tmp_path):
     monkeypatch.delenv("ACCOUNT", raising=False)
     monkeypatch.delenv("ADOBE_CLIENT_ID", raising=False)
-    (tmp_path / ".env.example").write_text("ADOBE_CLIENT_ID=example-id\n", encoding="utf-8")
+    (tmp_path / ".env.account-a").write_text("ADOBE_CLIENT_ID=account-a-id\n", encoding="utf-8")
     (tmp_path / ".env.account-c").write_text("ADOBE_CLIENT_ID=account-c-id\n", encoding="utf-8")
 
     account = bootstrap_account_env(
         project_root=tmp_path,
-        property_id="PR-EXAMPLE",
+        property_id="PR-ACCOUNT_A",
         account_hints={
-            "example": {"property_ids": ["PR-EXAMPLE"]},
+            "account-a": {"property_ids": ["PR-ACCOUNT_A"]},
             "account-c": {"property_ids": ["PR-ACCOUNT_C"]},
         },
     )
 
-    assert account == "example"
-    assert os.environ["ADOBE_CLIENT_ID"] == "example-id"
+    assert account == "account-a"
+    assert os.environ["ADOBE_CLIENT_ID"] == "account-a-id"
 
 
 def test_bootstrap_account_env_resolves_from_library_hint(monkeypatch, tmp_path):
@@ -126,14 +126,14 @@ def test_bootstrap_account_env_resolves_from_remote_and_path_hints(monkeypatch, 
     project = tmp_path / "analysis-account-c"
     project.mkdir()
     (project / ".env.account-c").write_text("ADOBE_CLIENT_ID=account-c-id\n", encoding="utf-8")
-    (project / ".env.example").write_text("ADOBE_CLIENT_ID=example-id\n", encoding="utf-8")
+    (project / ".env.account-a").write_text("ADOBE_CLIENT_ID=account-a-id\n", encoding="utf-8")
 
     account = bootstrap_account_env(
         project_root=project,
         git_remote_url="git@github.com:example/analysis-account-c.git",
         account_hints={
             "account-c": {"remote_contains": ["analysis-account-c"]},
-            "example": {"path_contains": ["analysis-example"]},
+            "account-a": {"path_contains": ["analysis-account-a"]},
         },
     )
 
@@ -143,7 +143,7 @@ def test_bootstrap_account_env_resolves_from_remote_and_path_hints(monkeypatch, 
 
 def test_bootstrap_account_env_rejects_ambiguous_hints(monkeypatch, tmp_path):
     monkeypatch.delenv("ACCOUNT", raising=False)
-    (tmp_path / ".env.example").write_text("", encoding="utf-8")
+    (tmp_path / ".env.account-a").write_text("", encoding="utf-8")
     (tmp_path / ".env.account-c").write_text("", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="Account hints are ambiguous"):
@@ -151,7 +151,7 @@ def test_bootstrap_account_env_rejects_ambiguous_hints(monkeypatch, tmp_path):
             project_root=tmp_path,
             property_id="PR1",
             account_hints={
-                "example": {"property_ids": ["PR1"]},
+                "account-a": {"property_ids": ["PR1"]},
                 "account-c": {"property_ids": ["PR1"]},
             },
         )
@@ -159,7 +159,7 @@ def test_bootstrap_account_env_rejects_ambiguous_hints(monkeypatch, tmp_path):
 
 def test_bootstrap_account_env_requires_account_when_ambiguous(monkeypatch, tmp_path):
     monkeypatch.delenv("ACCOUNT", raising=False)
-    (tmp_path / ".env.example").write_text("", encoding="utf-8")
+    (tmp_path / ".env.account-a").write_text("", encoding="utf-8")
     (tmp_path / ".env.account-c").write_text("", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="ACCOUNT is required"):
@@ -234,12 +234,12 @@ def test_build_tags_config_with_creds_file(monkeypatch, tmp_path):
 
 def test_account_token_cache_file_namespaces_by_account(tmp_path):
     path = account_token_cache_file(
-        "example/team",
+        "account-a/team",
         project_root=tmp_path,
         token_cache_dir="key",
     )
 
-    assert path == tmp_path / "key" / ".adobe_token_cache.example_team.json"
+    assert path == tmp_path / "key" / ".adobe_token_cache.account-a_team.json"
 
 
 def test_build_repo_tags_config_factory_uses_candidates_and_account_cache(monkeypatch, tmp_path):

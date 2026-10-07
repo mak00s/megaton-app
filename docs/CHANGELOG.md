@@ -314,7 +314,7 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 ## 2026-05-01 (v0.10.0)
 
 - Added `analysis_tags_workspace_main()` for analysis repos that need the standard Adobe Tags workspace CLI plus repo-local credentials and per-account token caches.
-- Added `build_repo_tags_config_factory()`, `account_token_cache_file()`, and `resolve_first_existing_path()` to reduce duplicated `tags/__main__.py` and credential factory code across EXAMPLE / ACCOUNT_C / ACCOUNT_B analysis repos.
+- Added `build_repo_tags_config_factory()`, `account_token_cache_file()`, and `resolve_first_existing_path()` to reduce duplicated `tags/__main__.py` and credential factory code across ACCOUNT_A / ACCOUNT_C / ACCOUNT_B analysis repos.
 - Added package extras for UI, notebook, Google, validation, audit, dev, and full checkout-local installs; documented that `scripts/` and `app/` remain checkout-local entrypoints while `pip install -e .` installs `megaton_lib`.
 - Made `megaton_lib.query_runner` the shared source execution path behind `scripts/query.py`, and documented the BigQuery / Sheets helper boundaries to avoid parallel APIs drifting.
 - Updated `save_sheet_table()` to use megaton's public `mg.sheet.*` formatting helpers for optional row/column sizing, gridline visibility, and tab color.
@@ -332,7 +332,7 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 - Added `.tag-conflicts.json` helpers and CLI support for conflict list/show/resolve, including baseline/local/remote diffs backed by saved `baseline_text`.
 - Normalized `tags conflict --list --format json` to the workspace result schema, and made explicit `--account` bootstrap override stale account env values.
 - Separated outside-scope local files from remote-removed files in workspace warnings; dry-run `push` now returns outside-scope findings as structured output, while apply mode still aborts before mutation.
-- Documented agent gotchas, workspace mode values, schema-version compatibility expectations, and EXAMPLE snapshot-worker benchmark results.
+- Documented agent gotchas, workspace mode values, schema-version compatibility expectations, and ACCOUNT_A snapshot-worker benchmark results.
 - Exported the new workspace helpers from `megaton_lib.audit.providers.tag_config`.
 
 ## 2026-04-23

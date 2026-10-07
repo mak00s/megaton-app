@@ -1682,12 +1682,12 @@ def test_assert_cdp_profile_owner_fails_closed_when_unknown(monkeypatch, tmp_pat
 def test_assert_cdp_profile_owner_requires_remote_opt_in(tmp_path):
     with pytest.raises(RuntimeError, match="cannot verify remote"):
         playwright_browser.assert_cdp_profile_owner(
-            "http://localhost:9222",
+            "http://remote.example.test:9222",
             tmp_path / "profile",
         )
 
     playwright_browser.assert_cdp_profile_owner(
-        "http://localhost:9222",
+        "http://remote.example.test:9222",
         tmp_path / "profile",
         allow_remote=True,
     )

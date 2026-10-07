@@ -155,7 +155,7 @@ class _FakeRequest:
     def __init__(
         self,
         body: str,
-        url: str = "https://s-adobe.example-commerce.jp/ee/jpn3/v1/interact",
+        url: str = "https://analytics.example.com/ee/jpn3/v1/interact",
     ) -> None:
         self.url = url
         self.post_data = body

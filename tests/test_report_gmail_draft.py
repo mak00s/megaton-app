@@ -27,7 +27,7 @@ def _summary(**overrides):
                 {
                     "uploaded_file_name": "report.xlsx",
                     "target_subfolder_name": "202604",
-                    "shared_url": "https://example-brand.app.box.com/s/shared",
+                    "shared_url": "https://example.app.box.com/s/shared",
                 }
             ]
         },
@@ -49,7 +49,7 @@ def test_report_context_helpers_read_summary():
     assert period_label(summary) == "2026年4月"
     assert first_sheet_url(summary) == "https://docs.google.com/spreadsheets/d/sheet-id/edit"
     assert box_upload_lines(summary) == [
-        "- Box: 202604/report.xlsx\n  https://example-brand.app.box.com/s/shared"
+        "- Box: 202604/report.xlsx\n  https://example.app.box.com/s/shared"
     ]
 
 
@@ -57,7 +57,7 @@ def test_build_report_draft_content_uses_box_link_by_default():
     content = build_report_draft_content(_summary(), report_label="DEI Lab 月次レポート")
 
     assert content.subject == "DEI Lab 月次レポート（2026年4月）"
-    assert "https://example-brand.app.box.com/s/shared" in content.body
+    assert "https://example.app.box.com/s/shared" in content.body
     assert "report.xlsx" in content.body
     assert "GitHub Actions" not in content.body
 
@@ -71,7 +71,7 @@ def test_build_report_draft_content_supports_templates():
     )
 
     assert content.subject == "WITH 2026年4月"
-    assert "https://example-brand.app.box.com/s/shared" in content.body
+    assert "https://example.app.box.com/s/shared" in content.body
     assert "https://docs.google.com/spreadsheets/d/sheet-id/edit" in content.body
     assert "https://github.com/example/repo/actions/runs/1" in content.body
 

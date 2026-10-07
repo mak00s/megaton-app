@@ -104,7 +104,7 @@ def main() -> int:
             "helpers or result metadata conventions."
         ),
         examples=[
-            "python scripts/check_validation_usage.py /path/to/example-analysis",
+            "python scripts/check_validation_usage.py /path/to/account-a-analysis",
             "python scripts/check_validation_usage.py validation/ /path/to/account-c-analysis",
         ],
         notes=[

@@ -570,17 +570,17 @@ analysis_tags_workspace_main(
 推奨 UX:
 
 - `property-id` / `library-id` / `verify-url` は env default
-- `--account` / `ACCOUNT` / `[tool.megaton].default_account` / account hints から `example` / `account-c` / `account-b` を解決し、`bootstrap_account_env()` で `.env.<account>` を読む
+- `--account` / `ACCOUNT` / `[tool.megaton].default_account` / account hints から `account-a` / `account-c` / `account-b` を解決し、`bootstrap_account_env()` で `.env.<account>` を読む
 - account hints は repo-local `config.py` の `EXAMPLE_PROPERTY_ID` / `DD1_PROPERTY_ID` / library ID などから wrapper 側で組み立てる
 - remote snapshot の fetch 並列数は wrapper の `--workers N` から `snapshot_workers` に渡すか、`TAGS_SNAPSHOT_WORKERS` で調整する。既定は 10
-- EXAMPLE の実測 sweet spot は `TAGS_SNAPSHOT_WORKERS=20`。共通既定は安全側で 10 のままにし、EXAMPLE analysis repo の `.env.example` に opt-in 例として `# TAGS_SNAPSHOT_WORKERS=20` を置く
+- ACCOUNT_A の実測 sweet spot は `TAGS_SNAPSHOT_WORKERS=20`。共通既定は安全側で 10 のままにし、ACCOUNT_A analysis repo の `.env.example` に opt-in 例として `# TAGS_SNAPSHOT_WORKERS=20` を置く
 - Makefile は `.env` を直接 source せず、`python -m tags ...` などの wrapper と同じ bootstrap を通す
 - `tags` 引数なしは help
 - 各 command は `Summary / Warnings / Next` を出す
 - 長時間処理では step / heartbeat / elapsed を stderr に出す。`--format json` を実装する wrapper は戻り値 dict だけを stdout に出す
 - `--format json` の戻り値は `schema_version` / `command` / `ok` / `exit_code` / `severity` / `summary` / `details` を固定キーとして扱う
 - exit code は `0=ok`, `1=runtime error`, `2=conflicts`, `3=stale remote`, `4=outside library scope`
-- EXAMPLE では exit code `4` が steady state のことがあるため、shell / agent は `summary` と `details` を見て blocking 判断する
+- ACCOUNT_A では exit code `4` が steady state のことがあるため、shell / agent は `summary` と `details` を見て blocking 判断する
 - `status --summary-only` 相当では counts だけを出し、outside scope warning は既定で type 別に group する。full list は `--verbose`
 - `pull --summary-only` 相当も同じ counts-only 出力にする
 - `push` dry-run は scope 外 resource を abort ではなく exit code `4` の result として返し、`push --apply` は mutation 前に abort する

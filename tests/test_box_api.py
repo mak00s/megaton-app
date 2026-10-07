@@ -284,7 +284,7 @@ def test_insecure_token_file_fails_without_request(tmp_path):
         OAuthTokenFile(path)()
 
 
-@pytest.mark.parametrize("host", ["example-brand.box.com", "example-brand.app.box.com"])
+@pytest.mark.parametrize("host", ["example.box.com", "example.app.box.com"])
 def test_enterprise_shared_link_header_has_no_query_or_fragment(host):
     api, session = client(response({"id": "1", "type": "folder"}))
     api.resolve(f"https://{host}/s/key123?utm_source=email&unexpected=1#fragment")

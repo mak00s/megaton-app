@@ -1445,12 +1445,12 @@ override = GtmPreviewOverride(
 )
 
 def validate(page):
-    page.goto("https://corp.example-brand.com/jp/rd/safety/ingredients/", wait_until="networkidle", timeout=90000)
+    page.goto("https://www.example.com/jp/rd/safety/ingredients/", wait_until="networkidle", timeout=90000)
     page.wait_for_timeout(3000)
     return {"url": page.url}
 
 result = run_page(
-    "https://corp.example-brand.com/jp/rd/safety/ingredients/",
+    "https://www.example.com/jp/rd/safety/ingredients/",
     gtm_preview=override,
     callback=validate,
 )
@@ -1470,8 +1470,8 @@ Notes:
 | Function | Description |
 |---|---|
 | `adobe_tags_output_root(property_id)` | Return the canonical local output path for one Adobe Tags property |
-| `bootstrap_account_env(account="", project_root=".", known_accounts=("example", "account-c", "account-b"), account_hints=None, property_id="", library_id="", git_remote_url="")` | Resolve an analysis account, load `.env.<account>`, and set `ACCOUNT` for thin wrappers |
-| `account_token_cache_file(account="", project_root=".", token_cache_dir="credentials")` | Return an account-namespaced Adobe OAuth token cache path such as `.adobe_token_cache.example.json` |
+| `bootstrap_account_env(account="", project_root=".", known_accounts=("account-a", "account-c", "account-b"), account_hints=None, property_id="", library_id="", git_remote_url="")` | Resolve an analysis account, load `.env.<account>`, and set `ACCOUNT` for thin wrappers |
+| `account_token_cache_file(account="", project_root=".", token_cache_dir="credentials")` | Return an account-namespaced Adobe OAuth token cache path such as `.adobe_token_cache.account-a.json` |
 | `resolve_first_existing_path(explicit="", project_root=".", candidates=())` | Resolve an explicit path or the first existing candidate, preserving relative-to-project-root semantics |
 | `load_env_file(path, override=False)` | Load `KEY=VALUE` pairs from a file into `os.environ`; defaults to setdefault semantics |
 | `seed_adobe_oauth_env(...)` | Resolve Adobe OAuth credentials from args, env, JSON file, and payload dict. Sets resolved values into `os.environ`. |
@@ -1483,13 +1483,13 @@ Notes:
 - `bootstrap_account_env` resolution order: explicit account → `ACCOUNT` env var → `[tool.megaton].default_account` / `[tool.tags].default_account` → account hints → the only matching `.env.<account>` file
 - when an explicit account is passed, the selected `.env.<account>` overrides existing env values and `ACCOUNT` is set to the resolved account; inferred accounts preserve existing env values with setdefault semantics
 - `account_hints` can map accounts to `property_ids`, `library_ids`, `remote_contains`, and `path_contains` / `cwd_contains`; wrappers can build this from repo-local `config.py` constants such as `EXAMPLE_PROPERTY_ID`
-- default known accounts are `example`, `account-c`, and `account-b`; pass `known_accounts=...` from wrappers if a repo needs a different allow-list
+- default known accounts are `account-a`, `account-c`, and `account-b`; pass `known_accounts=...` from wrappers if a repo needs a different allow-list
 - wrappers should call `bootstrap_account_env(args.account)` before building AA / AT / Adobe Tags clients so Makefile targets and direct `python -m ...` invocations share the same env bootstrap
 - `seed_adobe_oauth_env` resolution order: explicit args → env vars → `creds_file` JSON → `payload` dict
 - `creds_file` accepts a path to a JSON file with `client_id`, `client_secret`, `org_id` keys (loaded via `load_adobe_oauth_credentials`)
 - `build_tags_config` passes `creds_file` through to `seed_adobe_oauth_env`
 - `build_repo_tags_config_factory` is the preferred factory for analysis repos that keep credentials under repo-local `key/` or shared `credentials/` directories
-- account token caches are namespaced by `ACCOUNT` to avoid OAuth churn when switching between EXAMPLE / ACCOUNT_C / ACCOUNT_B
+- account token caches are namespaced by `ACCOUNT` to avoid OAuth churn when switching between ACCOUNT_A / ACCOUNT_C / ACCOUNT_B
 - `adobe_tags_output_root(property_id)` defaults to `adobe-tags/<property_id>` under the chosen project root
 - `load_env_file` silently skips if the file does not exist
 
@@ -1616,7 +1616,7 @@ Notes:
 
 - these helpers assume the analysis repo treats **library membership** as the working scope
 - remote snapshot fetches use a bounded thread pool; default parallelism is 10 and can be adjusted with `TAGS_SNAPSHOT_WORKERS` or wrapper flags such as `--workers N` mapped to `snapshot_workers`
-- EXAMPLE benchmark saturated around 20 workers for a roughly 170-resource library scope; keep the generic default at 10 and set `TAGS_SNAPSHOT_WORKERS=20` only in EXAMPLE-specific env/examples
+- ACCOUNT_A benchmark saturated around 20 workers for a roughly 170-resource library scope; keep the generic default at 10 and set `TAGS_SNAPSHOT_WORKERS=20` only in ACCOUNT_A-specific env/examples
 - `checkout` is destructive and should require repo-local `--force` whenever managed local files already exist
 - `pull` uses 3-way compare semantics:
   - remote-only drift is applied
@@ -2145,7 +2145,7 @@ info = describe_auth_context(creds_hint="corp")
 - 既存共有リンクは要求accessが一致する場合のみ再利用。新リンクはinvitedのみ。
   company/openは既存リンク再利用の指定として受け付けます。新規作成・権限拡大は
   拒否し、upload結果に共有リンク失敗を記録します。upload成功と共有成功を混同しません。
-- URLは通常のBox hostに加え企業サブドメイン（例 `example-brand.box.com`）に対応。
+- URLは通常のBox hostに加え企業サブドメイン（例 `example.box.com`）に対応。
   共有URLのquery/fragmentはヘッダーに含めず、Bearerは固定API hostにのみ送ります。
 - `download_from_box_via_api`: file URL/shared URLまたはfolder URL。
   folderはexpected_folder_file_names必須、正確に一致するfileのみZIPへ束ねる。

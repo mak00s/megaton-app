@@ -72,12 +72,12 @@ def tags_workspace_main(
     tags_config_factory: Callable[..., AdobeTagsConfig] | None = None,
     project_root: str | Path | None = None,
     account_hints: dict[str, dict[str, Any]] | None = None,
-    known_accounts: tuple[str, ...] = ("example", "account-c", "account-b"),
+    known_accounts: tuple[str, ...] = ("account-a", "account-c", "account-b"),
     argv: list[str] | None = None,
 ) -> None:
     """Reusable library-scope Adobe Tags CLI for thin analysis repo wrappers."""
     parser = argparse.ArgumentParser(description="Adobe Tags library-scope workspace CLI")
-    parser.add_argument("--account", default="", help="Analysis account, e.g. example / account-c / account-b")
+    parser.add_argument("--account", default="", help="Analysis account, e.g. account-a / account-c / account-b")
     parser.add_argument("--property-id", default="", help="Adobe Tags property ID")
     parser.add_argument("--library-id", default="", help="Adobe Tags library ID")
     parser.add_argument("--root", default="", help="Local Adobe Tags workspace root")
@@ -356,7 +356,7 @@ def analysis_tags_workspace_main(
     *,
     project_root: str | Path | None = None,
     account_hints: dict[str, dict[str, Any]] | None = None,
-    known_accounts: tuple[str, ...] = ("example", "account-c", "account-b"),
+    known_accounts: tuple[str, ...] = ("account-a", "account-c", "account-b"),
     credentials_candidates: list[str | Path] | tuple[str | Path, ...] = (),
     token_cache_dir: str | Path = "credentials",
     account_default: str = "",
