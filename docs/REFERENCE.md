@@ -1179,7 +1179,7 @@ gspread). `USER_ENTERED` uses the spreadsheet's locale to interpret date-like
 strings and numbers. `clear_sheet=True` clears existing values before writing;
 multiple blocks are separate updates, not an atomic transaction. This is workflow
 composition over the existing worksheet driver, not a second low-level Sheets
-implementation. These changes are on main and are not in the v0.38.0 release.
+implementation. The `value_input_option` behavior is available in v0.39.0 and later.
 
 #### Direct-gspread helpers
 
@@ -1462,7 +1462,7 @@ Notes:
 - GTM preview support rewrites matching `gtm.js` / `ns.html` requests to include `gtm_auth`, `gtm_preview`, and `gtm_cookies_win`.
 - Matching accepts the target container's `id` as either the first or a later
   query parameter; other container IDs are left unchanged. The first-parameter
-  matching fix is on main and is not in the v0.38.0 release.
+  matching fix is available in v0.39.0 and later.
 - The preview auth token is intentionally not persisted in validation metadata.
 
 ### Adobe Tags Bootstrap (`megaton_lib.audit.providers.tag_config`)

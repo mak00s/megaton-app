@@ -4,6 +4,8 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+## 2026-10-07 (v0.39.0)
+
 - Added dedicated non-publishing GTM user OAuth through `GtmClient` and
   `python -m megaton_lib.gtm_review auth|containers|review`. Initial consent verifies
   the account before privately saving a separate token; normal reads never open
