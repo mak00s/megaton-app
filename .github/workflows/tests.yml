@@ -7,9 +7,21 @@ on:
 jobs:
   repository-hygiene:
     runs-on: ubuntu-latest
+    env:
+      # Trusted = this repository's own pushes and same-repository pull requests.
+      # Only those can read the denylist key. Fork pull requests, and pushes
+      # inside a fork, get the key-free checks instead of being skipped. Trust
+      # is decided by context, never by whether the secret happens to be set,
+      # so a missing secret here fails the job.
+      HYGIENE_TRUSTED: ${{ github.repository == 'mak00s/megaton-app' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # Full history and tags: past file versions, commit messages,
+          # identities and tag messages are checked too.
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -17,7 +29,14 @@ jobs:
           python-version: "3.12"
 
       - name: Check for private identifiers and secrets
-        run: python tools/check_repository_hygiene.py
+        if: env.HYGIENE_TRUSTED == 'true'
+        env:
+          REPOSITORY_HYGIENE_KEY: ${{ secrets.REPOSITORY_HYGIENE_KEY }}
+        run: python tools/check_repository_hygiene.py --history
+
+      - name: Check for secrets only (no denylist key in this context)
+        if: env.HYGIENE_TRUSTED != 'true'
+        run: python tools/check_repository_hygiene.py --history --allow-missing-key
 
   packaging:
     runs-on: ubuntu-latest
