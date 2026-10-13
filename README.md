@@ -1,6 +1,10 @@
 # megaton-app
 
 A toolkit for orchestrating analytics workflows across GA4, Search Console, Adobe Analytics, and BigQuery.
+For a single GA4/GSC/BQ query without this checkout, use Megaton 2.3.0's
+`megaton query` or `megaton.query.run_query`. This repository adds credential
+routing, Adobe, pipelines, jobs, audit, validation and delivery. Its GA4/GSC
+query adapters use the same core execution contract.
 Three interfaces — **Streamlit UI**, **CLI**, and **Jupyter Notebook** — share the same library, so you can explore interactively and automate with the same code.
 AI agents can drive the entire workflow through a simple JSON file, with no MCP server or special protocol required.
 

@@ -16,13 +16,36 @@ artifacts. It is not a general-purpose SaaS automation framework.
 
 | Owner | Responsibility |
 | --- | --- |
-| `megaton` | Notebook-facing analytics APIs and the shared low-level Google Sheets foundation |
+| `megaton` | Google analytics operations, single-query Python/CLI contracts, Notebook sessions and the shared Sheets foundation |
 | `megaton-app` | Reusable analytics workflow orchestration, validation, audit, execution, and delivery |
 | Calling repositories | Project configuration, business policy, client-specific rules, and one-off workflows |
 | External libraries or services | Generic SaaS clients and domain-neutral automation infrastructure |
 
 Code that does not fit the `megaton-app` responsibility should be contributed
 upstream, kept in the calling repository, or extracted into a separate package.
+
+## Single Queries and Machine Interfaces
+
+Megaton owns checkout-independent GA4/GSC/BigQuery single queries, explicit
+authentication, result/error contracts and installed CLI entry points.
+`megaton_lib.megaton_client` delegates GA4/GSC execution to `megaton.query` while
+preserving its credential routing and existing DataFrame APIs. Adobe, relative
+dates, site aliases, pipelines, save policies, batch/job management, audits,
+validation and delivery remain here. Existing BQ parameterized/native and
+explicit-credential GA4 paths retain their current contracts.
+
+The delegated query limit now caps fetched rows. GSC alias pairs are rejected
+and path conversion reaggregates metrics; these corrections are documented as
+consumer-visible changes in 0.40.0. Notebook GA4 limit remains a page size.
+
+MCP adapters call the same library APIs. They own transport authentication,
+tool exposure and permissions. Project inventories, client rules and delivery
+policy belong to consumers. Repository visibility does not define ownership;
+this repo is public following sanitization.
+
+The delegation requires Megaton 2.3.0. Publish that dependency before distributing
+this app revision. Existing installed app releases remain compatible with their
+original Megaton requirement.
 
 ## Architectural Layers
 

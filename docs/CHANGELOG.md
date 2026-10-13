@@ -4,6 +4,16 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+- Prepare 0.40.0: GA4/GSC single-query execution delegates to the public
+  Megaton query contract. Credential routing, DataFrame output and app pipelines
+  remain compatible. Requires Megaton >=2.3.0; release that dependency first.
+- Clarify ownership of installed single-query CLI versus app workflow interfaces.
+- Query limits now cap fetched rows through the core contract. GSC dimensions
+  require names rather than aliases; path conversion reaggregates clicks,
+  impressions, CTR and weighted position. Invalid GA4 requests propagate errors
+  instead of returning cached data. Consumers relying on all-row pagination via
+  the app limit argument should explicitly plan larger/batched queries.
+
 ## 2026-10-07 (v0.39.0)
 
 - Added dedicated non-publishing GTM user OAuth through `GtmClient` and

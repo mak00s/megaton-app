@@ -9,6 +9,7 @@ import importlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from megaton import start
+from megaton.query import run_query
 import pandas as pd
 from typing import Optional, TypedDict, TypeAlias
 from megaton_lib.audit.config import AdobeAnalyticsConfig
@@ -384,7 +385,7 @@ def query_ga4(
     dimensions_l = _normalize_fields(dimensions, name="dimensions")
     metrics_l = _normalize_fields(metrics, name="metrics")
     try:
-        mg = get_ga4(property_id)
+        mg = get_megaton_for_property(property_id)
     except Exception as e:
         err_msg = str(e)
         if "403" in err_msg or "permission" in err_msg.lower():
@@ -393,15 +394,13 @@ def query_ga4(
                 f"Check that the service account has Viewer role on this property."
             ) from e
         raise
-    mg.report.set.dates(start_date, end_date)
     try:
-        result = mg.report.run(
-            d=dimensions_l,
-            m=metrics_l,
-            filter_d=filter_d if filter_d else None,
-            limit=limit,
-            show=False,
-        )
+        result = run_query({
+            "schema_version": "1.0", "source": "ga4", "property_id": str(property_id),
+            "date_range": {"start": start_date, "end": end_date},
+            "dimensions": dimensions_l, "metrics": metrics_l,
+            "filter_d": filter_d if filter_d else None, "limit": limit,
+        }, client=mg)
     except Exception as e:
         err_msg = str(e)
         if "403" in err_msg or "permission" in err_msg.lower():
@@ -410,7 +409,7 @@ def query_ga4(
                 f"The service account lacks access to run reports."
             ) from e
         raise
-    df = result.df if result is not None else pd.DataFrame()
+    df = result.df
     # Convert datetime.date columns to YYYY-MM-DD strings so JSON
     # serialization produces human-readable dates instead of epoch ms.
     if not df.empty:
@@ -593,19 +592,13 @@ def query_gsc(
     """
     dimensions_l = _normalize_fields(dimensions, name="dimensions")
     dimension_filter_l = _normalize_gsc_dimension_filter(dimension_filter)
-    mg = get_gsc(site_url)
-    mg.search.set.dates(start_date, end_date)
-    result = mg.search.run(
-        dimensions=dimensions_l,
-        metrics=["clicks", "impressions", "ctr", "position"],
-        limit=limit,
-        dimension_filter=dimension_filter_l
-    )
-    df = result.df if result is not None else None
-    if page_to_path and df is not None and "page" in df.columns:
-        from urllib.parse import urlparse
-        df["page"] = df["page"].apply(lambda u: urlparse(u).path)
-    return df
+    mg = get_megaton_for_site(site_url)
+    return run_query({
+        "schema_version": "1.0", "source": "gsc", "site_url": str(site_url),
+        "date_range": {"start": start_date, "end": end_date},
+        "dimensions": dimensions_l, "limit": limit,
+        "filter_d": dimension_filter_l, "page_to_path": page_to_path,
+    }, client=mg).df
 
 
 # === Adobe Analytics ===
