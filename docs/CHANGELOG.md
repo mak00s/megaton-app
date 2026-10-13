@@ -2,6 +2,12 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## Unreleased
+
+- Expose `megaton_lib.megaton_client.QUERY_LIMIT_CONTRACT = "total_rows"`
+  so consumers can verify GA4/GSC query-limit semantics against installed
+  metadata. This does not change Adobe Analytics pagination semantics.
+
 ## 2026-10-13 (v0.40.0)
 
 - GA4/GSC single-query execution delegates to the public

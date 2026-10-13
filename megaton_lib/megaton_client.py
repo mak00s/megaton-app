@@ -22,6 +22,9 @@ from megaton_lib.credentials import (
 
 logger = logging.getLogger(__name__)
 
+# GA4/GSC limit capability, independent of editable-install metadata.
+QUERY_LIMIT_CONTRACT = "total_rows"
+
 # === Public type hints (API boundary) ===
 
 FieldSpec: TypeAlias = str | tuple[str, str]
