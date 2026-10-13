@@ -2,11 +2,11 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-## Unreleased
+## 2026-10-13 (v0.40.0)
 
-- Prepare 0.40.0: GA4/GSC single-query execution delegates to the public
+- GA4/GSC single-query execution delegates to the public
   Megaton query contract. Credential routing, DataFrame output and app pipelines
-  remain compatible. Requires Megaton >=2.3.0; release that dependency first.
+  remain compatible. Requires Megaton >=2.3.0, released before this version.
 - Clarify ownership of installed single-query CLI versus app workflow interfaces.
 - Query limits now cap fetched rows through the core contract. GSC dimensions
   require names rather than aliases; path conversion reaggregates clicks,
