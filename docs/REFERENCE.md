@@ -479,6 +479,8 @@ Planは本文を含む。ハッシュは認証署名ではないため、承認�
 - `move_paragraphs`: `anchor/last/destination/position`。現在は非箇条書き・単一textRunの
   再現可能な書式のみ。mixed runs、特殊要素、末尾段落の削除・移動は拒否。
 - `style_paragraph`: `paragraph_style/text_style/bullet`。箇条書きはフラットなDISC preset。
+  本文段落の `paragraph_style.pageBreakBefore`（boolean）で段落前の改ページを指定できる。
+  表内・ヘッダー・フッターの段落は対象外。
 - `insert_image`: `image_path/width_pt/height_pt`。ローカルPNG/JPEG、50MB未満・25MP以下。
 - `insert_table`: `values`（矩形の文字列配列）、`column_widths_pt`、`header_rows/total_rows`、
   `header_color/total_color`。セル内改行も対応。`style_table_rows` で行指定の追加装飾が可能。

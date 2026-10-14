@@ -17,7 +17,7 @@ from .docs_client import DocsEditError, _has_suggestions, _id, _select, _tab_id,
 SCHEMA = "docs-mutations/v1"
 RECEIPT_SCHEMA = "docs-mutation-receipt/v1"
 PARAGRAPH_FIELDS = {"namedStyleType", "alignment", "direction", "spaceAbove", "spaceBelow",
-                    "indentStart", "indentEnd", "indentFirstLine", "lineSpacing", "keepWithNext"}
+                    "indentStart", "indentEnd", "indentFirstLine", "lineSpacing", "keepWithNext", "pageBreakBefore"}
 TEXT_FIELDS = {"bold", "italic", "underline", "strikethrough", "fontSize", "foregroundColor", "backgroundColor", "link",
                "weightedFontFamily", "smallCaps", "baselineOffset"}
 BOOLEAN_TEXT_FIELDS = {"bold", "italic", "underline", "strikethrough", "smallCaps"}
@@ -86,6 +86,8 @@ def _subset(expected, actual, *, tolerance=1e-6):
 def _style(value, allowed):
     if not isinstance(value, dict) or not set(value) <= allowed or not value:
         raise DocsEditError("Unsupported or empty style fields.")
+    if "pageBreakBefore" in value and type(value["pageBreakBefore"]) is not bool:
+        raise DocsEditError("pageBreakBefore must be a boolean.")
     _json(value)
     return deepcopy(value)
 

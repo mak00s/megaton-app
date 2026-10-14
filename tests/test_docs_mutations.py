@@ -631,3 +631,28 @@ def test_style_heading_does_not_send_readonly_heading_id():
     requests = m._compile(p["stages"][0], d, "t.0", "write")
     assert requests == [{"updateParagraphStyle": {"range": {"tabId": "t.0", "startIndex": 1, "endIndex": 7},
                                                   "paragraphStyle": {"alignment": "CENTER"}, "fields": "alignment"}}]
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_body_page_break_is_scoped_and_checked_in_readback(enabled):
+    d = document()
+    plan = plan_for([{"id": "pagination", "operation": "style_paragraph",
+                     "anchor": m.paragraph_anchor("Title"),
+                     "paragraph_style": {"pageBreakBefore": enabled}}], d).to_dict()
+    requests = m._compile(plan["stages"][0], d, "t.0", "write")
+    assert requests == [{"updateParagraphStyle": {
+        "range": {"tabId": "t.0", "startIndex": 1, "endIndex": 7},
+        "paragraphStyle": {"pageBreakBefore": enabled}, "fields": "pageBreakBefore"}}]
+    block = d["tabs"][0]["documentTab"]["body"]["content"][0]
+    block["paragraph"]["paragraphStyle"]["pageBreakBefore"] = enabled
+    assert m._node_matches(plan["after"][0], m.get_normalized_outline(d)[0], {})
+    block["paragraph"]["paragraphStyle"]["pageBreakBefore"] = not enabled
+    assert not m._node_matches(plan["after"][0], m.get_normalized_outline(d)[0], {})
+
+
+@pytest.mark.parametrize("value", ["true", 1, None])
+def test_body_page_break_rejects_non_boolean(value):
+    with pytest.raises(DocsEditError, match="pageBreakBefore must be a boolean"):
+        plan_for([{"id": "pagination", "operation": "style_paragraph",
+                  "anchor": m.paragraph_anchor("Title"),
+                  "paragraph_style": {"pageBreakBefore": value}}])
