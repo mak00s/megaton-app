@@ -51,3 +51,5 @@ output/
 # OS
 .DS_Store
 Thumbs.db
+# Private Todoist operation receipts (may contain task text).
+/.todoist-receipts/

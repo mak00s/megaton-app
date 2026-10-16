@@ -29,6 +29,9 @@ class TestMegatonExecution(unittest.TestCase):
         mg = MagicMock()
         mg.use_property.return_value = mg
         mg.report.run.return_value.df = pd.DataFrame([{"sessions": 10}])
+        mg.report.run.return_value.df.attrs["megaton_query_completeness"] = {
+            "status": "complete", "fetched_rows": 1, "row_limit": 50, "total_rows": 1, "discarded_rows": 0,
+        }
 
         with patch("megaton_lib.megaton_client.get_megaton_for_property", return_value=mg):
             df = mc.query_ga4(
@@ -60,6 +63,7 @@ class TestMegatonExecution(unittest.TestCase):
     @patch("megaton_lib.google_workspace.build_service_account_credentials")
     def test_query_ga4_with_explicit_credentials(self, mock_build_creds, mock_client_cls):
         response = types.SimpleNamespace(
+            row_count=1,
             rows=[
                 types.SimpleNamespace(
                     dimension_values=[types.SimpleNamespace(value="Organic Search")],
@@ -100,6 +104,9 @@ class TestMegatonExecution(unittest.TestCase):
     def test_query_gsc_runs_with_dimension_filter(self):
         mg = MagicMock()
         mg.search.run.return_value.df = pd.DataFrame([{"clicks": 1}])
+        mg.search.run.return_value.df.attrs["megaton_query_completeness"] = {
+            "status": "complete", "fetched_rows": 1, "row_limit": 100, "total_rows": None, "discarded_rows": 0,
+        }
         with patch("megaton_lib.megaton_client.get_megaton_for_site", return_value=mg):
             df = mc.query_gsc(
                 site_url="sc-domain:example.com",

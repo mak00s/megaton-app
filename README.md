@@ -48,6 +48,15 @@ Unlike MCP-based integrations, this file-based approach requires no server setup
 
 ## Setup
 
+The completeness-aware query path requires Megaton >=2.5.0, installed as a
+dependency. Incomplete or unverifiable GA4/GSC results are rejected by default;
+intentional partial extracts require `allow_incomplete=True`. See
+[query completeness](docs/USAGE.md#query-completeness).
+
+For this public repository, install the local pre-commit/index and pre-push/history
+hygiene gates with `python3 tools/install_git_hooks.py` after cloning. Key setup
+and pre-add checks: [publication safety](docs/USAGE.md#publication-safety-checks).
+
 The distribution is currently named `megaton-app`, but it installs only the
 reusable `megaton_lib` package. The `scripts/` and `app/` directories are
 checkout-local entrypoints, not installed packages or console commands. See

@@ -77,8 +77,8 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
         "bigquery": {"project_id", "sql"},
     }
     source_optional = {
-        "ga4": {"filter_d", "limit", "pipeline", "save", "column_types"},
-        "gsc": {"filter", "limit", "page_to_path", "pipeline", "save", "column_types"},
+        "ga4": {"filter_d", "limit", "allow_incomplete", "pipeline", "save", "column_types"},
+        "gsc": {"filter", "limit", "allow_incomplete", "page_to_path", "pipeline", "save", "column_types"},
         "aa": {
             "site",
             "segment",
@@ -220,6 +220,8 @@ def validate_params(data: Any) -> tuple[dict[str, Any] | None, list[dict[str, st
                 )
             )
 
+    if "allow_incomplete" in normalized and type(normalized["allow_incomplete"]) is not bool:
+        errors.append(_err("INVALID_TYPE", "allow_incomplete must be a boolean", "$.allow_incomplete", "Use true or false."))
     if "page_to_path" in normalized and not isinstance(normalized["page_to_path"], bool):
         errors.append(
             _err(

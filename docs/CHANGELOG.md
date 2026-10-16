@@ -2,7 +2,23 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-## Unreleased
+## 2026-10-17 (v0.42.0)
+
+- Reject incomplete/unverifiable GA4/GSC query results by default using raw core
+  pagination evidence, retained through GSC reaggregation, app pipelines and JSON
+  output. Intentional partial extracts require `allow_incomplete=True`; older
+  cores without metadata fail closed. Requires core v2.5.0 or newer. Explicit-credential
+  GA4 extraction uses the same policy. AA/BQ semantics are unchanged.
+- Anonymize the public consumer rollout record; concrete inventories stay in
+  ignored local output. Add nonignored untracked-file checks, exact staged-blob
+  checks, and opt-in-installed fail-closed pre-commit/pre-push hygiene hooks.
+
+- Add a consumer Todoist runbook and agent execution rules: explicit account/token,
+  a dedicated task runtime, reviewed task selection and durable Receipt recovery.
+  Business completion gates remain in consumers, not automatic success hooks.
+  Document consumer-side follow-up guards for filter-independent attempts,
+  Gmail source binding and shared dry-run preflight; the released v0.41.0
+  task client/CLI itself is unchanged.
 
 ## 2026-10-16 (v0.41.0)
 

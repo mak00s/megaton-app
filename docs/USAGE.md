@@ -272,6 +272,9 @@ token・本文・結果JSONは共有やcommit対象にしない。添付を含�
 
 ### Todoistで作業の完了・後続タスクを記録する
 
+消費側の専用venv、アカウント確認、承認・Receipt運用は
+[Todoist Consumer Runbook](todoist.md) を参照する。
+
 対象の選択、タスク文言、期限、仕事の完了条件は呼び出し元で決める。
 `TODOIST_TOKEN`に個人API tokenを明示設定する（Git・チャット・ログに貼らない）。
 操作一覧は `python -m megaton_lib.todoist_tasks --help`。
@@ -1039,6 +1042,59 @@ python -m pytest -q --cov=scripts.query --cov-report=term-missing --cov-fail-und
 ```
 
 ---
+
+## Publication Safety Checks
+
+This repository is public. Keep customer-identifying inventories in ignored local
+output or an approved private repository. Do not place them in source paths,
+commit/tag messages or public documentation. A public rollout record describes
+roles and contracts, not customer names.
+
+```bash
+# Once per fresh checkout; refuses to overwrite existing custom hooks/config.
+python3 tools/install_git_hooks.py
+# Before git add/commit: tracked plus nonignored untracked files.
+python3 tools/check_repository_hygiene.py
+# Exact index blobs, including staged additions with sanitized working copies.
+python3 tools/check_repository_hygiene.py --staged
+# Before publishing: all reachable committed history/metadata as well as files.
+python3 tools/check_repository_hygiene.py --history
+```
+
+The installed pre-commit hook checks the actual index, not working copies.
+Pre-push checks full history, including removed file versions, authors, messages
+and annotated tags, before Git transmits commits. A full clone and the correct
+local hygiene key are required. Never use `--allow-missing-key` or `--no-verify`
+for this repository's publication. `REPOSITORY_HYGIENE_PYTHON` may select a local
+Python interpreter; the checker itself uses only the standard library.
+
+The installer preserves custom hook setups; integrate the checks manually if it
+refuses. `core.hooksPath=.githooks` is local config and must be installed in each
+fresh clone. Hooks are a local defense, not an access control: retain CI checks.
+If history fails, stop before pushing; sanitizing the working copy does not fix
+already committed private content. Findings redact matched values/private paths.
+
+## Query Completeness
+
+`query_ga4`, `query_gsc` and the explicit-credential GA4 helper now reject
+truncated or unverifiable extracts by default with `QueryIncompleteError`.
+Do not treat a successful request or a small post-aggregation DataFrame as a
+complete extract. Inspect the exception's `completeness` or the CLI's
+`INCOMPLETE_QUERY_RESULT` / `details.completeness`.
+
+Prefer increasing `limit` or splitting the date/dimension request. For a reviewed
+top-N/partial-data use case only, explicitly set `allow_incomplete=True` in Python
+or `"allow_incomplete": true` in GA4/GSC params JSON. This emits a warning and
+retains evidence in `df.attrs["megaton_query_completeness"]`, the Python workflow
+result's `completeness`, and JSON success `data.completeness`, including after an
+app pipeline. CSV data alone does not encode this metadata.
+
+The delegated query path needs a core with `QUERY_COMPLETENESS_CONTRACT =
+"raw_rows/v1"`. Older cores, including v2.4.0, have no evidence and therefore
+fail closed by default, even below the displayed row cap. App v0.42.0 requires
+`megaton>=2.5.0`, which implements this contract. Local co-development
+must explicitly install both edited checkouts in an isolated verification venv;
+do not silently replace consumer environments or remove their existing guards.
 
 ## 詳細リファレンス
 

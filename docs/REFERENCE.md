@@ -783,6 +783,7 @@ python scripts/query.py --batch configs/weekly/ --json
 | `filter` | string | - | GSC filter (`dim:op:expr` format) |
 | `page_to_path` | boolean | GSC | Convert GSC page URLs to paths before returning rows |
 | `limit` | number | - | Row limit (max 100,000) |
+| `allow_incomplete` | boolean | false | GA4/GSC only: explicitly accept truncated/unknown API pagination; retains evidence and warns |
 | `column_types` | object | - | Table display hints (`date`, `int`, `float`, `currency`, `percent`, `text`) |
 | `pipeline` | object | - | Post-fetch pipeline (see below) |
 | `save` | object | - | Save destination (see below) |
@@ -1067,6 +1068,34 @@ df = drop_current_month_rows(df, month_col="month_ym")
 ---
 
 ## Library Helper Modules
+
+### Query Completeness Contract
+
+The GA4/GSC `limit` caps total raw fetched rows, not page size. Query functions
+raise `QueryIncompleteError` by default unless core evidence says `complete`.
+`allow_incomplete=True` explicitly permits `truncated` / `unknown`, with a warning.
+This is separate from output/pipeline `head`, which does not change API coverage.
+
+Core `QueryResult.completeness.to_dict()` and app DataFrame attribute
+`megaton_query_completeness` contain:
+
+- `status`: `complete`, `truncated`, or `unknown`.
+- `fetched_rows`: raw API rows before filtering/path normalization/aggregation;
+  null when the core cannot provide evidence.
+- `row_limit`: the raw total cap; `limit_reached`: boolean or null if unavailable.
+- `total_rows`: API-reported total when known (GA4), otherwise null (GSC).
+- `discarded_rows`: malformed raw rows discarded during parsing.
+
+GA4 exactly at its limit is complete when the reported total equals fetched rows;
+a larger total proves truncation. GSC has no total: hitting the cap is unknown,
+not proof of truncation or completeness. Page exhaustion below the cap proves
+pagination completion only, not absence of provider-side privacy/coverage limits.
+GSC grouping may shrink the final DataFrame below the cap without changing this
+evidence. Missing/invalid core metadata is unknown, never inferred from output size.
+
+Direct CLI failure uses `INCOMPLETE_QUERY_RESULT` with `details.completeness`.
+Successful explicit opt-in returns evidence in `data.completeness`; Python workflow
+results expose `.completeness`. AA and BigQuery keep their existing semantics.
 
 ### Todoist Task Handoffs (`megaton_lib.todoist_client`)
 

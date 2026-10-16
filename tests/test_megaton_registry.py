@@ -363,6 +363,9 @@ class TestQueryRefactored(unittest.TestCase):
             sites=[],
         )
         mg_a.report.run.return_value.df = pd.DataFrame({"date": ["2025-01-01"], "sessions": [100]})
+        mg_a.report.run.return_value.df.attrs["megaton_query_completeness"] = {
+            "status": "complete", "fetched_rows": 1, "row_limit": 10000, "total_rows": 1, "discarded_rows": 0,
+        }
         mock_megaton_cls.return_value = mg_a
 
         df = mc.query_ga4("P1", "2025-01-01", "2025-01-31", ["date"], ["sessions"])
@@ -389,6 +392,9 @@ class TestQueryRefactored(unittest.TestCase):
             "impressions": [100],
         })
         mg_b.search.run.return_value = result
+        result.df.attrs["megaton_query_completeness"] = {
+            "status": "complete", "fetched_rows": 1, "row_limit": 25000, "total_rows": None, "discarded_rows": 0,
+        }
         mock_megaton_cls.return_value = mg_b
 
         df = mc.query_gsc(

@@ -38,13 +38,18 @@ The delegated query limit now caps fetched rows. GSC alias pairs are rejected
 and path conversion reaggregates metrics; these corrections are documented as
 consumer-visible changes in 0.40.0. Notebook GA4 limit remains a page size.
 
+Raw pagination completeness belongs in core, before any frame transformations.
+App extraction policy fails closed on truncated/unknown evidence by default;
+intentional partial extracts require explicit opt-in. Never reconstruct coverage
+from the number of post-aggregation rows. Release a metadata-capable core before
+publishing an app that depends on this guard.
+
 MCP adapters call the same library APIs. They own transport authentication,
 tool exposure and permissions. Project inventories, client rules and delivery
 policy belong to consumers. Repository visibility does not define ownership;
 this repo is public following sanitization.
 
-The delegation requires Megaton 2.3.0. Publish that dependency before distributing
-this app revision. Existing installed app releases remain compatible with their
+The completeness-aware delegation requires Megaton 2.5.0 or newer. Existing installed app releases retain their
 original Megaton requirement.
 
 ## Architectural Layers

@@ -211,6 +211,8 @@ def apply_pipeline(
             raise ValueError("Invalid head: head must be greater than 0")
         result = result.head(head)
 
+    if "megaton_query_completeness" in df.attrs:
+        result.attrs["megaton_query_completeness"] = df.attrs["megaton_query_completeness"]
     return result
 
 

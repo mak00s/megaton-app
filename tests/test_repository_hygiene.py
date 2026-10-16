@@ -66,6 +66,108 @@ def test_clean_history_passes(repo, capsys):
     assert "full history" in capsys.readouterr().out
 
 
+def test_new_untracked_file_is_checked_but_ignored_output_is_not(repo, capsys):
+    (repo / "new.md").write_text(WORD)
+    assert hygiene.main([]) == 1
+    assert WORD not in capsys.readouterr().out
+    (repo / ".gitignore").write_text("new.md\n")
+    assert hygiene.main([]) == 0
+
+
+def test_index_check_does_not_trust_sanitized_working_copy(repo, capsys):
+    (repo / "new.md").write_text(WORD)
+    _git(repo, "add", "new.md")
+    (repo / "new.md").write_text("clean")
+    assert hygiene.main([]) == 0
+    assert hygiene.main(["--staged"]) == 1
+    assert WORD not in capsys.readouterr().out
+
+
+def test_index_check_ignores_unstaged_private_edits(repo):
+    (repo / "a.txt").write_text(WORD)
+    assert hygiene.main(["--staged"]) == 0
+
+
+def _install_fixture_hooks(repo):
+    import re
+    import shutil
+    from pathlib import Path
+
+    from tools.install_git_hooks import install
+
+    source = Path(hygiene.__file__).resolve().parents[1]
+    (repo / "tools").mkdir()
+    code = Path(hygiene.__file__).read_text()
+    code = re.sub(r'KEY_CHECK_MAC = "[a-f0-9]+"', f'KEY_CHECK_MAC = "{hygiene.KEY_CHECK_MAC}"', code)
+    code = re.sub(r'FORBIDDEN_TOKEN_MACS = \{.*?\n\}',
+                  'FORBIDDEN_TOKEN_MACS = ' + repr(hygiene.FORBIDDEN_TOKEN_MACS), code, flags=re.DOTALL)
+    (repo / "tools/check_repository_hygiene.py").write_text(code)
+    shutil.copytree(source / ".githooks", repo / ".githooks")
+    install()
+
+
+def test_precommit_hook_blocks_staged_blob_before_commit(repo):
+    _install_fixture_hooks(repo)
+    (repo / "new.md").write_text(WORD)
+    _git(repo, "add", "new.md")
+    (repo / "new.md").write_text("sanitized working copy")
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        _git(repo, "commit", "-qm", "blocked", REPOSITORY_HYGIENE_KEY=KEY)
+    assert WORD.encode() not in error.value.stdout + error.value.stderr
+    assert subprocess.check_output(["git", "rev-list", "--count", "HEAD"], cwd=repo).strip() == b"1"
+
+
+def test_prepush_hook_checks_committed_history_not_clean_working_copy(repo):
+    import os
+
+    _install_fixture_hooks(repo)
+    (repo / "a.txt").write_text(WORD)
+    _git(repo, "-c", "core.hooksPath=/dev/null", "commit", "-qam", "unsafe fixture")
+    (repo / "a.txt").write_text("clean")
+    result = subprocess.run([str(repo / ".githooks/pre-push")], cwd=repo, capture_output=True,
+                            env={**os.environ, hygiene.KEY_ENV: KEY})
+    assert result.returncode == 1
+    assert b"file history" in result.stdout
+    assert WORD.encode() not in result.stdout + result.stderr
+
+
+def test_hook_without_key_fails_closed(repo):
+    import os
+
+    _install_fixture_hooks(repo)
+    env = dict(os.environ)
+    env.pop(hygiene.KEY_ENV, None)
+    env[hygiene.KEY_FILE_ENV] = str(repo / "missing-key")
+    result = subprocess.run([str(repo / ".githooks/pre-commit")], cwd=repo, env=env, capture_output=True)
+    assert result.returncode == 1
+    assert b"key not found" in result.stdout
+
+
+def test_installer_preserves_custom_hook_configuration(repo):
+    from tools.install_git_hooks import install
+
+    _git(repo, "config", "core.hooksPath", "custom-hooks")
+    with pytest.raises(SystemExit, match="Custom"):
+        install()
+    assert subprocess.check_output(["git", "config", "core.hooksPath"]).strip() == b"custom-hooks"
+
+
+def test_private_path_is_redacted(repo, capsys):
+    (repo / (WORD + ".md")).write_text("clean")
+    assert hygiene.main([]) == 1
+    output = capsys.readouterr().out
+    assert "<redacted path>" in output
+    assert WORD not in output
+
+
+def test_history_content_findings_also_redact_private_paths(repo, capsys):
+    (repo / (WORD + ".md")).write_text(WORD)
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "private fixture")
+    assert hygiene.main(["--history"]) == 1
+    assert WORD not in capsys.readouterr().out
+
+
 def test_removed_file_version_is_still_reported_without_echoing_it(repo, capsys):
     (repo / "a.txt").write_text(f"account {WORD}-analysis\n")
     _git(repo, "commit", "-qam", "add")

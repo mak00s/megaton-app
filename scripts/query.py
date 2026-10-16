@@ -42,6 +42,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from megaton_lib.cli_help import build_parser
 from megaton_lib.megaton_client import (
+    QueryIncompleteError,
     get_aa_segments,
     get_ga4_properties,
     get_gsc_sites,
@@ -270,6 +271,8 @@ def output_result(
                 "saved_to": args.output,
                 "row_count": int(len(df)),
             }
+            if "megaton_query_completeness" in df.attrs:
+                payload["completeness"] = df.attrs["megaton_query_completeness"]
             if pipeline is not None:
                 payload["pipeline"] = pipeline
             if save is not None:
@@ -289,6 +292,8 @@ def output_result(
             "rows": rows,
             "row_count": int(len(rows)),
         }
+        if "megaton_query_completeness" in df.attrs:
+            payload["completeness"] = df.attrs["megaton_query_completeness"]
         if pipeline is not None:
             payload["pipeline"] = pipeline
         if save is not None:
@@ -506,6 +511,7 @@ def run_job(job_id: str, store: JobStore) -> int:
             row_count=len(df),
             artifact_path=str(artifact_path),
             header_lines=header_lines,
+            completeness=df.attrs.get("megaton_query_completeness"),
         )
         return 0
     except Exception as e:
@@ -514,6 +520,7 @@ def run_job(job_id: str, store: JobStore) -> int:
             status="failed",
             finished_at=now_iso(),
             error={"type": type(e).__name__, "message": str(e)},
+            **({"completeness": e.completeness} if isinstance(e, QueryIncompleteError) else {}),
         )
         return 1
 
@@ -619,6 +626,8 @@ def show_job_result(job_id: str, args, store: JobStore) -> int:
             "rows": rows,
             "row_count": int(len(rows)),
         }
+        if job.get("completeness") is not None:
+            payload["completeness"] = job["completeness"]
         if args.output:
             payload["saved_to"] = args.output
 
@@ -650,6 +659,8 @@ def show_job_result(job_id: str, args, store: JobStore) -> int:
         "artifact_path": artifact_path,
         "log_path": job.get("log_path"),
     }
+    if job.get("completeness") is not None:
+        payload["completeness"] = job["completeness"]
     if args.output:
         payload["copied_to"] = args.output
 
@@ -905,6 +916,9 @@ def _execute_single_config(params: dict, config_path: Path) -> dict:
             "message": str(e.error),
             "hint": "Check source-specific params and credentials.",
         }
+        if isinstance(e.error, QueryIncompleteError):
+            result.update(error_code="INCOMPLETE_QUERY_RESULT", completeness=e.error.completeness,
+                          hint="Increase limit/split the request, or explicitly allow an incomplete result.")
         if e.messages:
             result["warnings"] = e.messages
         return result
@@ -925,8 +939,6 @@ def _execute_single_config(params: dict, config_path: Path) -> dict:
         if warnings:
             result["warnings"] = warnings
         return result
-
-    row_count = int(len(df))
 
     # pipeline
     pipeline_conf = params.get("pipeline") or {}
@@ -978,6 +990,8 @@ def _execute_single_config(params: dict, config_path: Path) -> dict:
         "source": params.get("source"),
         "save": save_result,
     }
+    if "megaton_query_completeness" in df.attrs:
+        result["completeness"] = df.attrs["megaton_query_completeness"]
     if warnings:
         result["warnings"] = warnings
     return result
@@ -1235,6 +1249,12 @@ def main():
     except CapturedExecutionError as e:
         emit_warnings(args, e.messages)
         details = {"warnings": e.messages} if args.json and e.messages else None
+        if isinstance(e.error, QueryIncompleteError):
+            return emit_error(
+                args, "INCOMPLETE_QUERY_RESULT", str(e.error),
+                "Increase limit/split the request, or explicitly set allow_incomplete=true.",
+                details={**(details or {}), "completeness": e.error.completeness},
+            )
         if isinstance(e.error, ValueError):
             return emit_error(
                 args,

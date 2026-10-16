@@ -1,6 +1,7 @@
 """Reject known private identifiers and high-confidence secrets.
 
-Default mode checks tracked files (paths and contents). ``--history`` also
+Default mode checks tracked and nonignored untracked files. ``--staged`` checks
+the actual index blobs, not their working copies. ``--history`` also
 checks every commit reachable from any ref: file versions, paths, commit
 messages, author/committer identities and annotated tag messages. Findings
 never print the matched identifier, only where it was found.
@@ -139,24 +140,55 @@ def _git(*args: str) -> str:
     return subprocess.check_output(["git", *args]).decode("utf-8", errors="replace")
 
 
-def check_tracked_files() -> list[str]:
+def _check_text(path: str, text: str) -> list[str]:
     findings: list[str] = []
-    for value in subprocess.check_output(["git", "ls-files", "-z"]).split(b"\0"):
+    private_path = _has_forbidden(path)
+    label = "<redacted path>" if private_path else path
+    if private_path:
+        findings.append(f"{label}: forbidden path")
+    for line_number, line in enumerate(text.splitlines(), 1):
+        if _has_forbidden(line):
+            findings.append(f"{label}:{line_number}: forbidden private identifier")
+    for name, pattern in SECRET_PATTERNS.items():
+        if pattern.search(text):
+            findings.append(f"{label}: possible {name}")
+    return findings
+
+
+def check_tracked_files(*, include_untracked: bool = False) -> list[str]:
+    findings: list[str] = []
+    args = ["git", "ls-files", "--cached", "-z"]
+    if include_untracked:
+        args.extend(["--others", "--exclude-standard"])
+    for value in dict.fromkeys(subprocess.check_output(args).split(b"\0")):
         if not value:
             continue
         path = Path(value.decode())
-        if _has_forbidden(path.as_posix()):
-            findings.append(f"{path}: forbidden path")
         try:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
+            findings.extend(_check_text(path.as_posix(), ""))
             continue
-        for line_number, line in enumerate(text.splitlines(), 1):
-            if _has_forbidden(line):
-                findings.append(f"{path}:{line_number}: forbidden private identifier")
-        for label, pattern in SECRET_PATTERNS.items():
-            if pattern.search(text):
-                findings.append(f"{path}: possible {label}")
+        findings.extend(_check_text(path.as_posix(), text))
+    return findings
+
+
+def check_index() -> list[str]:
+    """Inspect every index entry, including staged additions hidden by clean copies."""
+    findings = []
+    for entry in subprocess.check_output(["git", "ls-files", "--stage", "-z"]).split(b"\0"):
+        if not entry:
+            continue
+        metadata, raw_path = entry.split(b"\t", 1)
+        mode, oid, stage = metadata.decode("ascii").split()
+        if stage != "0":
+            findings.append("Unmerged index entry; resolve before committing.")
+            continue
+        if mode == "160000":
+            findings.extend(_check_text(raw_path.decode(), ""))
+            continue
+        blob = subprocess.check_output(["git", "cat-file", "blob", oid])
+        findings.extend(_check_text(raw_path.decode(), blob.decode("utf-8", errors="replace")))
     return findings
 
 
@@ -191,6 +223,7 @@ def check_history() -> list[str]:
         if line.startswith("diff --git "):
             path = line.split(" b/", 1)[-1]
             if _has_forbidden(line):
+                path = "<redacted path>"
                 reported.add((commit, "<redacted path>", "forbidden path"))
             continue
         if line.startswith(("+++", "---")) or not line.startswith(("+", "-")):
@@ -212,6 +245,7 @@ def check_history() -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--staged", action="store_true", help="check actual index blobs before commit")
     parser.add_argument(
         "--history",
         action="store_true",
@@ -239,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
     elif not hmac.compare_digest(_token_mac(KEY_CHECK_TEXT), KEY_CHECK_MAC):
         print("Repository hygiene check failed:\n- denylist key does not match this repository's denylist")
         return 1
-    findings = check_tracked_files()
+    findings = check_index() if args.staged else check_tracked_files(include_untracked=True)
     if args.history:
         if _git("rev-parse", "--is-shallow-repository").strip() == "true":
             print("Repository hygiene check failed:\n- --history requires a full clone (fetch-depth: 0)")
@@ -250,7 +284,9 @@ def main(argv: list[str] | None = None) -> int:
         print("Repository hygiene check failed:")
         print("\n".join(f"- {finding}" for finding in findings))
         return 1
-    scope = "tracked files and full history" if args.history else "tracked files"
+    scope = "index" if args.staged else "working tree (tracked and nonignored untracked files)"
+    if args.history:
+        scope += " and full history"
     coverage = "identifiers and secrets" if _KEY is not None else "secrets only"
     print(f"Repository hygiene check passed ({scope}; {coverage})")
     return 0

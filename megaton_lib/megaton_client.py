@@ -10,6 +10,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from megaton import start
 from megaton.query import run_query
+import warnings
 import pandas as pd
 from typing import Optional, TypedDict, TypeAlias
 from megaton_lib.audit.config import AdobeAnalyticsConfig
@@ -24,6 +25,43 @@ logger = logging.getLogger(__name__)
 
 # GA4/GSC limit capability, independent of editable-install metadata.
 QUERY_LIMIT_CONTRACT = "total_rows"
+
+
+class QueryIncompleteError(RuntimeError):
+    """A capped or unverifiable API result must not be used as a full extract."""
+
+    def __init__(self, completeness: dict):
+        self.completeness = completeness
+        super().__init__(
+            "Query completeness is " + completeness["status"]
+            + "; increase the limit/split the request, or explicitly set allow_incomplete=True. "
+            "Missing metadata requires a core with the raw_rows/v1 completeness contract."
+        )
+
+
+def _validate_allow_incomplete(value: bool) -> None:
+    if type(value) is not bool:
+        raise TypeError("allow_incomplete must be a boolean")
+
+
+def _require_complete(df: pd.DataFrame, metadata, *, allow_incomplete: bool) -> pd.DataFrame:
+    _validate_allow_incomplete(allow_incomplete)
+    if not isinstance(metadata, dict) or metadata.get("status") not in {"complete", "truncated", "unknown"}:
+        metadata = {"status": "unknown", "fetched_rows": None, "row_limit": None,
+                    "total_rows": None, "discarded_rows": 0, "limit_reached": None}
+    df.attrs["megaton_query_completeness"] = metadata
+    if metadata["status"] != "complete":
+        if not allow_incomplete:
+            raise QueryIncompleteError(metadata)
+        warnings.warn("Returning an explicitly allowed incomplete/unverifiable query result.",
+                      RuntimeWarning, stacklevel=3)
+    return df
+
+
+def _checked_query_frame(result, *, allow_incomplete: bool) -> pd.DataFrame:
+    evidence = getattr(result, "completeness", None)
+    metadata = evidence.to_dict() if evidence is not None and callable(getattr(evidence, "to_dict", None)) else None
+    return _require_complete(result.df, metadata, allow_incomplete=allow_incomplete)
 
 # === Public type hints (API boundary) ===
 
@@ -371,6 +409,8 @@ def query_ga4(
     metrics: Sequence[FieldSpec],
     filter_d: Optional[str] = None,
     limit: int = 10000,
+    *,
+    allow_incomplete: bool = False,
 ) -> pd.DataFrame:
     """Execute GA4 query (auto-routed).
 
@@ -384,7 +424,9 @@ def query_ga4(
             Example: ["sessions", ("eventCount", "cv")]
         filter_d: Filter expression in "field==value;field!=value" form.
         limit: Max number of rows.
+        allow_incomplete: Explicitly accept truncated/unknown completeness; default raises.
     """
+    _validate_allow_incomplete(allow_incomplete)
     dimensions_l = _normalize_fields(dimensions, name="dimensions")
     metrics_l = _normalize_fields(metrics, name="metrics")
     try:
@@ -412,7 +454,7 @@ def query_ga4(
                 f"The service account lacks access to run reports."
             ) from e
         raise
-    df = result.df
+    df = _checked_query_frame(result, allow_incomplete=allow_incomplete)
     # Convert datetime.date columns to YYYY-MM-DD strings so JSON
     # serialization produces human-readable dates instead of epoch ms.
     if not df.empty:
@@ -433,6 +475,7 @@ def query_ga4_with_credentials(
     credentials_path: str,
     filter_d: Optional[str] = None,
     limit: int = 10000,
+    allow_incomplete: bool = False,
 ) -> pd.DataFrame:
     """Run a GA4 Data API report with an explicitly selected credential.
 
@@ -442,9 +485,10 @@ def query_ga4_with_credentials(
     currently support exact (``field==value``) and not-exact
     (``field!=value``) clauses joined by ``;``.
     """
+    _validate_allow_incomplete(allow_incomplete)
     dimensions_l = _normalize_fields(dimensions, name="dimensions")
     metrics_l = _normalize_fields(metrics, name="metrics")
-    if limit < 1:
+    if type(limit) is not int or limit < 1:
         raise ValueError("limit must be 1 or greater")
 
     from google.analytics.data_v1beta import BetaAnalyticsDataClient
@@ -549,7 +593,13 @@ def query_ga4_with_credentials(
         column = output_name(metric)
         if column in df.columns:
             df[column] = pd.to_numeric(df[column], errors="coerce")
-    return df
+    total = getattr(response, "row_count", None)
+    if type(total) is not int or total < len(rows):
+        total = None
+    metadata = {"fetched_rows": len(rows), "row_limit": limit, "total_rows": total,
+                "status": "unknown" if total is None else ("complete" if len(rows) == total else "truncated"),
+                "discarded_rows": 0, "limit_reached": len(rows) >= limit}
+    return _require_complete(df, metadata, allow_incomplete=allow_incomplete)
 
 
 # === GSC ===
@@ -576,6 +626,8 @@ def query_gsc(
     limit: int = 25000,
     dimension_filter: Sequence[GscDimensionFilter] | None = None,
     page_to_path: bool = True,
+    *,
+    allow_incomplete: bool = False,
 ) -> pd.DataFrame:
     """Execute GSC query (auto-routed).
 
@@ -593,15 +645,17 @@ def query_gsc(
             Full URL "https://example.com/path?q=1" -> "/path"
             Conversion happens after filter evaluation on full URL.
     """
+    _validate_allow_incomplete(allow_incomplete)
     dimensions_l = _normalize_fields(dimensions, name="dimensions")
     dimension_filter_l = _normalize_gsc_dimension_filter(dimension_filter)
     mg = get_megaton_for_site(site_url)
-    return run_query({
+    result = run_query({
         "schema_version": "1.0", "source": "gsc", "site_url": str(site_url),
         "date_range": {"start": start_date, "end": end_date},
         "dimensions": dimensions_l, "limit": limit,
         "filter_d": dimension_filter_l, "page_to_path": page_to_path,
-    }, client=mg).df
+    }, client=mg)
+    return _checked_query_frame(result, allow_incomplete=allow_incomplete)
 
 
 # === Adobe Analytics ===

@@ -28,6 +28,10 @@ class QueryResult:
     params: dict[str, Any]
     pipeline: dict[str, Any] | None = None
 
+    @property
+    def completeness(self) -> dict[str, Any] | None:
+        return self.df.attrs.get("megaton_query_completeness")
+
 
 @dataclass(frozen=True)
 class QueryExecutors:
@@ -112,6 +116,7 @@ def execute_query_params(
             metrics=params["metrics"],
             filter_d=params.get("filter_d"),
             limit=params.get("limit", 1000),
+            **({"allow_incomplete": params["allow_incomplete"]} if "allow_incomplete" in params else {}),
         )
         return QueryResult(
             df=df,
@@ -138,6 +143,7 @@ def execute_query_params(
             limit=params.get("limit", 1000),
             dimension_filter=dimension_filter,
             page_to_path=gsc_page_to_path,
+            **({"allow_incomplete": params["allow_incomplete"]} if "allow_incomplete" in params else {}),
         )
         if df is not None and "clicks" in df.columns:
             df = df.sort_values("clicks", ascending=False)

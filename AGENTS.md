@@ -137,3 +137,16 @@ python -m pytest -q -m unit
 - `docs/CHANGELOG.md`: change history
 
 Keep AGENTS short; keep detailed examples and full schema references in the docs.
+
+## Repository Publication Safety
+
+- This is a public repository. Customer names, customer-identifying repo inventories and operational identifiers must stay in ignored private output, never source paths, documentation, commit messages or tags.
+- Before committing new files, run the keyed hygiene check over the working tree. Keep the local pre-commit/index and pre-push/history gates installed; a missing/wrong key is a stop condition, not permission to skip. Setup and recovery: [docs/USAGE.md](docs/USAGE.md#publication-safety-checks).
+
+## Todoist Task Handoffs
+
+- Use `megaton_lib.todoist_client` / `python -m megaton_lib.todoist_tasks --help` for caller-selected task reads, follow-up creation and completion. Setup and repo-specific gates: [docs/todoist.md](docs/todoist.md).
+- Writes require user authorization for the task/action, a reviewed preview, explicit apply and a durable private Receipt. Identify one task by ID; never silently select the first of multiple matches or infer completion from a successful query, report, draft or code change.
+- Configure `TODOIST_TOKEN` explicitly for this operation; never search/copy another repo's token or fall back to a connector/browser. Confirm the Todoist account before writing.
+- Keep Receipts under ignored `.todoist-receipts/` (account-scoped); keep tokens and task content out of Git/shared logs. On failed verification, use verify only. Unknown writes must not be retried with a new/deleted Receipt; rejected writes require corrected input and a newly reviewed attempt.
+- Recurring tasks, active-subtask parents, updates and deletion are outside the shared completion contract. Existing business workflows retain their approval and delivery gates; Todoist permission does not authorize email sending, financial execution, publishing or deployment.

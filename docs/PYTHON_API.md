@@ -188,6 +188,19 @@ locale. Blocks are written separately; this helper does not provide atomic write
 
 slqm 移行（2026-06）はこの手順で `_page`/`_page-d`/`_page-m`/`_all-m` 全セル一致を確認済み。
 
+## Query Completeness
+
+GA4/GSC query helpers default to full-extract safety. `limit` is a total raw-row
+cap; truncation, cap ambiguity or missing core metadata raises
+`megaton_lib.megaton_client.QueryIncompleteError`. Its `.completeness` contains
+safe count/status metadata, not report data or credentials. For intentional
+partial extracts, pass `allow_incomplete=True`; inspect the retained
+`df.attrs["megaton_query_completeness"]` instead of guessing from `len(df)`.
+The params/workflow route accepts the same boolean and exposes
+`QueryResult.completeness` after pipeline transforms. See
+[the completeness contract](REFERENCE.md#query-completeness-contract) and
+[rollout requirements](USAGE.md#query-completeness).
+
 ## Todoist task handoffs
 
 ```python
