@@ -4,9 +4,28 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+## 2026-10-16 (v0.41.0)
+
+- Add narrow Todoist task handoffs through `todoist_client` and the
+  `todoist_tasks` JSON CLI. Writes preview by default, require a private durable
+  receipt and never automatically retry. Paginated lookup rejects ambiguous
+  matches; account identity, task fingerprints, bounded/project-filtered paginated
+  completion history (exact original ID and completion timestamp), reopened-task
+  checks and recurring-task rejection guard completion. Completion proof comes
+  from history; the single-task state check accepts both documented 404 and
+  live-observed 200/checked=true without trusting either alone. A controlled live
+  task retained its ID across create/complete/history, passed receipt and CLI
+  verification, and reused its receipt without another POST. Explicit HTTP rejection is recorded separately from
+  ambiguous writes, allowing reviewed correction with a new receipt. No generic task updates,
+  deletion, project management or automatic report-success completion hooks.
+
 - Expose `megaton_lib.megaton_client.QUERY_LIMIT_CONTRACT = "total_rows"`
   so consumers can verify GA4/GSC query-limit semantics against installed
   metadata. This does not change Adobe Analytics pagination semantics.
+
+- Structured Docs report plans support the scoped boolean `pageBreakBefore`
+  paragraph style, with validation and readback checks. This does not insert
+  standalone page-break nodes or replace the document body.
 
 ## 2026-10-13 (v0.40.0)
 

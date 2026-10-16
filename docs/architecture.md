@@ -136,6 +136,18 @@ Alternative Gmail tools require explicit user permission for the particular
 operation when the standard path is unavailable; that permission never implies
 permission to send. This exception does not expand other SaaS adapters' scope.
 
+Todoist has a narrow task-handoff exception for caller-selected work: enumerate
+and read candidate tasks, create a follow-up task, complete one explicitly
+selected nonrecurring task, and verify the result. This supports workflow
+handoffs across consumers (including Adobe issue filing), not general project
+management. Wording, projects, deadlines, priority, deduplication keys
+and the decision that work is complete belong in the consumer. A successful
+query, draft or report run must never implicitly complete a task. Writes require
+explicit apply, account-scoped durable private receipts and readback; ambiguous
+writes never automatically replay. Recurring completion, updates, deletion,
+project administration, inbox monitoring and connector/browser fallback are out
+of scope. Personal API tokens are explicitly configured, never discovered.
+
 Google Docs has a separate narrow exception for caller-selected reports,
 proposals and meeting records: structured retrieval, a reviewed single text edit
 in a plain body paragraph, revision-guarded application and text readback.

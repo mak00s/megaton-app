@@ -270,6 +270,44 @@ token・本文・結果JSONは共有やcommit対象にしない。添付を含�
 
 ---
 
+### Todoistで作業の完了・後続タスクを記録する
+
+対象の選択、タスク文言、期限、仕事の完了条件は呼び出し元で決める。
+`TODOIST_TOKEN`に個人API tokenを明示設定する（Git・チャット・ログに貼らない）。
+操作一覧は `python -m megaton_lib.todoist_tasks --help`。
+
+```bash
+python -m megaton_lib.todoist_tasks list --label report
+python -m megaton_lib.todoist_tasks get --task-id TASK_ID
+
+# まずpreview。期限を省略すれば期日は設定しない。
+python -m megaton_lib.todoist_tasks create --content 'レポートの確認' --label report
+# 内容を承認したあと、耐久的でGit対象外のReceiptを指定して適用。
+python -m megaton_lib.todoist_tasks create --content 'レポートの確認' --label report \
+  --apply --receipt output/todoist/report-review.json
+
+# getが返したfingerprintで、確認後に他のクライアントが変更していないか検査する。
+python -m megaton_lib.todoist_tasks complete --task-id TASK_ID \
+  --expected-fingerprint FINGERPRINT --apply --receipt output/todoist/report-complete.json
+python -m megaton_lib.todoist_tasks verify --receipt output/todoist/report-complete.json
+```
+
+公開版はGitHub Releaseのタグを固定して使う（`v0.41.0`以降）。例えば
+`pip install 'megaton-app @ git+https://github.com/mak00s/megaton-app.git@v0.41.0'`。
+ローカル開発では開発中のcheckoutをeditable installして使う。
+Receiptと出力はタスク本文を含む機密データ。Receiptは実行を跨いで保持し、
+`unknown`なら削除・再実行せずTodoistとReceiptを照合する。
+`rejected`（400/401/403/404/429）なら拒否Receiptを保管したまま、入力・認証の修正や
+レート制限の待機後に再確認し、新しいReceiptパスで明示的に再試行できる。
+完了の検証は単体GETではなく、Receiptに保存した期間/projectで完了一覧を照合する。
+単体GETが完了後に404、または200・`checked=true`を返す両方の場合に対応する。
+いずれの応答だけでも完了の証拠にはせず、履歴と併せて確認する。
+履歴の反映待ちや取得エラーは`verify`だけを再実行する。元IDと一致する完了記録がなければ
+成功にしない。Receiptのない過去の完了タスクは404だけで完了済みと判定しない。
+複数タスクの一致、繰り返しタスクの完了、削除、タスク更新は扱わない。
+メール下書き作成成功を「送付完了」としてタスク完了にしない。
+詳細は [Todoist Task Handoffs](REFERENCE.md#todoist-task-handoffs-megaton_libtodoist_client)。
+
 ## クイックスタート
 
 Validation / Playwright の shared-first 方針は [VALIDATION.md](VALIDATION.md) を参照。

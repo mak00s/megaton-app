@@ -1068,6 +1068,91 @@ df = drop_current_month_rows(df, month_col="month_ym")
 
 ## Library Helper Modules
 
+### Todoist Task Handoffs (`megaton_lib.todoist_client`)
+
+Personal API token only: `TodoistClient(token, timeout=15, expected_user_id=None)`
+or `TodoistClient.from_env(...)` reading exactly `TODOIST_TOKEN`. No token
+discovery, OAuth consent, connector/browser fallback or new dependencies.
+`account()` returns only the user ID (the raw user API response can contain a
+token and is never exposed). The optional `expected_user_id` rejects a different
+account before task access. IDs are opaque strings, never converted to integers.
+
+| API | Contract |
+| --- | --- |
+| `list_tasks(label=None, project_id=None)` | Active tasks, all cursor pages; invalid/repeated cursors fail rather than return partial results. |
+| `get_task(task_id)` | Explicit ID, validated `checked` boolean and `is_deleted=false`. Completed tasks may return 404 (documented) or 200 with `checked=true` (observed live); neither alone proves receipt completion. |
+| `find_unique_task(tasks, content_prefix=...)` | Boundary-aware prefix lookup; no match returns None, multiple matches raise `TodoistError`. Prefix policy belongs in the consumer. |
+| `task_fingerprint(task)` | Content/state guard for reviewed completion; not an atomic lock against other clients. |
+| `create_task(content=..., description="", priority=None, due_string=None, labels=None, project_id=None, parent_id=None, apply=False, receipt_path=None)` | Preview by default. No default deadline, priority, project or label. Explicit priority is the native API integer (1-4), passed unchanged, not translated from UI labels. |
+| `complete_task(task_id, expected_fingerprint=None, apply=False, receipt_path=None)` | Explicit active nonrecurring task only; changed fingerprint or active subtasks stop. Existing acknowledged receipts use completion history for readback, without another POST. A previously completed task without a receipt fails preflight, rather than treating 404 as success. |
+| `verify_receipt(receipt_path)` | GET only, validates the account and saved expected result. 404 is not proof of completion. |
+
+CLI: `python -m megaton_lib.todoist_tasks {list,get,create,complete,verify}`.
+`create/complete --apply` require `--receipt`; without apply they return a
+preview. `get` and complete preview return a fingerprint; pass it back with
+`complete --expected-fingerprint`. `--expected-user-id` is supported on every
+subcommand. All normal/error outputs are JSON; exit 0 means `ok=true`, which can
+also mean a successful preview (`verified=false`). Task listings/get/preview
+contain task content and must be handled as private data.
+
+Write/verify schema: `schema_version="todoist-task/v1"`, `action`, `account_id`,
+`request_id`, `task_id`, `task_url`, `ok`, `verified`, `write_status`, `mismatches`
+(field names only), `rejection_http_status`, `next_step`. Status is `not_attempted` (preview), `unknown`
+(claimed before POST, response ambiguous/crash), `acknowledged` (write response
+received), or `rejected` (HTTP 400/401/403/404/429: this write was refused).
+Creation verification uses the active-task endpoint and requires nondeleted state.
+Completion verification uses `GET /tasks/completed/by_completion_date` with
+`items`/`next_cursor`, a saved UTC `since`/`until` window (five-minute clock-skew
+margin around the write), and the original project ID. It requires a unique
+exact original task ID, nondeleted record, matching task fields and a valid
+`completed_at` inside the saved interval. A separate single-task GET must return
+404 or a nondeleted task with `checked=true`; a 200 with `checked=false` rejects
+reopened tasks, so old history alone is not sufficient. History membership
+and `completed_at`, not its `checked` flag alone, establish the completion event.
+Missing/changed IDs, ambiguous history, API/permission errors or delayed history
+visibility leave `verified=false`; `verify` may be repeated without writing.
+Do not synthesize an ID mapping or match completed records by title. The ID
+correspondence is checked in the controlled live-account evidence below.
+Creation verifies requested fields and the returned canonical due value on
+readback. Natural-language date interpretation/timezone is Todoist's policy:
+`verified` does not independently prove what "today" meant to the user.
+
+Receipt is created exclusively with mode 0600, fsynced before POST and replaced
+atomically after acknowledgement. It contains private task text, the operation
+digest, user ID, request UUID, `write_started_at`/`write_finished_at`, the completion
+window/project (for completion), and expected readback. Keep it gitignored on durable
+storage. Reusing the same receipt only verifies; never repeats a write. Changing
+operation/account requires review and fails without overwriting the receipt.
+Request UUID is a correlation header, **not a promise of server-side
+idempotency**. Local receipts do not prevent duplicate work across machines or
+different receipt paths. Consumers must coordinate one durable operation path
+per logical task. An unknown result requires manual reconciliation in Todoist;
+do not delete the receipt or use a new path to retry. Readback failure preserves
+the acknowledged receipt so verify can be rerun safely. No task bodies, tokens
+or raw API errors are logged. No automatic task completion is wired into
+`ReportRun.finish()`.
+
+`rejected` is different: keep the refused receipt, correct input/authorization or
+wait out rate limits, review again and use a **new** receipt path for an explicitly
+authorized retry. Reusing the rejected path only returns its rejected result; it
+never posts again. 5xx, transport errors or malformed success responses remain
+`unknown` and must not use this recovery path. An unreleased receipt lacking the
+completion window is invalid; inspect it manually rather than replaying it.
+
+#### Controlled Live Check (2026-10-16)
+
+One explicitly authorized test task was created, read back and completed using
+the adobe-md-configured token. Its created ID, pre-completion ID and completion
+history ID were identical. The live single-task endpoint returned HTTP 200 with
+`checked=true`/`is_deleted=false`, despite its documented active-only contract.
+Both 200-completed and 404 are therefore supported, but history ID/project/time
+and content checks are still mandatory. Receipt verification and the standalone
+CLI returned `verified=true`. Reusing the completion receipt with apply=True
+also verified successfully through a transport that forbids all non-GET calls;
+no second close was attempted. Both receipts were mode 0600. Only this test task
+was changed, and it remains completed (not deleted). Raw receipts/evidence stay
+under gitignored `output/todoist-live-*`, never in documentation or Git.
+
 ### CSV Validation (`megaton_lib.csv_validation`)
 
 `validate_generated_import_csv(*, df_expected, csv_path, key_column,

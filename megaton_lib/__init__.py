@@ -59,6 +59,8 @@ Reporting & delivery:
     report_gmail_draft: build Gmail drafts from execution summaries
     gmail_client     : user-OAuth message reads and draft-only reply/update/verification
     gmail_draft      : draft-only CLI with preview, explicit apply and JSON readback
+    todoist_client   : guarded task handoffs (list/get/create/complete/verify)
+    todoist_tasks    : JSON CLI, preview by default and durable private receipts
     credentials      : credential discovery/loading
 
 Browser automation:

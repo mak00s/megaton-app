@@ -188,6 +188,27 @@ locale. Blocks are written separately; this helper does not provide atomic write
 
 slqm 移行（2026-06）はこの手順で `_page`/`_page-d`/`_page-m`/`_all-m` 全セル一致を確認済み。
 
+## Todoist task handoffs
+
+```python
+from megaton_lib.todoist_client import TodoistClient, task_fingerprint
+
+client = TodoistClient.from_env(expected_user_id="YOUR_USER_ID")
+task = client.get_task("TASK_ID")
+preview = client.complete_task(task["id"], expected_fingerprint=task_fingerprint(task))
+# After approving the preview:
+result = client.complete_task(
+    task["id"], expected_fingerprint=task_fingerprint(task),
+    apply=True, receipt_path="output/todoist/complete.json",
+)
+assert result["verified"]  # Do not equate an HTTP response with verified completion.
+```
+
+Follow-up creation uses `client.create_task(content=..., ...)`, also preview by
+default. This is not an automatic report finish hook. Recurring completion and
+general task/project management are unsupported. Full receipt/verification
+contract: [REFERENCE](REFERENCE.md#todoist-task-handoffs-megaton_libtodoist_client).
+
 ## Box API artifact transfer
 
 `megaton_lib.box_api.upload_files_to_box_folder_via_api_sync(...)` と
