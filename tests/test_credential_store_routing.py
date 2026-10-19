@@ -118,3 +118,20 @@ def test_incomplete_error_gives_concrete_next_step(evidence, expected):
     assert expected in error.suggestion
     assert expected in str(error)
     assert "allow_incomplete=True" in str(error)
+
+
+def test_repo_key_tip_quotes_paths_with_spaces(store, tmp_path, monkeypatch, capsys):
+    import shlex
+
+    monkeypatch.delenv("MEGATON_HINTS", raising=False)
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    repo = tmp_path / "my repo" / "credentials"
+    repo.mkdir(parents=True)
+    key = repo / "local key.json"
+    key.write_text(json.dumps(sa_key("local")), encoding="utf-8")
+    monkeypatch.setattr(credentials, "_resolve_default_dir", lambda default_dir: repo)
+    credentials.list_service_account_paths()
+    err = capsys.readouterr().err
+    command = err.split("`megaton auth import", 1)[1].split("`", 1)[0]
+    assert str(key) in shlex.split(command)

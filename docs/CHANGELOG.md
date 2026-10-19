@@ -2,6 +2,11 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 2026-10-19 (v0.43.1)
+
+- The repository-key tip shell-quotes the suggested `megaton auth import --sa`
+  path, so keys under paths with spaces produce a runnable command.
+
 ## 2026-10-19 (v0.43.0)
 
 - Incomplete GA4/GSC query errors now say what to do from the count evidence:

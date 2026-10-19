@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import sys
 from pathlib import Path
 from typing import Any
@@ -150,7 +151,7 @@ def _tip_repo_keys(paths: list[str], directory: Path) -> None:
     if missing:
         first = Path(missing[0])
         message = (f"{len(missing)} service-account key(s) under {directory} are not in the megaton credential "
-                   f"store. Add each once with `megaton auth import --sa {first} --name <name>`; when no "
+                   f"store. Add each once with `megaton auth import --sa {shlex.quote(str(first))} --name <name>`; when no "
                    "credentials/ directory is present the app reads the store automatically.")
     else:
         message = (f"every service-account key under {directory} is already in the megaton credential store; "
