@@ -2,7 +2,7 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-## Unreleased
+## 2026-10-19 (v0.43.0)
 
 - Incomplete GA4/GSC query errors now say what to do from the count evidence:
   the exact limit to set when the GA4 total is known, a larger limit when the
@@ -15,6 +15,8 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 - Repository keys missing from the store produce one stderr tip with the
   `megaton auth import` command (not in CI; `MEGATON_HINTS=0` silences it).
   Router-selected keys no longer trigger megaton's "pass sa=" tip.
+- Requires no newer core: the store fallback activates with megaton>=2.6.0 and tip
+  suppression with megaton>=2.6.1; older cores keep the previous behavior.
 
 ## 2026-10-17 (v0.42.0)
 
