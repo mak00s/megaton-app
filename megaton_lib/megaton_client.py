@@ -27,15 +27,42 @@ logger = logging.getLogger(__name__)
 QUERY_LIMIT_CONTRACT = "total_rows"
 
 
+MAX_QUERY_LIMIT = 100000  # GA4/GSC row cap accepted by the core query contract.
+
+
+def _incomplete_suggestion(completeness: dict) -> str:
+    """Concrete next step for a rejected result, derived only from count evidence."""
+    fetched, limit = completeness.get("fetched_rows"), completeness.get("row_limit")
+    total = completeness.get("total_rows")
+    if fetched is None:
+        return ("No pagination evidence was returned; upgrade the core to a version with the "
+                "raw_rows/v1 completeness contract (megaton>=2.5.0).")
+    if isinstance(total, int) and total > fetched:
+        if total > MAX_QUERY_LIMIT:
+            return (f"Fetched {fetched} of {total} rows. The total exceeds the {MAX_QUERY_LIMIT} row "
+                    "maximum; split the date range or narrow the filters.")
+        return f"Fetched {fetched} of {total} rows; set limit to at least {total}."
+    if isinstance(limit, int) and fetched >= limit:
+        if limit >= MAX_QUERY_LIMIT:
+            return (f"Fetched {fetched} rows, the {MAX_QUERY_LIMIT} row maximum; the source may have more. "
+                    "Split the date range or narrow the filters.")
+        return (f"Fetched {fetched} rows, exactly the limit {limit}; the source may have more. "
+                f"Raise limit (for example to {min(limit * 10, MAX_QUERY_LIMIT)}) or split the request.")
+    if completeness.get("discarded_rows"):
+        return (f"{completeness['discarded_rows']} malformed source rows were discarded; inspect the "
+                "request before relying on the result.")
+    return "The source could not confirm a complete fetch; retry later or split the request."
+
+
 class QueryIncompleteError(RuntimeError):
     """A capped or unverifiable API result must not be used as a full extract."""
 
     def __init__(self, completeness: dict):
         self.completeness = completeness
+        self.suggestion = _incomplete_suggestion(completeness)
         super().__init__(
-            "Query completeness is " + completeness["status"]
-            + "; increase the limit/split the request, or explicitly set allow_incomplete=True. "
-            "Missing metadata requires a core with the raw_rows/v1 completeness contract."
+            "Query completeness is " + completeness["status"] + ". " + self.suggestion
+            + " To accept a partial result deliberately, set allow_incomplete=True."
         )
 
 
@@ -255,8 +282,20 @@ def get_megaton(creds_path: str | None = None):
             )
         creds_path = paths[0]
     if creds_path not in _instances:
-        _instances[creds_path] = start.Megaton(creds_path, headless=True)
+        # The router picked this key, so a core tip to "pass sa=" would be misleading.
+        with _router_selected_credentials():
+            _instances[creds_path] = start.Megaton(creds_path, headless=True)
     return _instances[creds_path]
+
+
+def _router_selected_credentials():
+    try:
+        from megaton.auth.hints import suppressed
+    except ImportError:  # core without credential-store tips
+        from contextlib import nullcontext
+
+        return nullcontext()
+    return suppressed()
 
 
 def build_registry() -> None:

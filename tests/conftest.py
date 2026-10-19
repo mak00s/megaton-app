@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 # Some environments invoke `pytest` via an installed entrypoint script. In that
 # case, the project root is not guaranteed to be on sys.path, and imports like
 # `import app` / `import scripts` / `import lib` may fail. Ensure the repo root
@@ -45,3 +47,13 @@ def pytest_collection_modifyitems(items):
     for item in items:
         layer = _infer_layer_from_nodeid(item.nodeid)
         item.add_marker(getattr(pytest.mark, layer))
+
+
+@pytest.fixture(autouse=True)
+def _isolated_credential_store(tmp_path_factory, monkeypatch):
+    """Never let tests read this machine's ~/.config/megaton store or print store tips."""
+    monkeypatch.setenv("MEGATON_HOME", str(tmp_path_factory.mktemp("megaton-store")))
+    monkeypatch.setenv("MEGATON_HINTS", "0")
+    from megaton_lib import credentials
+
+    monkeypatch.setattr(credentials, "_store_tip_shown", False)

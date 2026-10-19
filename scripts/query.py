@@ -918,7 +918,7 @@ def _execute_single_config(params: dict, config_path: Path) -> dict:
         }
         if isinstance(e.error, QueryIncompleteError):
             result.update(error_code="INCOMPLETE_QUERY_RESULT", completeness=e.error.completeness,
-                          hint="Increase limit/split the request, or explicitly allow an incomplete result.")
+                          hint=e.error.suggestion + " Or explicitly allow an incomplete result.")
         if e.messages:
             result["warnings"] = e.messages
         return result
@@ -1252,7 +1252,7 @@ def main():
         if isinstance(e.error, QueryIncompleteError):
             return emit_error(
                 args, "INCOMPLETE_QUERY_RESULT", str(e.error),
-                "Increase limit/split the request, or explicitly set allow_incomplete=true.",
+                e.error.suggestion + " Or explicitly set allow_incomplete=true.",
                 details={**(details or {}), "completeness": e.error.completeness},
             )
         if isinstance(e.error, ValueError):

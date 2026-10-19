@@ -2,6 +2,20 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## Unreleased
+
+- Incomplete GA4/GSC query errors now say what to do from the count evidence:
+  the exact limit to set when the GA4 total is known, a larger limit when the
+  fetch stopped exactly at the limit, and splitting when the total exceeds the
+  100,000 row maximum. CLI `INCOMPLETE_QUERY_RESULT` hints carry the same text.
+- Service-account discovery falls back to the megaton credential store
+  (`~/.config/megaton/sa`, `$MEGATON_HOME/sa`; megaton>=2.6.0) when no
+  `credentials/` directory exists. `MEGATON_CREDS_PATH` and existing
+  `credentials/` directories keep precedence, so current setups are unchanged.
+- Repository keys missing from the store produce one stderr tip with the
+  `megaton auth import` command (not in CI; `MEGATON_HINTS=0` silences it).
+  Router-selected keys no longer trigger megaton's "pass sa=" tip.
+
 ## 2026-10-17 (v0.42.0)
 
 - Reject incomplete/unverifiable GA4/GSC query results by default using raw core

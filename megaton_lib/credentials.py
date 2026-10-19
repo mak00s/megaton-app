@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -103,6 +104,60 @@ def _list_matching_json_paths(
     return [str(p) for p in files if predicate(_load_json_if_possible(p))]
 
 
+def credential_store_sa_dir() -> Path | None:
+    """The megaton credential store's service-account directory, when available.
+
+    Requires megaton>=2.6.0 (``megaton.auth.store``); ``MEGATON_HOME`` is honored.
+    """
+    try:
+        from megaton.auth.store import CredentialStore
+    except ImportError:
+        return None
+    try:
+        directory = CredentialStore().sa_dir
+    except Exception:  # noqa: BLE001 - a missing/odd store simply means "no store"
+        return None
+    return directory if directory.is_dir() else None
+
+
+_store_tip_shown = False
+
+
+def _hints_enabled() -> bool:
+    try:
+        from megaton.auth.hints import hints_enabled
+    except ImportError:
+        off = os.environ.get("MEGATON_HINTS", "").strip().lower() in {"0", "false", "no", "off"}
+        ci = os.environ.get("CI", "").strip().lower() in {"1", "true", "yes"} or os.environ.get("GITHUB_ACTIONS")
+        return not off and not ci
+    return hints_enabled()
+
+
+def _tip_repo_keys(paths: list[str], directory: Path) -> None:
+    """Once per process: point repo-local keys at the machine-wide store (stderr only)."""
+    global _store_tip_shown
+    if _store_tip_shown or not paths or not _hints_enabled():
+        return
+    try:
+        from megaton.auth.store import CredentialStore
+
+        stored = {entry.client_email for entry in CredentialStore().service_accounts()}
+    except Exception:  # noqa: BLE001 - core without a store: nothing to suggest
+        return
+    _store_tip_shown = True
+    emails = {path: str((_load_json_if_possible(Path(path)) or {}).get("client_email", "")) for path in paths}
+    missing = [path for path, email in emails.items() if email not in stored]
+    if missing:
+        first = Path(missing[0])
+        message = (f"{len(missing)} service-account key(s) under {directory} are not in the megaton credential "
+                   f"store. Add each once with `megaton auth import --sa {first} --name <name>`; when no "
+                   "credentials/ directory is present the app reads the store automatically.")
+    else:
+        message = (f"every service-account key under {directory} is already in the megaton credential store; "
+                   "the app reads the store automatically when no credentials/ directory is present.")
+    print(f"[megaton-app] hint: {message} (silence with MEGATON_HINTS=0)", file=sys.stderr)
+
+
 def resolve_service_account_path(
     env_var: str = DEFAULT_ENV_VAR,
     default_dir: Path | str = DEFAULT_CREDS_DIR,
@@ -136,12 +191,31 @@ def list_service_account_paths(
     env_var: str = DEFAULT_ENV_VAR,
     default_dir: Path | str = DEFAULT_CREDS_DIR,
 ) -> list[str]:
-    """Return all valid Google service-account JSON file paths."""
-    return _list_matching_json_paths(
+    """Return all valid Google service-account JSON file paths.
+
+    Resolution order: ``env_var`` (file or directory); otherwise the default
+    ``credentials/`` directory. Only when no such directory exists at all (and
+    the default directory is in use) does discovery fall back to the megaton
+    credential store (``~/.config/megaton/sa`` or ``$MEGATON_HOME/sa``), so a
+    machine set up with ``megaton auth import --sa`` needs no per-repository
+    key copies, while an existing credentials/ directory keeps full control.
+    """
+    paths = _list_matching_json_paths(
         env_var=env_var,
         default_dir=default_dir,
         predicate=_is_service_account_payload,
     )
+    if os.getenv(env_var, "").strip() or Path(default_dir) != DEFAULT_CREDS_DIR:
+        return paths
+    directory = _resolve_default_dir(default_dir)
+    if directory.exists():
+        _tip_repo_keys(paths, directory)
+        return paths
+    store_dir = credential_store_sa_dir()
+    if store_dir is None:
+        return []
+    files = sorted(p for p in store_dir.glob("*.json") if p.is_file())
+    return [str(p) for p in files if _is_service_account_payload(_load_json_if_possible(p))]
 
 
 def list_adobe_oauth_paths(
@@ -216,6 +290,7 @@ __all__ = [
     "DEFAULT_CREDS_DIR",
     "DEFAULT_ENV_VAR",
     "list_adobe_oauth_paths",
+    "credential_store_sa_dir",
     "list_service_account_paths",
     "load_adobe_oauth_credentials",
     "resolve_service_account_path",

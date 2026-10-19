@@ -2197,6 +2197,9 @@ bq.dataset.tables              # ['table1', 'table2']
 3. Not set → use `credentials/` if it exists in current working directory
 4. If not found, walk up parent directories for `credentials/`
 5. If still not found, fallback to `credentials/` next to this package (`megaton-app/credentials/`)
+6. If no `credentials/` directory exists anywhere above (an existing but empty one stops here), read the megaton credential store's service-account keys (`~/.config/megaton/sa/*.json` or `$MEGATON_HOME/sa`; requires megaton>=2.6.0). A machine set up with `megaton auth import --sa ...` then needs no per-repository key copies.
+
+When keys come from a repository `credentials/` directory and some are not yet in the store, the app prints one `[megaton-app] hint:` line on stderr with the `megaton auth import` command. It never prints on stdout or in CI (`CI`, `GITHUB_ACTIONS`), and `MEGATON_HINTS=0` silences it. Keys the router selects itself do not trigger megaton's own "pass sa=" tip.
 
 **BigQuery (native client):**
 
