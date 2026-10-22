@@ -2,6 +2,13 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## Unreleased
+
+- Add read-only `TodoistClient.list_completed_tasks(since=, until=, project_id=)`
+  for completed-task history. Consumers can use it as positive evidence that a
+  task was already completed elsewhere; the window is bounded and every item must
+  carry a `completed_at` inside it.
+
 ## 2026-10-19 (v0.43.1)
 
 - The repository-key tip shell-quotes the suggested `megaton auth import --sa`

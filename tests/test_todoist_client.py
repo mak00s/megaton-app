@@ -516,3 +516,54 @@ def test_cli_preview_apply_verify_and_safe_errors(client, tmp_path, monkeypatch,
     assert todoist_tasks.main(["create", "--content", "next", "--apply"]) == 1
     assert "--receipt" in capsys.readouterr().out
     assert len(s.posts) == 1
+
+
+def _window(days=1):
+    until = datetime.now(timezone.utc) + timedelta(minutes=1)
+    return until - timedelta(days=days), until
+
+
+def test_list_completed_tasks_reads_history_with_window_and_project(client):
+    c, s = client
+    since, until = _window()
+    done = task(id="done", checked=True, completed_at=datetime.now(timezone.utc).isoformat())
+    s.completed_pages = [{"items": [done], "next_cursor": "next"}, {"items": [], "next_cursor": None}]
+    assert [t["id"] for t in c.list_completed_tasks(since=since, until=until, project_id="p")] == ["done"]
+    params = [call[2]["params"] for call in s.calls if call[1].endswith("/completed/by_completion_date")]
+    assert params[0] == {"since": since.isoformat(), "until": until.isoformat(), "project_id": "p"}
+    assert params[1]["cursor"] == "next"
+    assert not s.posts
+
+
+@pytest.mark.parametrize("bounds", ["naive", "reversed", "too_long"])
+def test_list_completed_tasks_rejects_invalid_windows_before_request(client, bounds):
+    c, s = client
+    since, until = _window()
+    if bounds == "naive":
+        since = since.replace(tzinfo=None)
+    elif bounds == "reversed":
+        since, until = until, since
+    else:
+        since = until - timedelta(days=90)
+    with pytest.raises(TodoistError, match="window|timezone"):
+        c.list_completed_tasks(since=since, until=until)
+    assert not s.calls
+
+
+@pytest.mark.parametrize("completed_at", [None, "not-a-date", "2020-01-01T00:00:00+00:00"])
+def test_list_completed_tasks_requires_completion_time_inside_window(client, completed_at):
+    c, s = client
+    since, until = _window()
+    s.completed_pages = [{"items": [task(id="done", checked=True, completed_at=completed_at)],
+                          "next_cursor": None}]
+    with pytest.raises(TodoistError, match="completed_at|outside"):
+        c.list_completed_tasks(since=since, until=until)
+
+
+def test_list_completed_tasks_checks_account(client):
+    _, s = client
+    since, until = _window()
+    c = TodoistClient("secret-token", session=s, expected_user_id="other")
+    with pytest.raises(TodoistError, match="account"):
+        c.list_completed_tasks(since=since, until=until)
+    assert not any(call[1].endswith("/completed/by_completion_date") for call in s.calls)

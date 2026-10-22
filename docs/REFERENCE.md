@@ -1110,6 +1110,7 @@ account before task access. IDs are opaque strings, never converted to integers.
 | --- | --- |
 | `list_tasks(label=None, project_id=None)` | Active tasks, all cursor pages; invalid/repeated cursors fail rather than return partial results. |
 | `get_task(task_id)` | Explicit ID, validated `checked` boolean and `is_deleted=false`. Completed tasks may return 404 (documented) or 200 with `checked=true` (observed live); neither alone proves receipt completion. |
+| `list_completed_tasks(since=..., until=..., project_id=None)` | Read-only completed-task history by completion time. `since`/`until` are timezone-aware datetimes; the range must be positive and at most 89 days (the endpoint allows about three months). Every item must have `completed_at` inside `[since, until)`. Use it as positive completion evidence; a missing active task proves nothing. |
 | `find_unique_task(tasks, content_prefix=...)` | Boundary-aware prefix lookup; no match returns None, multiple matches raise `TodoistError`. Prefix policy belongs in the consumer. |
 | `task_fingerprint(task)` | Content/state guard for reviewed completion; not an atomic lock against other clients. |
 | `create_task(content=..., description="", priority=None, due_string=None, labels=None, project_id=None, parent_id=None, apply=False, receipt_path=None)` | Preview by default. No default deadline, priority, project or label. Explicit priority is the native API integer (1-4), passed unchanged, not translated from UI labels. |

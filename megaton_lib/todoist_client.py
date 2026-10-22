@@ -15,6 +15,8 @@ import requests
 
 API_BASE = "https://api.todoist.com/api/v1"
 SCHEMA_VERSION = "todoist-task/v1"
+# The completed-history endpoint accepts ranges of up to three months.
+MAX_COMPLETED_WINDOW = timedelta(days=89)
 
 
 class TodoistError(ValueError):
@@ -189,6 +191,34 @@ class TodoistClient:
         if project_id is not None:
             params["project_id"] = _id(project_id)
         return self._list_tasks("/tasks", "results", params)
+
+    def list_completed_tasks(self, *, since: datetime, until: datetime,
+                             project_id: str | None = None) -> list[dict]:
+        """Read completed-task history by completion time; never writes.
+
+        Membership in this history with ``completed_at`` inside ``[since, until)``
+        is the completion evidence. The active-task endpoints cannot return
+        completed tasks, so a missing active task alone proves nothing.
+        """
+        for value in (since, until):
+            if not isinstance(value, datetime) or value.tzinfo is None:
+                raise TodoistError("since/until must be timezone-aware datetimes.")
+        since_utc, until_utc = since.astimezone(timezone.utc), until.astimezone(timezone.utc)
+        if not timedelta(0) < until_utc - since_utc <= MAX_COMPLETED_WINDOW:
+            raise TodoistError("Completed-task window must be positive and at most 89 days.")
+        self.account()
+        params = {"since": since_utc.isoformat(), "until": until_utc.isoformat()}
+        if project_id is not None:
+            params["project_id"] = _id(project_id)
+        tasks = self._list_tasks("/tasks/completed/by_completion_date", "items", params)
+        for task in tasks:
+            try:
+                completed_at = _timestamp(task["completed_at"])
+            except (KeyError, TypeError, ValueError, AttributeError):
+                raise TodoistError("Completed task has no valid completed_at.") from None
+            if not since_utc <= completed_at < until_utc:
+                raise TodoistError("Completed task lies outside the requested window.")
+        return tasks
 
     def _list_tasks(self, path: str, key: str, params: dict) -> list[dict]:
         tasks, seen = [], set()
