@@ -4,16 +4,18 @@ Consumer scope and migration boundaries: [rollout inventory](todoist-consumers.m
 
 ## Runtime
 
-The canonical shared checkout is `~/Repos/megaton-app`. Keep ad-hoc task operations
-separate from consumers' analytics/browser environments, rather than upgrading all
-their dependencies for a task handoff. This venv installs the published package,
-not the retired `github_mak00s/megaton-app` checkout. From the canonical root:
+The canonical shared checkout is `~/Repos/github_mak00s/megaton-app`. Keep ad-hoc task
+operations separate from consumers' analytics/browser environments, rather than
+upgrading all their dependencies for a task handoff. The task runtime is a
+dedicated `.venv-tasks` inside that checkout that installs the published
+package, not the checkout source. From the checkout root:
 
 ```bash
-python3.12 -m venv .venv
-.venv/bin/python -m pip install \
-  'megaton-app @ git+https://github.com/mak00s/megaton-app.git@v0.41.0' \
-  'megaton @ git+https://github.com/mak00s/megaton.git@v2.4.0'
+python3.12 -m venv .venv-tasks
+printf '*\n' > .venv-tasks/.gitignore   # keep the venv out of Git
+.venv-tasks/bin/python -m pip install \
+  'megaton-app @ git+https://github.com/mak00s/megaton-app.git@v0.43.1' \
+  'megaton @ git+https://github.com/mak00s/megaton.git@v2.6.2'
 ```
 
 Do not recreate an existing venv just to run these commands. Use its Python to
@@ -24,15 +26,15 @@ see their `docs/todoist.md`. No new scheduled task completion hooks are installe
 From a consumer root (not from the shared source directory, which shadows installs):
 
 ```bash
-TODOIST_PY="$HOME/Repos/megaton-app/.venv/bin/python"
+TODOIST_PY="$HOME/Repos/github_mak00s/megaton-app/.venv-tasks/bin/python"
 "$TODOIST_PY" -c 'from importlib.metadata import version; import megaton_lib.todoist_client as t; print(version("megaton-app"), t.__file__)'
 "$TODOIST_PY" -m megaton_lib.todoist_tasks --help
 ```
 
-The version must be 0.41.0 or a deliberately reviewed successor and the module must
+The version must be 0.43.1 or a deliberately reviewed successor and the module must
 come from the intended environment. Local co-development may use an explicit
 editable install of the canonical checkout; verify the module path again. Never
-silently use the retired checkout or a stale global Python.
+silently use a stale global Python.
 
 ## Credentials and Selection
 
