@@ -49,6 +49,7 @@ If implementation conflicts with `docs/architecture.md`, treat it as architectur
   - `python scripts/query.py --list-bq-datasets --json`
 - Prefer aliases from `configs/sites.local.json` or `configs/sites.json` over raw URLs and property IDs.
 - Service account JSONs live under `credentials/` and should stay local.
+- Machine-wide credentials (user OAuth tokens and SA keys for every repo) live in the megaton credential store `~/.config/megaton` (`megaton auth list`). Name identities, not files: Docs/Gmail/GTM CLIs take `--account <alias|email>` (fills the token path and expected email; explicit `--token/--expected-email` still win). For SA keys, an existing `credentials/` directory or `MEGATON_CREDS_PATH` keeps precedence, the store's `sa/` is used automatically when neither exists, and `MEGATON_CREDS_PATH=store:<sa-name>` picks one store key explicitly. If a token lacks scopes, the error names the `megaton auth login ...` command to run; never widen scopes in code. Reference: `../megaton/docs/credential-store.md`.
 
 ## 6. Query Workflow
 
@@ -115,14 +116,14 @@ python -m pytest -q -m unit
 
 ## 11. Gmail Drafts
 
-- Gmailの下書き作成・返信・取得・更新・添付変更・検証は、原則として `megaton_lib.gmail_client` の下書き専用機能を使用する。CLIは `python -m megaton_lib.gmail_draft --help`。
+- Gmailの下書き作成・返信・取得・更新・添付変更・検証は、原則として `megaton_lib.gmail_client` の下書き専用機能を使用する。CLIは `python -m megaton_lib.gmail_draft --help`。token と宛先アカウントは `--account <alias|email>`（認証ストア）で指定する。`GMAIL_DRAFT_TOKEN_PATH` は従来互換。
 - Gmailコネクタやブラウザ操作は、標準経路が利用できず、ユーザーが対象操作と代替手段を明示的に許可した場合のみ使用する。機能不足や認証エラーを理由に自動で切り替えない。
 - 認証にはユーザーOAuthを使用し、サービスアカウントは使用しない。本ライブラリは送信機能を提供しない。代替手段の利用許可は送信の許可を含まない。
 - アカウント設定と操作手順は `docs/USAGE.md`、scopeとJSON契約は `docs/REFERENCE.md` を参照する。
 
 ## 12. Google Docs Edits
 
-- 指定されたレポート・提案書・議事録の対応範囲内の編集は `megaton_lib.docs_client` / `python -m megaton_lib.docs_edit --help` を使用する。
+- 指定されたレポート・提案書・議事録の対応範囲内の編集は `megaton_lib.docs_client` / `python -m megaton_lib.docs_edit --help` を使用する。token と本人確認メールは `--account <alias|email>`（認証ストア）で指定する（`--token/--expected-email` は従来互換）。
 - 原本を直接変更するため、対象文書・タブ・差分を確認し、承認された保存済みplanだけを `apply --apply` で適用する。競合時は再計画・再確認し、結果不明時は再適用しない。
 - ユーザーOAuthと期待メールアドレスを明示する。Gmail tokenやGA/GSCサービスアカウントへの自動流用、コネクタ/ブラウザへの自動切替は禁止。代替手段には対象操作についての明示許可が必要。
 - planとget結果には本文が含まれる。Gitや共有ログへ入れない。認可・操作手順と対象外の編集は `docs/USAGE.md` / `docs/REFERENCE.md` を参照する。

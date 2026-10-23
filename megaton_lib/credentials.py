@@ -88,6 +88,9 @@ def _list_matching_json_paths(
     predicate,
 ) -> list[str]:
     env_value = os.getenv(env_var, "").strip()
+    if env_value.startswith(STORE_PREFIX):
+        path = Path(store_service_account_path(env_value[len(STORE_PREFIX):]))
+        return [str(path)] if predicate(_load_json_if_possible(path)) else []
     if env_value:
         path = Path(env_value).expanduser()
         if not path.exists():
@@ -172,6 +175,8 @@ def resolve_service_account_path(
     2) Fallback to default_dir, which must contain exactly one service-account JSON
     """
     env_value = os.getenv(env_var, "").strip()
+    if env_value.startswith(STORE_PREFIX):
+        return store_service_account_path(env_value[len(STORE_PREFIX):])
     if env_value:
         return _resolve_single_json(
             Path(env_value).expanduser(),
@@ -286,13 +291,68 @@ def _resolve_single_json(
     )
 
 
+STORE_PREFIX = "store:"
+
+
+def _store():
+    """The machine-wide credential store (megaton >= 2.6.0, ``~/.config/megaton``)."""
+    try:
+        from megaton.auth.store import CredentialStore
+    except ImportError as exc:
+        raise RuntimeError(
+            "--account / store:<name> needs the megaton credential store (megaton>=2.6.0): pip install -U megaton"
+        ) from exc
+    return CredentialStore()
+
+
+def store_user_token(account: str) -> tuple[str, str]:
+    """Resolve a store user (alias or email) to ``(token_path, email)``.
+
+    The token file is the store's own ``users/<email>.json``; callers keep verifying
+    the OAuth identity against the returned email exactly as with an explicit file.
+    """
+    store = _store()
+    email = store.resolve_email(account)
+    path = store.user_token_path(email)
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"No stored token for {email}: run `megaton auth login --account {email} --scopes ...`"
+        )
+    return str(path), email
+
+
+def store_service_account_path(name: str) -> str:
+    """Resolve a store service-account name/alias to its key file path."""
+    return str(_store().service_account_path(name))
+
+
+def resolve_account_args(account: str | None, token: str | None, expected_email: str | None,
+                         *, token_label: str = "--token") -> tuple[str, str]:
+    """Combine ``--account`` with explicit ``--token/--expected-email`` for CLIs.
+
+    ``--account`` fills both from the store; explicit values still win so existing
+    invocations are unchanged. Missing pieces raise with the exact option to pass.
+    """
+    if account:
+        store_token, store_email = store_user_token(account)
+        token = token or store_token
+        expected_email = expected_email or store_email
+    if not token or not expected_email:
+        raise ValueError(f"pass --account <store user> or both {token_label} and --expected-email")
+    return token, expected_email
+
+
 __all__ = [
     "DEFAULT_ADOBE_ENV_VAR",
     "DEFAULT_CREDS_DIR",
     "DEFAULT_ENV_VAR",
+    "STORE_PREFIX",
     "list_adobe_oauth_paths",
     "credential_store_sa_dir",
     "list_service_account_paths",
     "load_adobe_oauth_credentials",
+    "resolve_account_args",
     "resolve_service_account_path",
+    "store_service_account_path",
+    "store_user_token",
 ]

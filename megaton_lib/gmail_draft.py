@@ -26,6 +26,7 @@ def create_parser():
     commands = parser.add_subparsers(dest="command", required=True)
     for name in ("create", "reply", "get", "update", "verify"):
         sub = commands.add_parser(name, formatter_class=MegatonHelpFormatter)
+        sub.add_argument("--account", help="Credential-store user (alias or email); replaces GMAIL_DRAFT_TOKEN_PATH")
         sub.add_argument("--expected-email", default=os.getenv("GMAIL_DRAFT_EXPECTED_EMAIL", ""),
                          help="Required OAuth mailbox identity; mismatches stop before writing")
         sub.add_argument("--format", choices=("json", "text"), default="json", help="Result output")
@@ -75,15 +76,24 @@ def _attachments(args):
 
 def _run(args):
     # Help works without the optional Google dependencies installed.
-    from .gmail_client import GmailClient, GmailDraftContent, SCOPES_DRAFT, SCOPES_REPLY, load_draft_credentials_from_env
+    from .gmail_client import (GmailClient, GmailDraftContent, SCOPES_DRAFT, SCOPES_REPLY,
+                               credentials_from_authorized_user_file, load_draft_credentials_from_env)
 
+    token_path = None
+    if getattr(args, "account", None):
+        from .credentials import store_user_token
+
+        token_path, store_email = store_user_token(args.account)
+        args.expected_email = args.expected_email or store_email
     if not args.expected_email:
         raise ValueError("Set GMAIL_DRAFT_EXPECTED_EMAIL or --expected-email before accessing Gmail")
     for field in ("cc", "bcc"):
         if getattr(args, f"clear_{field}", False) and getattr(args, field, None):
             raise ValueError(f"--{field} and --clear-{field} cannot be combined")
     scopes = SCOPES_REPLY if args.command == "reply" else SCOPES_DRAFT
-    client = GmailClient(load_draft_credentials_from_env(scopes=scopes))
+    creds = (credentials_from_authorized_user_file(token_path, scopes) if token_path
+             else load_draft_credentials_from_env(scopes=scopes))
+    client = GmailClient(creds)
     account = client.assert_account(args.expected_email)
     base = {"schema_version": "gmail-draft/v1", "ok": True, "exit_code": 0,
             "action": args.command, "applied": False, "verified": False,

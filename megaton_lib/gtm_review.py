@@ -42,8 +42,9 @@ def main(argv=None) -> int:
         ("review", "Read all workspaces and live version; saves a private JSON audit snapshot."),
     ):
         command = commands.add_parser(name, help=help_text, description=help_text)
-        command.add_argument("--token", required=True, type=Path, help="Dedicated GTM OAuth token JSON; never an SA key.")
-        command.add_argument("--expected-email", required=True, help="Verified Google account that must match.")
+        command.add_argument("--account", help="Credential-store user (alias or email); fills --token and --expected-email.")
+        command.add_argument("--token", type=Path, help="Dedicated GTM OAuth token JSON; never an SA key.")
+        command.add_argument("--expected-email", help="Verified Google account that must match.")
         if name == "auth":
             command.add_argument("--client-secrets", required=True, type=Path, help="Desktop OAuth client JSON.")
             command.add_argument("--access", choices=("read", "edit"), default="read",
@@ -54,6 +55,10 @@ def main(argv=None) -> int:
             command.add_argument("--container-path", required=True, action="append",
                                  help="accounts/ACCOUNT/containers/CONTAINER; repeat for multiple containers.")
     args = parser.parse_args(argv)
+    from .credentials import resolve_account_args
+
+    token, args.expected_email = resolve_account_args(args.account, args.token, args.expected_email)
+    args.token = Path(token)
     print(f"gtm_mode={args.command} remote_writes=none auth_fallback=none", file=sys.stderr)
     if args.command == "auth":
         print(f"oauth_access={args.access} publish_allowed=false token_upgrade=none", file=sys.stderr)

@@ -15,8 +15,9 @@ def main(argv=None):
         "Plans, snapshots and receipts are confidential. Output files are new-only, mode 0600.",
         "Apply changes the original. Keep the approved digest separately; verify never replays writes.",
         "Images need explicit temporary public-access approval; no automatic browser/connector fallback."])
-    parser.add_argument("--token", required=True)
-    parser.add_argument("--expected-email", required=True)
+    parser.add_argument("--account", help="Credential-store user (alias or email); fills --token and --expected-email")
+    parser.add_argument("--token")
+    parser.add_argument("--expected-email")
     commands = parser.add_subparsers(dest="command", required=True)
     for name in ("get", "plan"):
         sub = commands.add_parser(name)
@@ -44,7 +45,10 @@ def main(argv=None):
         if args.command == "apply" and not args.apply:
             result = {k: v for k, v in plan.preview().items() if k != "plan"}
         else:
-            client = DocsClient.from_oauth_file(args.token, expected_email=args.expected_email)
+            from .credentials import resolve_account_args
+
+            token, expected_email = resolve_account_args(args.account, args.token, args.expected_email)
+            client = DocsClient.from_oauth_file(token, expected_email=expected_email)
             if args.command == "get":
                 document = client.get(args.document_id)
                 snapshot = {"document": document}
@@ -67,7 +71,7 @@ def main(argv=None):
                     if not args.image_token or not args.image_folder_id or not args.allow_public_images:
                         raise DocsEditError("Image apply requires explicit token, folder and public-access approval.")
                     from .docs_assets import DriveImageStager
-                    stager = DriveImageStager.from_oauth_file(args.image_token, expected_email=args.expected_email,
+                    stager = DriveImageStager.from_oauth_file(args.image_token, expected_email=expected_email,
                         folder_id=args.image_folder_id, allow_public=True)
                 result = client.apply_mutation_plan(plan, apply=True, approved_digest=args.approved_digest,
                                                     receipt_path=args.receipt, image_stager=stager)

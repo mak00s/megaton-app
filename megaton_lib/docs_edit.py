@@ -21,8 +21,9 @@ def main(argv=None) -> int:
         notes=["JSON output may contain confidential document text; store privately outside Git.",
                "No implicit OAuth flow, service accounts, connector fallback, or write retries."],
     )
-    parser.add_argument("--token", required=True, help="Existing Docs user OAuth token file")
-    parser.add_argument("--expected-email", required=True, help="Verified OAuth identity to require")
+    parser.add_argument("--account", help="Credential-store user (alias or email); fills --token and --expected-email")
+    parser.add_argument("--token", help="Existing Docs user OAuth token file")
+    parser.add_argument("--expected-email", help="Verified OAuth identity to require")
     commands = parser.add_subparsers(dest="command", required=True)
     get = commands.add_parser("get", help="Read structured document including all tabs")
     get.add_argument("document_id")
@@ -52,7 +53,10 @@ def main(argv=None) -> int:
             result = saved.preview()
         else:
             print(f"Docs {args.command}: checking OAuth identity and document access...", file=sys.stderr)
-            client = DocsClient.from_oauth_file(args.token, expected_email=args.expected_email)
+            from .credentials import resolve_account_args
+
+            token, expected_email = resolve_account_args(args.account, args.token, args.expected_email)
+            client = DocsClient.from_oauth_file(token, expected_email=expected_email)
             if args.command == "get":
                 result = {"schema_version": 1, "document": client.get(args.document_id)}
             elif args.command == "plan":
