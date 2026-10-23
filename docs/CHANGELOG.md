@@ -4,6 +4,15 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+- Require megaton>=2.6.0 for stored-user OAuth support. Synchronous GA4/GSC
+  queries accept `--google-account` and `--quota-project`, verify the selected
+  identity and use existing grants without interactive login or credential
+  fallback. Python helpers expose `user_account` / `quota_project`; explicit
+  GA4 results and CLI JSON include provider report metadata when available.
+- Explicit-credential GA4 filters support full regular expressions (`=~`).
+  Parse the field/operator pair before the value so literal `!=`, `==` and `=~`
+  inside values cannot change the filter operator or corrupt the field name.
+
 - Add read-only `TodoistClient.list_completed_tasks(since=, until=, project_id=)`
   for completed-task history. Consumers can use it as positive evidence that a
   task was already completed elsewhere; the window is bounded and every item must

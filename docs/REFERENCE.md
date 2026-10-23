@@ -20,6 +20,8 @@ contract.
 |--------|------------|---------|
 | `--params` | Schema-validated JSON input | `input/params.json` |
 | `--inline` | Inline JSON params string (takes precedence over `--params`) | - |
+| `--google-account` | Stored user OAuth alias/email for synchronous GA4/GSC queries; no interactive login | - |
+| `--quota-project` | Google API quota project; requires `--google-account` | - |
 | `--submit` | Submit as async job | OFF |
 | `--status <job_id>` | Show job status | - |
 | `--cancel <job_id>` | Cancel queued/running job | - |
@@ -49,6 +51,7 @@ contract.
 | `--output` | Save to CSV file | - |
 
 **Constraints:**
+- `--google-account` requires megaton>=2.6.0 and is limited to synchronous GA4/GSC extraction; listing, batch and job modes are rejected. The stored token's identity must match the selected account. No service-account fallback or automatic scope expansion occurs.
 - `--params`: validates `schema_version: "1.0"` and source-key consistency
 - `--inline`: validates the same schema as `--params` and is used first when both are present
 - `site` alias resolution (`configs/sites*.json`) is applied consistently in CLI `--params`, `--batch`, and Streamlit `input/params.json` handoff
@@ -1068,6 +1071,30 @@ df = drop_current_month_rows(df, month_col="month_ym")
 ---
 
 ## Library Helper Modules
+
+### Explicit Google Query Credentials
+
+The package requires megaton>=2.6.0 for the machine-wide credential store.
+`query_ga4_with_credentials(..., credentials_path=None, user_account=None,
+quota_project=None, filter_d=None, limit=10000, allow_incomplete=False)` requires
+exactly one of a service-account file or stored user alias/email.
+`query_gsc(..., user_account=None, quota_project=None)` keeps automatic
+service-account routing when no account is specified; a quota project requires
+an explicit user account. Both user paths verify the selected identity and use
+existing OAuth grants without interactive login or fallback. Required scopes
+are `analytics.readonly` for GA4 and `webmasters.readonly` for GSC, plus
+`userinfo.email` for identity verification.
+
+Explicit-credential GA4 `filter_d` accepts `field==value`, `field!=value`, and
+`field=~regex` (full regular-expression match), joined with `;` (AND).
+The first field/operator pair determines the clause; operator-like text inside
+the value is preserved. Literal semicolons inside values are not supported.
+GSC uses the existing `filter`/`dimension_filter` contract instead.
+
+Explicit GA4 results additionally carry `df.attrs["ga4_report_metadata"]` with
+`subject_to_thresholding`, `data_loss_from_other_row`, `sampling` (sample counts),
+and `time_zone`. Synchronous CLI `--output ... --json` exposes this as
+`data.report_metadata` when present; it is distinct from pagination completeness.
 
 ### Query Completeness Contract
 

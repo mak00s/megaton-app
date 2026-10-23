@@ -1,7 +1,9 @@
 import os
 import sys
 import types
+import tomllib
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -19,6 +21,15 @@ def _reset_registry():
 
 
 class TestMegatonExecution(unittest.TestCase):
+    def test_dependency_requires_credential_store_capable_core(self):
+        config = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
+        from packaging.requirements import Requirement
+
+        requirement = next(Requirement(item) for item in config["project"]["dependencies"]
+                           if Requirement(item).name == "megaton")
+        self.assertNotIn("2.5.0", requirement.specifier)
+        self.assertIn("2.6.0", requirement.specifier)
+
     def setUp(self):
         _reset_registry()
 
@@ -100,6 +111,87 @@ class TestMegatonExecution(unittest.TestCase):
                 credentials_path="/creds/sa.json",
                 filter_d="country contains JP",
             )
+
+    @patch("google.analytics.data_v1beta.BetaAnalyticsDataClient")
+    @patch("megaton_lib.google_workspace.build_service_account_credentials")
+    def test_explicit_ga4_filter_preserves_operators_in_values(self, build_creds, client_cls):
+        client_cls.return_value.run_report.return_value = types.SimpleNamespace(row_count=0, rows=[])
+        cases = [
+            ("pagePath=~^/search/.*q!=.*$", "pagePath", "FULL_REGEXP", "^/search/.*q!=.*$", False),
+            ("pagePath==/search?q=~value!=other", "pagePath", "EXACT", "/search?q=~value!=other", False),
+            ("pagePath!=/search?q=~value==other", "pagePath", "EXACT", "/search?q=~value==other", True),
+            ("customEvent:site == example.com", "customEvent:site", "EXACT", "example.com", False),
+        ]
+        for clause, field, match_type, value, negated in cases:
+            with self.subTest(clause=clause):
+                mc.query_ga4_with_credentials(
+                    "123", "2026-01-01", "2026-01-02", ["pagePath"], ["sessions"],
+                    credentials_path="/creds/sa.json", filter_d=clause)
+                expression = client_cls.return_value.run_report.call_args.args[0].dimension_filter
+                self.assertEqual(bool(expression.not_expression), negated)
+                actual = expression.not_expression.filter if negated else expression.filter
+                self.assertEqual(actual.field_name, field)
+                self.assertEqual(actual.string_filter.match_type.name, match_type)
+                self.assertEqual(actual.string_filter.value, value)
+
+    @patch("google.analytics.data_v1beta.BetaAnalyticsDataClient")
+    @patch("megaton.auth.store.CredentialStore")
+    def test_query_ga4_with_user_oauth_and_quota(self, store_cls, client_cls):
+        store = store_cls.return_value
+        store.resolve_email.return_value = "reader@example.com"
+        store.identity.return_value = "reader@example.com"
+        client_cls.return_value.run_report.return_value = types.SimpleNamespace(row_count=0, rows=[])
+        mc.query_ga4_with_credentials(
+            "123", "2026-01-01", "2026-01-02", ["hostName"], ["sessions"],
+            user_account="reader@example.com", quota_project="example-project",
+            filter_d="hostName=~^(old|new)\\.example\\.com$",
+        )
+        store.user_credentials.assert_called_once_with(
+            "reader@example.com", scopes=["https://www.googleapis.com/auth/analytics.readonly"])
+        store.user_credentials.return_value.with_quota_project.assert_called_once_with("example-project")
+        request = client_cls.return_value.run_report.call_args.args[0]
+        self.assertEqual(request.dimension_filter.filter.string_filter.match_type.name, "FULL_REGEXP")
+
+    @patch("megaton.auth.store.CredentialStore")
+    def test_query_ga4_user_oauth_rejects_wrong_identity(self, store_cls):
+        store_cls.return_value.resolve_email.return_value = "reader@example.com"
+        store_cls.return_value.identity.return_value = "other@example.com"
+        with self.assertRaises(PermissionError):
+            mc.query_ga4_with_credentials(
+                "123", "2026-01-01", "2026-01-02", ["date"], ["sessions"],
+                user_account="reader@example.com")
+
+    @patch("megaton_lib.megaton_client._checked_query_frame")
+    @patch("megaton_lib.megaton_client.run_query")
+    @patch("megaton_lib.megaton_client.start.Megaton")
+    @patch("megaton.auth.store.CredentialStore")
+    def test_query_gsc_user_oauth_and_quota(self, store_cls, megaton_cls, run, checked):
+        store = store_cls.return_value
+        store.resolve_email.return_value = "reader@example.com"
+        store.identity.return_value = "reader@example.com"
+        mc.query_gsc("https://example.com/", "2026-01-01", "2026-01-02", ["date"],
+                     user_account="reader@example.com", quota_project="example-project")
+        store.user_credentials.assert_called_once_with(
+            "reader@example.com", scopes=["https://www.googleapis.com/auth/webmasters.readonly"])
+        self.assertIs(megaton_cls.return_value.creds,
+                      store.user_credentials.return_value.with_quota_project.return_value)
+        self.assertIs(run.call_args.kwargs["client"], megaton_cls.return_value)
+        checked.assert_called_once_with(run.return_value, allow_incomplete=False)
+
+    @patch("megaton_lib.megaton_client.start.Megaton")
+    @patch("megaton.auth.store.CredentialStore")
+    def test_query_gsc_rejects_wrong_identity(self, store_cls, megaton_cls):
+        store_cls.return_value.resolve_email.return_value = "reader@example.com"
+        store_cls.return_value.identity.return_value = "other@example.com"
+        with self.assertRaises(PermissionError):
+            mc.query_gsc("https://example.com/", "2026-01-01", "2026-01-02", ["date"],
+                         user_account="reader@example.com")
+        megaton_cls.assert_not_called()
+
+    def test_query_gsc_quota_requires_explicit_account(self):
+        with self.assertRaises(ValueError):
+            mc.query_gsc("https://example.com/", "2026-01-01", "2026-01-02", ["date"],
+                         quota_project="example-project")
 
     def test_query_gsc_runs_with_dimension_filter(self):
         mg = MagicMock()

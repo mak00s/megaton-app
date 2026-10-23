@@ -33,6 +33,7 @@ import signal
 import subprocess
 import sys
 import time
+from functools import partial
 from pathlib import Path
 
 import pandas as pd
@@ -48,6 +49,7 @@ from megaton_lib.megaton_client import (
     get_gsc_sites,
     get_bq_datasets,
     query_ga4,
+    query_ga4_with_credentials,
     query_gsc,
     query_aa,
     query_bq,
@@ -240,14 +242,17 @@ def load_params(params_path: str) -> tuple[dict | None, dict | None]:
     return _validate_raw(raw)
 
 
-def execute_query_from_params(params: dict) -> tuple[object, list[str]]:
+def execute_query_from_params(params: dict, *, google_account: str | None = None,
+                              quota_project: str | None = None) -> tuple[object, list[str]]:
     """Execute query params via the shared library runner.
 
     Keep this wrapper for tests and callers that still import scripts.query.
     """
     executors = _query_runner.QueryExecutors(
-        query_ga4=query_ga4,
-        query_gsc=query_gsc,
+        query_ga4=(partial(query_ga4_with_credentials, user_account=google_account,
+                           quota_project=quota_project) if google_account else query_ga4),
+        query_gsc=(partial(query_gsc, user_account=google_account,
+                           quota_project=quota_project) if google_account else query_gsc),
         query_aa=query_aa,
         query_bq=query_bq,
     )
@@ -273,6 +278,8 @@ def output_result(
             }
             if "megaton_query_completeness" in df.attrs:
                 payload["completeness"] = df.attrs["megaton_query_completeness"]
+            if "ga4_report_metadata" in df.attrs:
+                payload["report_metadata"] = df.attrs["ga4_report_metadata"]
             if pipeline is not None:
                 payload["pipeline"] = pipeline
             if save is not None:
@@ -1049,6 +1056,8 @@ def main():
     parser.add_argument("--inline", metavar="JSON", help="Inline JSON params (no file needed)")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument("--output", metavar="RESULT.csv", help="CSV output file path")
+    parser.add_argument("--google-account", help="Stored user OAuth account for synchronous GA4/GSC queries (no login)")
+    parser.add_argument("--quota-project", help="Explicit Google API quota project; requires --google-account")
     parser.add_argument("--submit", action="store_true", help="Submit job asynchronously")
     parser.add_argument("--status", metavar="JOB_ID", help="Show job status by job_id")
     parser.add_argument("--cancel", metavar="JOB_ID", help="Cancel job by job_id")
@@ -1083,6 +1092,14 @@ def main():
     )
     args = parser.parse_args()
     store = JobStore(os.environ.get("QUERY_JOB_DIR", "output/jobs"))
+
+    if args.quota_project and not args.google_account:
+        return emit_error(args, "INVALID_ARGUMENT", "--quota-project requires --google-account")
+    if args.google_account and any((args.submit, args.batch, args.run_job, args.status,
+                                    args.cancel, args.result, args.list_jobs,
+                                    args.list_ga4_properties, args.list_gsc_sites,
+                                    args.list_bq_datasets, args.list_aa_segments)):
+        return emit_error(args, "INVALID_ARGUMENT", "--google-account supports synchronous GA4/GSC queries only")
 
     handled, code = run_list_mode(args)
     if handled:
@@ -1180,8 +1197,13 @@ def main():
     if err:
         return emit_error(args, **err)
 
+    if args.google_account and params["source"] not in {"ga4", "gsc"}:
+        return emit_error(args, "INVALID_ARGUMENT", "--google-account supports GA4/GSC only")
+
     try:
-        (df, header_lines), query_warnings = capture_stdio(execute_query_from_params, params)
+        oauth_options = ({"google_account": args.google_account,
+                          "quota_project": args.quota_project} if args.google_account else {})
+        (df, header_lines), query_warnings = capture_stdio(execute_query_from_params, params, **oauth_options)
         if df is None or df.empty:
             emit_warnings(args, query_warnings)
             details = {"warnings": query_warnings} if args.json and query_warnings else None

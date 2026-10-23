@@ -56,6 +56,34 @@ class _DummyProc:
 
 
 class TestFunctionNonJsonBranches(unittest.TestCase):
+    def test_explicit_google_account_selects_oauth_executor(self):
+        params = {"source": "ga4", "property_id": "123",
+                  "date_range": {"start": "2026-01-01", "end": "2026-01-02"},
+                  "dimensions": ["date"], "metrics": ["sessions"]}
+        with patch.object(query_cli, "query_ga4_with_credentials", return_value=pd.DataFrame()) as oauth:
+            query_cli.execute_query_from_params(
+                params, google_account="reader@example.com", quota_project="example-project")
+        self.assertEqual(oauth.call_args.kwargs["user_account"], "reader@example.com")
+        self.assertEqual(oauth.call_args.kwargs["quota_project"], "example-project")
+
+    def test_explicit_google_account_rejects_unsupported_modes(self):
+        for extra in [["--submit"], ["--batch", "example.json"], ["--list-ga4-properties"]]:
+            out = io.StringIO()
+            with patch.object(sys, "argv", ["query.py", "--json", "--google-account",
+                                           "reader@example.com", *extra]), redirect_stdout(out):
+                self.assertEqual(query_cli.main(), 1)
+            self.assertEqual(json.loads(out.getvalue())["error_code"], "INVALID_ARGUMENT")
+
+    def test_explicit_google_account_selects_gsc_executor(self):
+        params = {"source": "gsc", "site_url": "https://example.com/",
+                  "date_range": {"start": "2026-01-01", "end": "2026-01-02"},
+                  "dimensions": ["date"]}
+        with patch.object(query_cli, "query_gsc", return_value=pd.DataFrame()) as oauth:
+            query_cli.execute_query_from_params(
+                params, google_account="reader@example.com", quota_project="example-project")
+        self.assertEqual(oauth.call_args.kwargs["user_account"], "reader@example.com")
+        self.assertEqual(oauth.call_args.kwargs["quota_project"], "example-project")
+
     def test_capture_stdio_preserves_messages_on_exception(self):
         def _boom():
             print("warning before error")

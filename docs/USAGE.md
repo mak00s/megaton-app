@@ -54,6 +54,19 @@ pip install -e ".[validation]"
 
 ### 動作確認
 
+GA4/GSC同期クエリは既存のユーザーOAuthも明示指定できる（対話認証やSAへの自動切替なし）。
+
+```bash
+python scripts/query.py --params output/query.json --output output/result.csv \
+  --google-account reader@example.com --quota-project example-project --json
+```
+
+対象プロパティの閲覧権限と、GA4は `analytics.readonly`、GSCは `webmasters.readonly` scopeが必要。
+`--quota-project` はAPIを有効化済みの利用先を指定する。
+GA4の `filter_d` は `==`、`!=`、`=~`（完全一致正規表現）をサポートする。
+GSCは通常の `filter` 契約を使用する。APIが返す行の取得完了と、非公開検索語も含む全検索履歴の網羅性は別である。
+一覧・非同期・batchおよびGA4/GSC以外のクエリとの組み合わせは拒否する。
+
 ```bash
 # テストが通れば OK
 python -m pytest -q

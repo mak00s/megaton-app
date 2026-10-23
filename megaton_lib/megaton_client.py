@@ -5,6 +5,7 @@ correct credential based on property_id / site_url.
 """
 import logging
 import os
+import re
 import importlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -511,18 +512,22 @@ def query_ga4_with_credentials(
     dimensions: Sequence[FieldSpec],
     metrics: Sequence[FieldSpec],
     *,
-    credentials_path: str,
+    credentials_path: str | None = None,
+    user_account: str | None = None,
+    quota_project: str | None = None,
     filter_d: Optional[str] = None,
     limit: int = 10000,
     allow_incomplete: bool = False,
 ) -> pd.DataFrame:
     """Run a GA4 Data API report with an explicitly selected credential.
 
-    This entry point is intended for CI jobs that know the target property and
-    service-account file but cannot use Analytics Admin API discovery. It uses
+    Explicitly pass a service-account file or a stored user account (not both).
+    User credentials are read from CredentialStore without interactive login;
+    the returned identity must match the selected account. This bypasses
+    Analytics Admin API discovery. It uses
     the same field and ``filter_d`` conventions as :func:`query_ga4`; filters
-    currently support exact (``field==value``) and not-exact
-    (``field!=value``) clauses joined by ``;``.
+    support exact (``field==value``), not-exact (``field!=value``), and full
+    regular-expression (``field=~regex``) clauses joined by ``;``.
     """
     _validate_allow_incomplete(allow_incomplete)
     dimensions_l = _normalize_fields(dimensions, name="dimensions")
@@ -556,8 +561,13 @@ def query_ga4_with_credentials(
             clause = raw_clause.strip()
             if not clause:
                 continue
-            if "!=" in clause:
-                field, value = clause.split("!=", 1)
+            match = re.fullmatch(r"([^\s!=~;]+)\s*(==|!=|=~)\s*(.*)", clause, re.DOTALL)
+            if match is None:
+                raise ValueError(
+                    "filter_d clauses must use field==value, field!=value or field=~regex"
+                )
+            field, operator, value = match.groups()
+            if operator == "!=":
                 expressions.append(
                     FilterExpression(
                         not_expression=FilterExpression(
@@ -571,8 +581,14 @@ def query_ga4_with_credentials(
                         )
                     )
                 )
-            elif "==" in clause:
-                field, value = clause.split("==", 1)
+            elif operator == "=~":
+                expressions.append(FilterExpression(filter=Filter(
+                    field_name=field.strip(), string_filter=Filter.StringFilter(
+                        match_type=Filter.StringFilter.MatchType.FULL_REGEXP,
+                        value=value.strip(),
+                    ),
+                )))
+            else:
                 expressions.append(
                     FilterExpression(
                         filter=Filter(
@@ -584,10 +600,6 @@ def query_ga4_with_credentials(
                         )
                     )
                 )
-            else:
-                raise ValueError(
-                    "filter_d clauses must use field==value or field!=value"
-                )
         if len(expressions) == 1:
             filter_expression = expressions[0]
         elif expressions:
@@ -595,10 +607,25 @@ def query_ga4_with_credentials(
                 and_group=FilterExpressionList(expressions=expressions)
             )
 
-    credentials = build_service_account_credentials(
-        credentials_path,
-        scopes=["https://www.googleapis.com/auth/analytics.readonly"],
-    )
+    if bool(credentials_path) == bool(user_account):
+        raise ValueError("Pass exactly one of credentials_path or user_account")
+    if user_account:
+        from megaton.auth.store import CredentialStore
+
+        store = CredentialStore()
+        expected_email = store.resolve_email(user_account)
+        credentials = store.user_credentials(
+            user_account, scopes=["https://www.googleapis.com/auth/analytics.readonly"]
+        )
+        if store.identity(credentials).casefold() != expected_email.casefold():
+            raise PermissionError("Google OAuth account does not match user_account")
+    else:
+        credentials = build_service_account_credentials(
+            credentials_path,
+            scopes=["https://www.googleapis.com/auth/analytics.readonly"],
+        )
+    if quota_project:
+        credentials = credentials.with_quota_project(quota_project)
     client = BetaAnalyticsDataClient(credentials=credentials)
 
     request = RunReportRequest(
@@ -616,7 +643,7 @@ def query_ga4_with_credentials(
         if "403" in message or "permission" in message.lower():
             raise PermissionError(
                 f"Permission denied for GA4 property {property_id}. "
-                "Check that the service account has Viewer role."
+                f"Selected credential cannot run this report: {exc}"
             ) from exc
         raise
 
@@ -638,6 +665,16 @@ def query_ga4_with_credentials(
     metadata = {"fetched_rows": len(rows), "row_limit": limit, "total_rows": total,
                 "status": "unknown" if total is None else ("complete" if len(rows) == total else "truncated"),
                 "discarded_rows": 0, "limit_reached": len(rows) >= limit}
+    report_metadata = getattr(response, "metadata", None)
+    if report_metadata is not None:
+        df.attrs["ga4_report_metadata"] = {
+            "subject_to_thresholding": bool(report_metadata.subject_to_thresholding),
+            "data_loss_from_other_row": bool(report_metadata.data_loss_from_other_row),
+            "sampling": [{"samples_read_count": int(item.samples_read_count),
+                          "sampling_space_size": int(item.sampling_space_size)}
+                         for item in report_metadata.sampling_metadatas],
+            "time_zone": report_metadata.time_zone,
+        }
     return _require_complete(df, metadata, allow_incomplete=allow_incomplete)
 
 
@@ -667,6 +704,8 @@ def query_gsc(
     page_to_path: bool = True,
     *,
     allow_incomplete: bool = False,
+    user_account: str | None = None,
+    quota_project: str | None = None,
 ) -> pd.DataFrame:
     """Execute GSC query (auto-routed).
 
@@ -687,7 +726,23 @@ def query_gsc(
     _validate_allow_incomplete(allow_incomplete)
     dimensions_l = _normalize_fields(dimensions, name="dimensions")
     dimension_filter_l = _normalize_gsc_dimension_filter(dimension_filter)
-    mg = get_megaton_for_site(site_url)
+    if quota_project and not user_account:
+        raise ValueError("quota_project requires user_account")
+    if user_account:
+        from megaton.auth.store import CredentialStore
+
+        store = CredentialStore()
+        expected = store.resolve_email(user_account)
+        credentials = store.user_credentials(
+            user_account, scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
+        )
+        if store.identity(credentials).casefold() != expected.casefold():
+            raise PermissionError("Google OAuth account does not match user_account")
+        mg = start.Megaton(account=user_account, headless=True, initialize_ga=False,
+                           scopes=["https://www.googleapis.com/auth/webmasters.readonly"])
+        mg.creds = credentials.with_quota_project(quota_project) if quota_project else credentials
+    else:
+        mg = get_megaton_for_site(site_url)
     result = run_query({
         "schema_version": "1.0", "source": "gsc", "site_url": str(site_url),
         "date_range": {"start": start_date, "end": end_date},
