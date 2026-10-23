@@ -52,6 +52,22 @@ pip install -e ".[validation]"
 # Adobe OAuth JSON も配置可（company_id で自動ルーティング）
 ```
 
+### Stored User OAuth
+
+既存の認証ストアは `megaton auth list` で確認する（megaton>=2.6.0）。
+Docs/Gmail/GTMは必要scopeを持つ既存tokenを `--account <alias|email>` で選択できる。
+scopeが不足する場合は明示的な再認可が必要で、自動拡張やSAへの切替はしない。
+
+```bash
+python -m megaton_lib.docs_edit --account reader@example.com get DOCUMENT_ID
+python -m megaton_lib.gmail_draft get --account reader@example.com --draft-id DRAFT_ID
+python -m megaton_lib.gtm_review containers --account reader@example.com --output output/containers.json
+```
+
+GTMは専用の許可scopeのみを受け付けるため、他API用scopeが混在するtokenは使用しない。
+従来のtokenファイル指定も維持する。認証ストア選択・優先順位の詳細はREFERENCEを参照。
+サービスアカウントは `MEGATON_CREDS_PATH=store:<sa-name>` で1件を明示選択できる。
+
 ### 動作確認
 
 GA4/GSC同期クエリは既存のユーザーOAuthも明示指定できる（対話認証やSAへの自動切替なし）。

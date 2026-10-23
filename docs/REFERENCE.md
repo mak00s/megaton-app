@@ -204,7 +204,10 @@ Notes:
 | `client.review(container_path)` | Reads every workspace, supported resource snapshots selected by container `features`, workspace status and the live published version. No writes or conflict resolution. |
 
 CLI: `python -m megaton_lib.gtm_review {auth,containers,review}`.
-All commands require `--token` and `--expected-email`; `auth` requires `--client-secrets`,
+All commands accept `--account <alias|email>` for an existing stored token, or
+explicit `--token` and `--expected-email` (which take precedence). Initial consent
+without an existing stored token still uses the explicit file/email form.
+`auth` requires `--client-secrets`,
 reads require `--output`, and `review` requires one or more `--container-path` values.
 `auth --access read|edit` selects the initial grant (default read); review commands remain read-only.
 Paths are numeric API paths (`accounts/123/containers/456`), not public `GTM-*` IDs or browser URLs.
@@ -443,7 +446,9 @@ replaceの空textは該当文字列の削除であり、段落終端の改行は
 API位置はUTF-16単位で算出する。書式の明示指定・全文再生成・作成・共有・削除は提供しない。
 
 CLIは `get DOCUMENT_ID` / `plan DOCUMENT_ID` / `apply --plan FILE [--apply]` /
-`verify --plan FILE`。`--token`と`--expected-email`はサブコマンドより前に置く。
+`verify --plan FILE`。`--account <alias|email>`、または明示的な`--token`と
+`--expected-email`はサブコマンドより前に置く。`docs_mutate`も同じ認証指定を使う。
+accountは既存ストアtokenと本人確認メールを補完し、明示値が優先する。
 stdoutはJSON、診断はstderr。成功/previewはexit 0、検証失敗・競合・APIエラーはexit 1、
 argparseの引数エラーはexit 2。getは`document`、planは`plan`/`diff`を返す。
 apply結果はdocument_id、url、tab_id、operation、start_index、end_index、ok、verified、
@@ -597,7 +602,7 @@ fingerprintは取得後の変更検知であり、Gmail UIとの同時編集を�
 CLI: `python -m megaton_lib.gmail_draft {create,reply,get,update,verify} --help`
 
 - `create/reply/update`: 既定preview。`--apply`時だけ書く。APIの読み取りやtoken refreshはpreviewでも発生する。
-- 共通: `--expected-email` または `GMAIL_DRAFT_EXPECTED_EMAIL` が必須。`--format json|text` (既定json)。
+- 共通: `--account <alias|email>`で既存ストアtokenと本人確認メールを指定できる。account指定時はtokenの環境変数よりストアを優先する。`--expected-email` / `GMAIL_DRAFT_EXPECTED_EMAIL`はストアのメールより優先する。account未指定時は従来のtoken環境変数と本人確認メールが必須。`--format json|text` (既定json)。
 - `reply`: `--message-id`, `--body-file` 必須。既定は全員返信（元To/CCを継承、自分と重複を除外）。`--reply-all` は明示指定として維持。`--sender-only` でReply-To（なければFrom）のみに返信し、元To/CCは継承しない。両フラグは排他。`--self-alias`, `--attach` に対応。Pythonでも `reply_all=False` で送信者のみを選択できる。
 - `create`: `--to`, `--subject`, `--body-file` 必須。`--cc`, `--bcc`, `--attach` に対応。
 - `update`: `--draft-id`, `--expected-fingerprint` 必須。`--attach`は置換、`--clear-attachments`は削除。
@@ -2220,6 +2225,9 @@ bq.dataset.tables              # ['table1', 'table2']
 **GA4 / GSC (via Megaton):**
 
 `get_ga4(property_id)` / `get_gsc(site_url)` auto-select credentials:
+Explicit `MEGATON_CREDS_PATH=store:<sa-name>` resolves exactly one named store
+key before these file/directory rules; missing names fail without fallback.
+
 1. `MEGATON_CREDS_PATH` points to a file → use that file
 2. `MEGATON_CREDS_PATH` points to a directory → `*.json` files (sorted by filename)
 3. Not set → use `credentials/` if it exists in current working directory

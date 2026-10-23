@@ -4,6 +4,15 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+## 2026-10-23 (v0.44.0)
+
+- Docs, structured Docs mutations, Gmail drafts and GTM review CLIs accept
+  `--account <alias|email>` to select an existing credential-store token and
+  expected identity. Explicit token/email settings remain supported; no new
+  grants, interactive login or fallback occurs on read/edit paths.
+- `MEGATON_CREDS_PATH=store:<sa-name>` explicitly selects one stored service
+  account, without changing existing repository credential precedence.
+
 - Require megaton>=2.6.0 for stored-user OAuth support. Synchronous GA4/GSC
   queries accept `--google-account` and `--quota-project`, verify the selected
   identity and use existing grants without interactive login or credential
