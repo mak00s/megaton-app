@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,7 +19,7 @@ class TestQueryJsonErrors(unittest.TestCase):
         if env:
             env_vars.update(env)
         return subprocess.run(
-            ["python", str(SCRIPT), *args],
+            [sys.executable, str(SCRIPT), *args],
             cwd=ROOT,
             capture_output=True,
             text=True,
