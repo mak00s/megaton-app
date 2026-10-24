@@ -4,7 +4,7 @@ Consumer scope and migration boundaries: [rollout inventory](todoist-consumers.m
 
 ## Runtime
 
-The canonical shared checkout is `~/Repos/github_mak00s/megaton-app`. Keep ad-hoc task
+The canonical shared checkout is `~/Repos/megaton-app`. Keep ad-hoc task
 operations separate from consumers' analytics/browser environments, rather than
 upgrading all their dependencies for a task handoff. The task runtime is a
 dedicated `.venv-tasks` inside that checkout that installs the published
@@ -26,7 +26,7 @@ see their `docs/todoist.md`. No new scheduled task completion hooks are installe
 From a consumer root (not from the shared source directory, which shadows installs):
 
 ```bash
-TODOIST_PY="$HOME/Repos/github_mak00s/megaton-app/.venv-tasks/bin/python"
+TODOIST_PY="$HOME/Repos/megaton-app/.venv-tasks/bin/python"
 "$TODOIST_PY" -c 'from importlib.metadata import version; import megaton_lib.todoist_client as t; print(version("megaton-app"), t.__file__)'
 "$TODOIST_PY" -m megaton_lib.todoist_tasks --help
 ```
