@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 import re
 import tempfile
@@ -99,7 +99,7 @@ def _load_receipt(path: Path) -> dict:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
         if (value["schema_version"] != SCHEMA_VERSION
-                or value["action"] not in {"create", "complete"}
+                or value["action"] not in {"create", "complete", "restore_occurrence", "rename"}
                 or not isinstance(value["intent_digest"], str)
                 or not isinstance(value["account_id"], str)
                 or not isinstance(value["request_id"], str)
@@ -284,10 +284,39 @@ class TodoistClient:
         return self._write("create", payload, apply=apply, receipt_path=receipt_path)
 
     def complete_task(self, task_id: str, *, expected_fingerprint: str | None = None,
+                      expected_occurrence: str | None = None,
                       apply: bool = False, receipt_path: str | Path | None = None) -> dict:
-        """Complete an explicit nonrecurring task; recurring completion is unsupported."""
+        """Complete one reviewed task/occurrence. Never advance an unspecified recurrence."""
         payload = {"task_id": _id(task_id), "expected_fingerprint": expected_fingerprint}
+        if expected_occurrence is not None:
+            payload["expected_occurrence"] = expected_occurrence
         return self._write("complete", payload, apply=apply, receipt_path=receipt_path)
+
+    def restore_recurring_occurrence(self, task_id: str, *, expected_due: str,
+                                     occurrence_date: str, expected_fingerprint: str,
+                                     apply: bool = False,
+                                     receipt_path: str | Path | None = None) -> dict:
+        """Restore one explicitly approved date-only occurrence, preserving its rule."""
+        try:
+            if date.fromisoformat(occurrence_date) >= date.fromisoformat(expected_due):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise TodoistError("Restore requires an earlier YYYY-MM-DD occurrence and expected due date.") from None
+        if not expected_fingerprint:
+            raise TodoistError("Restore requires a reviewed fingerprint.")
+        return self._write('restore_occurrence', {
+            'task_id': _id(task_id), 'expected_due': expected_due,
+            'occurrence_date': occurrence_date, 'expected_fingerprint': expected_fingerprint,
+        }, apply=apply, receipt_path=receipt_path)
+
+    def rename_task(self, task_id: str, *, content: str, expected_fingerprint: str,
+                    apply: bool = False, receipt_path: str | Path | None = None) -> dict:
+        """Rename one reviewed task; preserve its schedule and other fields."""
+        if not isinstance(content, str) or not content.strip() or not expected_fingerprint:
+            raise TodoistError('Rename requires nonempty content and a reviewed fingerprint.')
+        return self._write('rename', {'task_id': _id(task_id), 'content': content,
+                           'expected_fingerprint': expected_fingerprint},
+                           apply=apply, receipt_path=receipt_path)
 
     def _write(self, action, payload, *, apply, receipt_path):
         account_id = self.account()["id"]
@@ -299,13 +328,33 @@ class TodoistClient:
                 raise TodoistError("Receipt belongs to a different operation; inspect it, do not overwrite.")
             return self.verify_receipt(path)
         before = None
-        if action == "complete":
+        if action in {"complete", "restore_occurrence", "rename"}:
             before = self.get_task(payload["task_id"])
             if before["checked"]:
                 raise TodoistError("Task is already completed; verify its existing receipt instead. No write attempted.")
             _id(before.get("project_id"))
-            if (before.get("due") or {}).get("is_recurring"):
-                raise TodoistError("Recurring tasks are not supported for completion; inspect the occurrence manually.")
+            if action == 'rename':
+                pass
+            elif action == 'restore_occurrence':
+                due = before.get('due') or {}
+                if (not due.get('is_recurring') or due.get('date') != payload['expected_due']
+                        or due.get('timezone') is not None):
+                    raise TodoistError('Restore requires the exact reviewed date-only recurring task.')
+            elif (before.get("due") or {}).get("is_recurring"):
+                due = before["due"]
+                occurrence = payload.get("expected_occurrence")
+                count = before.get("completed_count")
+                if (not occurrence or occurrence != due.get("date")
+                        or not payload.get("expected_fingerprint")):
+                    raise TodoistError("Recurring tasks require the reviewed fingerprint and exact expected_occurrence date.")
+                try:
+                    datetime.fromisoformat(occurrence.replace('Z', '+00:00'))
+                except (TypeError, ValueError):
+                    raise TodoistError("Invalid recurring occurrence date.") from None
+                if type(count) is not int or count < 0:
+                    raise TodoistError("Recurring task requires a valid completed_count for readback.")
+            elif payload.get("expected_occurrence") is not None:
+                raise TodoistError("expected_occurrence is only for recurring tasks.")
             if payload["expected_fingerprint"] is not None and task_fingerprint(before) != payload["expected_fingerprint"]:
                 raise TodoistError("Task changed since review; get and review it again.")
             if any(
@@ -335,14 +384,29 @@ class TodoistClient:
         receipt["write_started_at"] = datetime.now(timezone.utc).isoformat()
         _save(path, receipt, exclusive=True)
         try:
-            response = self._request(
-                "POST", "/tasks" if action == "create" else f"/tasks/{payload['task_id']}/close",
-                payload=payload if action == "create" else None, request_id=receipt["request_id"],
-            )
+            if action == 'rename':
+                response = self._request('POST', f"/tasks/{payload['task_id']}",
+                    payload={'content': payload['content']}, request_id=receipt['request_id'])
+                self._validate_task(response, payload['task_id'])
+                receipt['expected'] = {**before, 'content': payload['content']}
+            elif action == 'restore_occurrence':
+                expected = {**before, 'due': {**before['due'], 'date': payload['occurrence_date']}}
+                response = self._request('POST', '/sync', payload={'commands': [{
+                    'type': 'item_update', 'uuid': receipt['request_id'],
+                    'args': {'id': payload['task_id'], 'due': expected['due']},
+                }]}, request_id=receipt['request_id'])
+                if (response.get('sync_status') or {}).get(receipt['request_id']) != 'ok':
+                    raise TodoistError('Occurrence restore not acknowledged; inspect Receipt, do not repeat.')
+                receipt['expected'] = expected
+            else:
+                response = self._request(
+                    "POST", "/tasks" if action == "create" else f"/tasks/{payload['task_id']}/close",
+                    payload=payload if action == "create" else None, request_id=receipt["request_id"],
+                )
             if action == "create":
                 self._validate_task(response)
                 receipt.update(task_id=response["id"], expected=response)
-            else:
+            elif action == 'complete':
                 receipt["expected"] = {**before, "checked": True}
                 receipt["completion_window"]["until"] = (
                     datetime.now(timezone.utc) + timedelta(minutes=5)
@@ -380,6 +444,8 @@ class TodoistClient:
                     "Inspect Todoist and this receipt; do not automatically repeat the write.")}
 
     def _verify_completion(self, receipt: dict) -> dict:
+        if (receipt["before"].get("due") or {}).get("is_recurring"):
+            return self._verify_recurring_completion(receipt)
         # History records survive reopening; absence from active tasks is also required.
         try:
             current = self.get_task(receipt["task_id"])
@@ -405,22 +471,58 @@ class TodoistClient:
             mismatches.append("completed_at_invalid")
         return self._result(receipt, verified=not mismatches, mismatches=mismatches)
 
+    def _verify_recurring_completion(self, receipt: dict) -> dict:
+        before = receipt["before"]
+        occurrence = receipt["payload"].get("expected_occurrence")
+        if not occurrence or occurrence != (before.get("due") or {}).get("date"):
+            return self._result(receipt, mismatches=["occurrence_binding_missing"])
+        current = self.get_task(receipt["task_id"])
+        # A later title/label edit must not erase a completed occurrence. Identity,
+        # recurrence, due progression and server completion count are the proof.
+        mismatches = [key for key in ("project_id", "parent_id")
+                      if current.get(key) != before.get(key)]
+        due = current.get("due") or {}
+        old_due = before["due"]
+        if current["checked"] or not due.get("is_recurring"):
+            mismatches.append("recurrence_not_active")
+        if any(due.get(k) != old_due.get(k) for k in ("string", "timezone", "lang")):
+            mismatches.append("recurrence_changed")
+        try:
+            # Date-only and timed recurrences must keep the same date representation.
+            previous = datetime.fromisoformat(occurrence.replace('Z', '+00:00'))
+            following = datetime.fromisoformat(due["date"].replace('Z', '+00:00'))
+            if following <= previous:
+                mismatches.append("occurrence_not_advanced")
+        except (KeyError, TypeError, ValueError, AttributeError):
+            mismatches.append("occurrence_date_invalid")
+        old_count, new_count = before.get("completed_count"), current.get("completed_count")
+        if (type(old_count) is not int or type(new_count) is not int
+                or old_count < 0 or new_count <= old_count):
+            mismatches.append("completion_count_not_advanced")
+        # A due-date edit alone is not completion evidence. Both progression and
+        # the server's cumulative occurrence completion count must advance.
+        return self._result(receipt, verified=not mismatches, mismatches=mismatches)
+
     def verify_receipt(self, receipt_path: str | Path) -> dict:
         """Read back known IDs only; a 404 is never proof of completion. No POSTs."""
-        receipt = _load_receipt(Path(receipt_path).expanduser())
+        path = Path(receipt_path).expanduser()
+        receipt = _load_receipt(path)
         if self.account()["id"] != receipt["account_id"]:
             raise TodoistError("Receipt belongs to a different Todoist account.")
         if receipt.get("write_status") != "acknowledged" or not receipt.get("expected"):
             return self._result(receipt)
         try:
             if receipt["action"] == "complete":
-                return self._verify_completion(receipt)
+                return self._record_verification(path, receipt, self._verify_completion(receipt))
             observed = self.get_task(receipt["task_id"])
         except TodoistError:
             return self._result(receipt, mismatches=["readback_failed"])
         expected = receipt["expected"]
         keys = ("content", "description", "project_id", "parent_id", "labels", "priority", "due", "checked")
         mismatches = [key for key in keys if observed.get(key) != expected.get(key)]
+        if (receipt['action'] in {'restore_occurrence', 'rename'}
+                and observed.get('completed_count') != expected.get('completed_count')):
+            mismatches.append('completed_count')
         if receipt["action"] == "create":
             for key, value in receipt["payload"].items():
                 if key == "due_string":
@@ -433,4 +535,14 @@ class TodoistClient:
                     mismatches.append(key)
             if observed["checked"]:
                 mismatches.append("checked")
-        return self._result(receipt, verified=not mismatches, mismatches=sorted(set(mismatches)))
+        return self._record_verification(path, receipt, self._result(
+            receipt, verified=not mismatches, mismatches=sorted(set(mismatches))))
+
+    @staticmethod
+    def _record_verification(path: Path, receipt: dict, result: dict) -> dict:
+        # Preserve proof that a transition was verified before later legitimate
+        # edits or recurring completions changed its observed state.
+        if result['verified'] and not receipt.get('verified_at'):
+            receipt['verified_at'] = datetime.now(timezone.utc).isoformat()
+            _save(path, receipt)
+        return result

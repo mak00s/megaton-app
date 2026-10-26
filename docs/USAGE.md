@@ -336,7 +336,10 @@ Receiptと出力はタスク本文を含む機密データ。Receiptは実行を
 いずれの応答だけでも完了の証拠にはせず、履歴と併せて確認する。
 履歴の反映待ちや取得エラーは`verify`だけを再実行する。元IDと一致する完了記録がなければ
 成功にしない。Receiptのない過去の完了タスクは404だけで完了済みと判定しない。
-複数タスクの一致、繰り返しタスクの完了、削除、タスク更新は扱わない。
+繰り返しタスクは `complete --expected-occurrence <getで確認したdue.date>` と
+`--expected-fingerprint` を併用して今回分だけ完了できる。再取得で次回期限と
+`completed_count` の増加を確認し、同じReceiptの再実行では再完了しない。
+複数タスクの一致、削除、タスク更新は扱わない。
 メール下書き作成成功を「送付完了」としてタスク完了にしない。
 詳細は [Todoist Task Handoffs](REFERENCE.md#todoist-task-handoffs-megaton_libtodoist_client)。
 

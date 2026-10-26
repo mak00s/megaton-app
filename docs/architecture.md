@@ -143,13 +143,18 @@ permission to send. This exception does not expand other SaaS adapters' scope.
 
 Todoist has a narrow task-handoff exception for caller-selected work: enumerate
 and read candidate tasks, create a follow-up task, complete one explicitly
-selected nonrecurring task, and verify the result. This supports workflow
+selected task or explicitly reviewed recurring occurrence, and verify the result. This supports workflow
 handoffs across consumers (including Adobe issue filing), not general project
 management. Wording, projects, deadlines, priority, deduplication keys
 and the decision that work is complete belong in the consumer. A successful
 query, draft or report run must never implicitly complete a task. Writes require
 explicit apply, account-scoped durable private receipts and readback; ambiguous
-writes never automatically replay. Recurring completion, updates, deletion,
+writes never automatically replay. Recurring completion binds the original due date
+and fingerprint, and verifies next due plus completed_count progression. An explicitly
+approved occurrence-date restoration is allowed through the guarded restore operation;
+it preserves the rule and verifies the exact date without completing the task. Explicit
+fingerprint-guarded task renaming may change the title only and verifies schedule preservation.
+General updates, deletion,
 project administration, inbox monitoring and connector/browser fallback are out
 of scope. Personal API tokens are explicitly configured, never discovered.
 

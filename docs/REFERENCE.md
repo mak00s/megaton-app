@@ -1146,10 +1146,18 @@ account before task access. IDs are opaque strings, never converted to integers.
 | `find_unique_task(tasks, content_prefix=...)` | Boundary-aware prefix lookup; no match returns None, multiple matches raise `TodoistError`. Prefix policy belongs in the consumer. |
 | `task_fingerprint(task)` | Content/state guard for reviewed completion; not an atomic lock against other clients. |
 | `create_task(content=..., description="", priority=None, due_string=None, labels=None, project_id=None, parent_id=None, apply=False, receipt_path=None)` | Preview by default. No default deadline, priority, project or label. Explicit priority is the native API integer (1-4), passed unchanged, not translated from UI labels. |
-| `complete_task(task_id, expected_fingerprint=None, apply=False, receipt_path=None)` | Explicit active nonrecurring task only; changed fingerprint or active subtasks stop. Existing acknowledged receipts use completion history for readback, without another POST. A previously completed task without a receipt fails preflight, rather than treating 404 as success. |
+| `complete_task(task_id, expected_fingerprint=None, expected_occurrence=None, apply=False, receipt_path=None)` | Explicit active task. Recurring tasks require the reviewed fingerprint and exact original `due.date` as `expected_occurrence`, with a valid server `completed_count`. Changed fingerprints, occurrence dates or active subtasks stop. Existing receipts verify only; never POST again. |
 | `verify_receipt(receipt_path)` | GET only, validates the account and saved expected result. 404 is not proof of completion. |
+| `rename_task(task_id, content=..., expected_fingerprint=..., apply=False, receipt_path=None)` | Explicit reviewed title change only. Fingerprint, private Receipt and readback are required; due, recurrence and completed_count are preserved. CLI: `rename --task-id ID --content NAME --expected-fingerprint HASH`. |
+| `restore_recurring_occurrence(task_id, expected_due=..., occurrence_date=..., expected_fingerprint=..., apply=False, receipt_path=None)` | Explicit recovery of a date-only recurring task to an earlier approved occurrence. Exact old date/fingerprint required. Uses official Sync item_update with the unchanged recurrence rule; verifies the new due, task fields and unchanged completed_count. No completion is performed. General task updates remain unsupported. |
 
 CLI: `python -m megaton_lib.todoist_tasks {list,get,create,complete,verify}`.
+Recovery CLI: `restore-occurrence --task-id ID --expected-due YYYY-MM-DD
+--occurrence-date YYYY-MM-DD --expected-fingerprint HASH`; preview first,
+then the same arguments plus `--apply --receipt PRIVATE_PATH` after approval.
+Keep restoration and completion Receipts separate. Restoration verification
+only proves the date while it is restored; after completing the occurrence,
+verify the completion Receipt, not the historical restoration state.
 `create/complete --apply` require `--receipt`; without apply they return a
 preview. `get` and complete preview return a fingerprint; pass it back with
 `complete --expected-fingerprint`. `--expected-user-id` is supported on every
@@ -1163,7 +1171,7 @@ Write/verify schema: `schema_version="todoist-task/v1"`, `action`, `account_id`,
 (claimed before POST, response ambiguous/crash), `acknowledged` (write response
 received), or `rejected` (HTTP 400/401/403/404/429: this write was refused).
 Creation verification uses the active-task endpoint and requires nondeleted state.
-Completion verification uses `GET /tasks/completed/by_completion_date` with
+Nonrecurring completion verification uses `GET /tasks/completed/by_completion_date` with
 `items`/`next_cursor`, a saved UTC `since`/`until` window (five-minute clock-skew
 margin around the write), and the original project ID. It requires a unique
 exact original task ID, nondeleted record, matching task fields and a valid
@@ -1175,6 +1183,14 @@ Missing/changed IDs, ambiguous history, API/permission errors or delayed history
 visibility leave `verified=false`; `verify` may be repeated without writing.
 Do not synthesize an ID mapping or match completed records by title. The ID
 correspondence is checked in the controlled live-account evidence below.
+Recurring completion instead re-reads the same active task ID and requires
+`checked=false`, unchanged project/parent identity and recurrence rule, a later `due.date`,
+and a strictly larger integer `completed_count` than the saved original task.
+Later title, description or label changes do not erase occurrence completion evidence.
+An advanced due without completion-count progression is not success. The original
+occurrence is stored in the intent digest; reuse the same Receipt to verify,
+not to complete the next occurrence. `complete --expected-occurrence` exposes
+this explicit opt-in in the CLI. Missing/invalid counts or readback errors stop.
 Creation verifies requested fields and the returned canonical due value on
 readback. Natural-language date interpretation/timezone is Todoist's policy:
 `verified` does not independently prove what "today" meant to the user.
@@ -1183,8 +1199,11 @@ Receipt is created exclusively with mode 0600, fsynced before POST and replaced
 atomically after acknowledgement. It contains private task text, the operation
 digest, user ID, request UUID, `write_started_at`/`write_finished_at`, the completion
 window/project (for completion), and expected readback. Keep it gitignored on durable
-storage. Reusing the same receipt only verifies; never repeats a write. Changing
-operation/account requires review and fails without overwriting the receipt.
+storage. Reusing the same receipt only verifies; never repeats a write.
+Successful verification records local `verified_at` evidence atomically in the
+Receipt, without making another API write. Subsequent verification still checks
+current state and may report a mismatch after legitimate later changes.
+Changing operation/account requires review and fails without overwriting the receipt.
 Request UUID is a correlation header, **not a promise of server-side
 idempotency**. Local receipts do not prevent duplicate work across machines or
 different receipt paths. Consumers must coordinate one durable operation path

@@ -40,16 +40,29 @@ class Session:
         elif method == "POST":
             if self.post_error:
                 raise self.post_error
-            if path == "/tasks":
+            if path == '/sync':
+                command = kwargs['json']['commands'][0]
+                self.tasks[command['args']['id']]['due'] = deepcopy(command['args']['due'])
+                data = {'sync_status': {command['uuid']: 'ok'}}
+            elif path == "/tasks":
                 payload = deepcopy(kwargs["json"])
                 if "due_string" in payload:
                     payload["due"] = {"date": "2026-10-17", "string": payload.pop("due_string"),
                                       "is_recurring": False, "lang": "en"}
                 data = task(id="new-task", **payload)
                 self.tasks[data["id"]] = deepcopy(data)
+            elif not path.endswith('/close'):
+                selected = self.tasks[path.split('/')[2]]
+                selected.update(kwargs['json'])
+                data = deepcopy(selected)
             else:
-                self.tasks[path.split("/")[2]]["checked"] = True
-                self.tasks[path.split("/")[2]]["completed_at"] = datetime.now(timezone.utc).isoformat()
+                selected = self.tasks[path.split("/")[2]]
+                if (selected.get('due') or {}).get('is_recurring'):
+                    selected['due']['date'] = '2026-11-24'
+                    selected['completed_count'] += 1
+                else:
+                    selected["checked"] = True
+                    selected["completed_at"] = datetime.now(timezone.utc).isoformat()
                 status = 200
         elif path == "/tasks":
             data = self.pages.pop(0) if self.pages is not None else {
@@ -250,6 +263,163 @@ def test_recurring_and_stale_task_stop_before_post(client, tmp_path):
     with pytest.raises(TodoistError, match="Recurring"):
         c.complete_task("6Xtask", apply=True, receipt_path=tmp_path / "r.json")
     assert not s.posts
+
+
+def recurring_task():
+    return task(due={'date': '2026-10-24', 'is_recurring': True,
+                     'string': 'every 24', 'lang': 'en', 'timezone': None}, completed_count=4)
+
+
+def test_rename_preserves_recurrence_and_only_verifies_on_replay(client, tmp_path):
+    c, s = client
+    s.tasks['6Xtask'] = recurring_task()
+    original = deepcopy(s.tasks['6Xtask'])
+    args = dict(content='Invoice: Example', expected_fingerprint=task_fingerprint(original),
+                receipt_path=tmp_path / 'rename.json')
+    assert c.rename_task('6Xtask', **args)['ok']
+    assert not s.posts
+    assert c.rename_task('6Xtask', **args, apply=True)['verified']
+    assert s.tasks['6Xtask'] == {**original, 'content': 'Invoice: Example'}
+    assert c.rename_task('6Xtask', **args, apply=True)['verified']
+    assert len(s.posts) == 1
+
+
+def test_verified_recurring_occurrence_survives_later_title_change(client, tmp_path):
+    c, s = client
+    s.tasks['6Xtask'] = recurring_task()
+    path = tmp_path / 'complete.json'
+    assert c.complete_task('6Xtask', expected_fingerprint=task_fingerprint(s.tasks['6Xtask']),
+             expected_occurrence='2026-10-24', apply=True, receipt_path=path)['verified']
+    s.tasks['6Xtask']['content'] = 'Invoice: renamed'
+    assert c.verify_receipt(path)['verified']
+    assert len(s.posts) == 1
+
+
+def test_stale_rename_does_not_post(client, tmp_path):
+    c, s = client
+    with pytest.raises(TodoistError, match='changed'):
+        c.rename_task('6Xtask', content='Invoice: Example', expected_fingerprint='old',
+                       apply=True, receipt_path=tmp_path / 'rename.json')
+    assert not s.posts
+
+
+@pytest.mark.parametrize('action', ['rename', 'restore'])
+def test_metadata_readback_rejects_changed_completed_count(client, tmp_path, action):
+    c, s = client
+    s.tasks['6Xtask'] = recurring_task()
+    path = tmp_path / 'metadata.json'
+    fingerprint = task_fingerprint(s.tasks['6Xtask'])
+    if action == 'rename':
+        result = c.rename_task('6Xtask', content='Invoice: Example', expected_fingerprint=fingerprint,
+                               apply=True, receipt_path=path)
+    else:
+        result = c.restore_recurring_occurrence('6Xtask', expected_due='2026-10-24',
+                   occurrence_date='2026-09-24', expected_fingerprint=fingerprint,
+                   apply=True, receipt_path=path)
+    assert result['verified']
+    assert json.loads(path.read_text())['verified_at']
+    s.tasks['6Xtask']['completed_count'] += 1
+    result = c.verify_receipt(path)
+    assert not result['verified']
+    assert 'completed_count' in result['mismatches']
+    assert len(s.posts) == 1
+
+
+def test_restore_occurrence_preserves_rule_and_count_then_only_verifies(client, tmp_path):
+    c, s = client
+    s.tasks['6Xtask'] = recurring_task()
+    s.tasks['6Xtask']['due'].update(date='2026-11-25', string='Every 25')
+    options = dict(expected_due='2026-11-25', occurrence_date='2026-10-25',
+                   expected_fingerprint=task_fingerprint(s.tasks['6Xtask']),
+                   receipt_path=tmp_path / 'restore.json')
+    assert c.restore_recurring_occurrence('6Xtask', **options)['ok']
+    assert not s.posts
+    assert c.restore_recurring_occurrence('6Xtask', **options, apply=True)['verified']
+    assert s.tasks['6Xtask']['due']['date'] == '2026-10-25'
+    assert s.tasks['6Xtask']['due']['string'] == 'Every 25'
+    assert s.tasks['6Xtask']['completed_count'] == 4
+    assert c.restore_recurring_occurrence('6Xtask', **options, apply=True)['verified']
+    assert len(s.posts) == 1
+
+
+@pytest.mark.parametrize('case', ['stale', 'wrong_date', 'forward', 'nonrecurring'])
+def test_restore_occurrence_guards_prevent_post(client, tmp_path, case):
+    c, s = client
+    s.tasks['6Xtask'] = recurring_task()
+    fingerprint = task_fingerprint(s.tasks['6Xtask'])
+    expected = '2026-10-24'
+    occurrence = '2026-09-24'
+    if case == 'stale':
+        fingerprint = 'wrong'
+    if case == 'wrong_date':
+        expected = '2026-11-24'
+    if case == 'forward':
+        occurrence = '2026-11-24'
+    if case == 'nonrecurring':
+        s.tasks['6Xtask']['due']['is_recurring'] = False
+    with pytest.raises(TodoistError):
+        c.restore_recurring_occurrence('6Xtask', expected_due=expected, occurrence_date=occurrence,
+            expected_fingerprint=fingerprint, apply=True, receipt_path=tmp_path / 'restore.json')
+    assert not s.posts
+
+
+def test_recurring_preview_complete_and_reverify_never_posts_twice(client, tmp_path):
+    c, s = client
+    s.tasks['6Xtask'] = recurring_task()
+    fingerprint = task_fingerprint(s.tasks['6Xtask'])
+    path = tmp_path / 'recurring.json'
+    kwargs = dict(expected_fingerprint=fingerprint, expected_occurrence='2026-10-24', receipt_path=path)
+    assert c.complete_task('6Xtask', **kwargs)['ok']
+    assert not path.exists() and not s.posts
+    result = c.complete_task('6Xtask', **kwargs, apply=True)
+    assert result['verified']
+    assert s.tasks['6Xtask']['due']['date'] == '2026-11-24'
+    assert s.tasks['6Xtask']['completed_count'] == 5
+    assert c.verify_receipt(path)['verified']
+    assert c.complete_task('6Xtask', **kwargs, apply=True)['verified']
+    assert len(s.posts) == 1
+
+
+@pytest.mark.parametrize('case', ['missing_occurrence', 'wrong_occurrence', 'missing_fingerprint', 'missing_count'])
+def test_recurring_guards_reject_before_post(client, tmp_path, case):
+    c, s = client
+    s.tasks['6Xtask'] = recurring_task()
+    occurrence = '2026-10-24'
+    if case == 'missing_count':
+        del s.tasks['6Xtask']['completed_count']
+    fingerprint = task_fingerprint(s.tasks['6Xtask'])
+    if case == 'missing_occurrence':
+        occurrence = None
+    if case == 'wrong_occurrence':
+        occurrence = '2026-11-24'
+    if case == 'missing_fingerprint':
+        fingerprint = None
+    with pytest.raises(TodoistError):
+        c.complete_task('6Xtask', expected_fingerprint=fingerprint, expected_occurrence=occurrence,
+                        apply=True, receipt_path=tmp_path / 'r.json')
+    assert not s.posts
+
+
+@pytest.mark.parametrize('case', ['count_unchanged', 'due_unchanged', 'rule_changed', 'checked', 'missing_count'])
+def test_recurring_readback_requires_positive_completion_and_advanced_due(client, tmp_path, case):
+    c, s = client
+    s.tasks['6Xtask'] = recurring_task()
+    path = tmp_path / 'r.json'
+    c.complete_task('6Xtask', expected_fingerprint=task_fingerprint(s.tasks['6Xtask']),
+                    expected_occurrence='2026-10-24', apply=True, receipt_path=path)
+    current = s.tasks['6Xtask']
+    if case == 'count_unchanged':
+        current['completed_count'] = 4
+    if case == 'due_unchanged':
+        current['due']['date'] = '2026-10-24'
+    if case == 'rule_changed':
+        current['due']['string'] = 'every 25'
+    if case == 'checked':
+        current['checked'] = True
+    if case == 'missing_count':
+        del current['completed_count']
+    assert not c.verify_receipt(path)['verified']
+    assert len(s.posts) == 1
 
 
 def test_untracked_completed_task_is_not_inferred_from_404(client, tmp_path):

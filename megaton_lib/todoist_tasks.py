@@ -11,7 +11,7 @@ from .todoist_client import SCHEMA_VERSION, TodoistClient, TodoistError, task_fi
 
 def main(argv=None) -> int:
     parser = build_parser(
-        description="Todoist task handoff: list/get/create/complete/verify. Writes preview by default.",
+        description="Todoist task handoff: list/get/create/complete/rename/restore-occurrence/verify. Writes preview by default.",
         examples=[
             "TODOIST_TOKEN=... python -m megaton_lib.todoist_tasks list --label my-work",
             "python -m megaton_lib.todoist_tasks create --content 'Review report'",
@@ -22,18 +22,18 @@ def main(argv=None) -> int:
         ],
         notes=["Set TODOIST_TOKEN explicitly. No credential discovery or browser/connector fallback.",
                "Keep receipts private and durable. Never delete an unknown receipt to retry.",
-               "Recurring task completion, deletion, updates and automatic workflow hooks are unsupported."],
+               "Recurring completion requires --expected-occurrence and --expected-fingerprint. Reviewed rename and restore-occurrence are supported; general updates/deletion are unsupported."],
     )
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("list", "get", "create", "complete", "verify"):
+    for name in ("list", "get", "create", "complete", "rename", "restore-occurrence", "verify"):
         sub = commands.add_parser(name)
         sub.add_argument("--expected-user-id", help="Optional Todoist account identity guard.")
-        if name in {"get", "complete"}:
+        if name in {"get", "complete", "rename", "restore-occurrence"}:
             sub.add_argument("--task-id", required=True, help="Explicit Todoist task ID, not a title or URL.")
-        if name in {"create", "complete", "verify"}:
+        if name in {"create", "complete", "rename", "restore-occurrence", "verify"}:
             sub.add_argument("--receipt", type=Path, required=name == "verify",
                              help="Private durable receipt; required when writing with --apply.")
-        if name in {"create", "complete"}:
+        if name in {"create", "complete", "rename", "restore-occurrence"}:
             sub.add_argument("--apply", action="store_true", help="Perform one write after review; default is preview.")
         if name in {"create", "list"}:
             sub.add_argument("--label", action="append" if name == "create" else "store")
@@ -47,9 +47,17 @@ def main(argv=None) -> int:
             sub.add_argument("--parent-id")
         if name == "complete":
             sub.add_argument("--expected-fingerprint", help="From get/preview; rejects intervening task edits.")
+            sub.add_argument("--expected-occurrence", help="Exact reviewed recurring due.date; completes only that occurrence.")
+        if name == 'restore-occurrence':
+            sub.add_argument('--expected-due', required=True, help='Current reviewed YYYY-MM-DD due date.')
+            sub.add_argument('--occurrence-date', required=True, help='Earlier approved YYYY-MM-DD occurrence to restore.')
+            sub.add_argument('--expected-fingerprint', required=True, help='Reviewed current task fingerprint.')
+        if name == 'rename':
+            sub.add_argument('--content', required=True, help='Reviewed new task name; schedule is preserved.')
+            sub.add_argument('--expected-fingerprint', required=True, help='Reviewed current task fingerprint.')
     args = parser.parse_args(argv)
     try:
-        if args.command in {"create", "complete"} and args.apply and args.receipt is None:
+        if args.command in {"create", "complete", "rename", "restore-occurrence"} and args.apply and args.receipt is None:
             raise TodoistError("--apply requires --receipt.")
         client = TodoistClient.from_env(expected_user_id=args.expected_user_id)
         if args.command == "list":
@@ -64,7 +72,16 @@ def main(argv=None) -> int:
                                         apply=args.apply, receipt_path=args.receipt)
         elif args.command == "complete":
             result = client.complete_task(args.task_id, expected_fingerprint=args.expected_fingerprint,
+                                          expected_occurrence=args.expected_occurrence,
                                           apply=args.apply, receipt_path=args.receipt)
+        elif args.command == 'rename':
+            result = client.rename_task(args.task_id, content=args.content,
+                     expected_fingerprint=args.expected_fingerprint,
+                     apply=args.apply, receipt_path=args.receipt)
+        elif args.command == 'restore-occurrence':
+            result = client.restore_recurring_occurrence(args.task_id, expected_due=args.expected_due,
+                     occurrence_date=args.occurrence_date, expected_fingerprint=args.expected_fingerprint,
+                     apply=args.apply, receipt_path=args.receipt)
         else:
             result = client.verify_receipt(args.receipt)
         print(json.dumps({"schema_version": SCHEMA_VERSION, "command": args.command, **result}, ensure_ascii=False))

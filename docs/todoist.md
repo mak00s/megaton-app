@@ -4,37 +4,35 @@ Consumer scope and migration boundaries: [rollout inventory](todoist-consumers.m
 
 ## Runtime
 
-The canonical shared checkout is `~/Repos/megaton-app`. Keep ad-hoc task
-operations separate from consumers' analytics/browser environments, rather than
-upgrading all their dependencies for a task handoff. The task runtime is a
-dedicated `.venv-tasks` inside that checkout that installs the published
-package, not the checkout source. From the checkout root:
+The canonical shared checkout is `~/Repos/megaton-app`. On this Mac, `.venv`
+links to the shared uv-managed Python 3.13 runtime `~/.venvs/py313`, with the
+local `megaton-app` checkout installed editable. Use the existing environment;
+do not run `uv sync` or recreate it for task handoffs. Setup/rebuild is owned by
+`~/Repos/dotfiles/shared-env.sh`. Check the actual module from a consumer root:
 
 ```bash
-python3.12 -m venv .venv-tasks
-printf '*\n' > .venv-tasks/.gitignore   # keep the venv out of Git
-.venv-tasks/bin/python -m pip install \
-  'megaton-app @ git+https://github.com/mak00s/megaton-app.git@v0.43.1' \
-  'megaton @ git+https://github.com/mak00s/megaton.git@v2.6.2'
+"$HOME/Repos/megaton-app/.venv/bin/python" -c 'import sys; import megaton_lib.todoist_client as t; print(sys.version, t.__file__)'
 ```
 
-Do not recreate an existing venv just to run these commands. Use its Python to
-install the pins, or inspect the installed version first. Consumer invoice and
-megaton-notebooks automated flows use their own requirements and venv instead;
-see their `docs/todoist.md`. No new scheduled task completion hooks are installed.
+Other environments may use an explicitly selected runtime containing the reviewed
+shared client. See the consumer's `docs/todoist.md`. No new scheduled task
+completion hooks are installed.
 
 From a consumer root (not from the shared source directory, which shadows installs):
 
 ```bash
-TODOIST_PY="$HOME/Repos/megaton-app/.venv-tasks/bin/python"
+TODOIST_PY="$HOME/Repos/megaton-app/.venv/bin/python"
 "$TODOIST_PY" -c 'from importlib.metadata import version; import megaton_lib.todoist_client as t; print(version("megaton-app"), t.__file__)'
 "$TODOIST_PY" -m megaton_lib.todoist_tasks --help
 ```
 
-The version must be 0.43.1 or a deliberately reviewed successor and the module must
-come from the intended environment. Local co-development may use an explicit
-editable install of the canonical checkout; verify the module path again. Never
-silently use a stale global Python.
+The module must come from the intended environment and reviewed source. Recurring
+completion needs `complete --expected-occurrence` support; older releases reject
+it. Never silently use a stale global Python.
+
+The legacy `.venv-tasks` directory is retired on this Mac. Its remaining files
+are not a supported runtime and must not be selected by agents or old commands.
+Do not delete it without checking external callers; use the shared `.venv` above.
 
 ## Credentials and Selection
 
@@ -102,9 +100,19 @@ caller-selected; include the target period/milestone to avoid cross-month reuse.
 
 Missing active tasks and HTTP 404 are not completion evidence. Shared completion
 uses the original ID, project, saved time window and completed-task history.
-Recurring tasks and parents with active subtasks are rejected. Finish those tasks
+Recurring completion requires `--expected-occurrence` equal to the reviewed
+`due.date`, plus `--expected-fingerprint`. It closes only that occurrence, keeping
+the recurring task active. Verification requires an advanced due date, unchanged
+recurrence rule and increased server `completed_count`; date editing alone does
+not prove completion. Keep one Receipt per occurrence and only verify it on retry.
+Parents with active subtasks are rejected. Finish those subtasks
 manually; never turn off the guard or substitute a raw close request. Updates,
 deletion and general project administration are outside this adapter.
+
+Successful readback records a local `verified_at` timestamp in the Receipt.
+Later verification still checks the current state; the timestamp only preserves
+evidence that the original transition was successfully verified. It does not
+authorize another write or turn a later mismatch into success.
 
 The API contract remains in [REFERENCE](REFERENCE.md#todoist-task-handoffs-megaton_libtodoist_client)
 and [USAGE](USAGE.md#todoistで作業の完了・後続タスクを記録する).
