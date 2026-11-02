@@ -15,6 +15,16 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
   Every receipt reuse compares the row's values and format with the expected cells, so
   later edits or a receipt without them stop for inspection instead of passing as verified.
 
+- Support existing HTML draft body updates through `GmailDraftContent.updated(body_html=...)`
+  and `gmail_draft update --body-html-file`. Regenerate text/plain from the same HTML,
+  preserving recipients, reply metadata, attachments and CID resources. Support HTML-only
+  drafts by adding a plain alternative; reject ambiguous body trees and lost/unresolved CID
+  references. Plain-only updates keep their existing contract.
+- Add `gmail_draft get --body-format plain|html` for explicit private body exports.
+  Include available body Content-ID/Content-Location in summary/readback checks; fingerprint
+  guards, preview-first updates, no write retry and draft-only operation remain unchanged.
+  HTML conversion uses beautifulsoup4>=4.12 in the Google/local extras.
+
 ## 2026-10-23 (v0.44.0)
 
 - Docs, structured Docs mutations, Gmail drafts and GTM review CLIs accept

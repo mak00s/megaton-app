@@ -295,7 +295,34 @@ JSONで`applied=true, verified=false`なら既存IDを再検証する。`applied
 token・本文・結果JSONは共有やcommit対象にしない。添付を含む実メールでの検証は、対象を
 選んだうえで下書き作成・再取得まで実施し、配送確認とは区別する。
 
-全引数・JSON契約・HTML編集制限は[REFERENCE](REFERENCE.md#draft-only-reply-and-update)を参照。
+#### 既存HTML下書きの本文更新
+
+既存のHTMLとfingerprintを取得し、引用・署名・`cid:`画像参照を残した完全な差し替えHTMLを作る。
+HTMLは機密ファイルとして扱い、Gitへ入れない。`--body-html-file`は同じHTMLからplain本文も生成する。
+本文更新だけなら宛先・件名・返信スレッド・添付・埋め込み画像の指定は不要で、既存値を保持する。
+
+```bash
+python -m megaton_lib.gmail_draft get --account reader@example.com --draft-id DRAFT_ID \
+  --body-format html --body-output output/draft-original.html
+# 元HTMLを基に作成した output/draft-edited.html を使ってpreviewする。
+python -m megaton_lib.gmail_draft update --account reader@example.com --draft-id DRAFT_ID \
+  --expected-fingerprint FINGERPRINT --body-html-file output/draft-edited.html \
+  > output/draft-preview.json
+```
+
+承認後だけ同じupdateコマンドに`--apply`を付ける。直前にもfingerprintを再照合し、一度だけ更新して
+両本文・宛先・返信情報・添付・CID画像を読み戻し検証する。保存したpreviewは次のverifyにも使える。
+
+```bash
+python -m megaton_lib.gmail_draft verify --account reader@example.com --draft-id DRAFT_ID \
+  --expected-json output/draft-preview.json
+```
+
+このverifyはapply後に行う。previewだけでは保存されていないので不一致が正常。
+`--body-file`と`--body-html-file`は同時指定不可。曖昧な本文構造・署名/暗号化MIME・CID参照の欠落は
+停止する。競合時はgetからやり直して再確認し、結果不明時は再適用しない。送信機能はない。
+
+全引数・JSON契約・対応するMIME構造は[REFERENCE](REFERENCE.md#draft-only-reply-and-update)を参照。
 
 ---
 

@@ -577,7 +577,7 @@ OAuth scope であり、「下書き専用」は実装の制限であってト�
 | `client.prepare_reply(message_id, expected_email=, body_text=, reply_all=True, self_aliases=(), attachments=None)` | `GmailDraftContent` を返す。元メール取得のみ。既定は全員返信 |
 | `client.create_reply_draft(message_id, expected_email=, **reply_options)` | 作成と再取得検証。構造化結果を返す |
 | `client.get_draft(draft_id)` | `DRAFT` ラベルを確認して `GmailDraft(id, message_id, content, fingerprint)` を返す。content.message は本文を含むMIME |
-| `content.updated(body_text=None, to=None, cc=None, bcc=None, subject=None, attachments=None)` | コピーを編集。Noneは保持、空listはクリア |
+| `content.updated(body_text=None, body_html=None, to=None, cc=None, bcc=None, subject=None, attachments=None)` | コピーを編集。Noneは保持、空listはクリア。body_htmlは既存HTML本文を置換しplain本文を再生成 |
 | `client.save_draft(content, expected_email=, draft_id=None, expected_fingerprint=None)` | 新規作成/更新と再取得検証。Fromは実アカウントと一致必須 |
 | `client.update_draft(draft_id, expected_email=, expected_fingerprint=, **changes)` | 取得・変更検知・更新・検証をまとめて実行 |
 | `client.verify_draft(draft_id, expected=content)` | MIMEから計算した期待値と再取得結果を比較 |
@@ -595,7 +595,18 @@ BCC-onlyの下書きも取得・検証・更新できる。
 
 添付形式は既存と同じ `(filename, bytes, mime_type)` のlist。更新で明示すると通常添付を
 置換し、Content-ID付きinline partは保持する。本文は未指定ならHTMLを含め保持。
-本文置換は単一plain-text本文に限定し、HTML/inlineを暗黙にflattenしない。
+`body_text` / `--body-file`は従来どおり単一plain-text本文だけを更新する。
+既存HTML下書きは`body_html` / `--body-html-file`で**完全な差し替えHTML**を明示する。
+両本文引数は排他。HTMLからplain本文を生成し、既存plain本文がなければ
+multipart/alternativeを追加する。HTMLをplainへflattenして削除することはない。
+本文はHTML 1個・plain最大1個に限定し、両者がある場合は同じmultipart/alternativeに属する必要がある。
+署名文や引用履歴を残す場合は差し替えHTMLにも含める（自動継ぎ足しはしない）。
+本文だけの更新では宛先ヘッダー、件名、返信情報、通常添付、CID画像の内容・識別子を保持する。
+既存の埋め込みCID参照の削除や未解決CIDの追加は拒否する。
+HTML→plainはBeautifulSoup (`google` / `local` extra、beautifulsoup4>=4.12)を使い、
+段落・改行・画像alt・リンク先をテキストへ投影する。script/style/headはplain側から除外する。
+HTMLは実行・外部取得・サニタイズしない。CSSによる見た目までの一致は保証しない。
+読み戻しでは両本文のハッシュ、返信情報、宛先、添付、CID情報を照合する。
 署名・暗号化・埋め込みメール等の複雑なMIME更新は拒否する。
 fingerprintは取得後の変更検知であり、Gmail UIとの同時編集を原子的に防ぐロックではない。
 
@@ -606,8 +617,8 @@ CLI: `python -m megaton_lib.gmail_draft {create,reply,get,update,verify} --help`
 - `reply`: `--message-id`, `--body-file` 必須。既定は全員返信（元To/CCを継承、自分と重複を除外）。`--reply-all` は明示指定として維持。`--sender-only` でReply-To（なければFrom）のみに返信し、元To/CCは継承しない。両フラグは排他。`--self-alias`, `--attach` に対応。Pythonでも `reply_all=False` で送信者のみを選択できる。
 - `create`: `--to`, `--subject`, `--body-file` 必須。`--cc`, `--bcc`, `--attach` に対応。
 - `update`: `--draft-id`, `--expected-fingerprint` 必須。`--attach`は置換、`--clear-attachments`は削除。
-  `--body-file`, `--to`, `--cc`, `--bcc`, `--clear-cc`, `--clear-bcc`に対応。thread所属の件名変更は拒否。
-- `get`: `--draft-id` 必須。`--body-output`で本文を明示exportできる。新規ファイルのみ、0600。HTMLのみならHTML本文を保存。
+  排他的な`--body-file` / `--body-html-file`、`--to`, `--cc`, `--bcc`, `--clear-cc`, `--clear-bcc`に対応。thread所属の件名変更は拒否。
+- `get`: `--draft-id` 必須。`--body-output`で本文を明示exportできる。新規ファイルのみ、0600。既定はplain優先、HTMLのみならHTML本文を保存。`--body-format plain|html`で取得表現を限定でき、存在しなければ停止する。
 - `verify`: `--draft-id`, `--expected-json` 必須。preview/get/作成/更新の保存JSONを期待値とする。
 
 JSON契約 `schema_version="gmail-draft/v1"`:
@@ -616,6 +627,8 @@ JSON契約 `schema_version="gmail-draft/v1"`:
 `references`, `attachments`, `body_parts`, `errors`。取得できない欄はnull/空値であり、
 空の実データが確認されたことを意味しない。宛先は小文字のaddr-spec、本文はハッシュのみ。
 添付はfilename/mime_type/size/sha256/content_id/disposition。本文・token・添付実体は出力しない。
+`body_parts`にはmime_type/sha256に加え、存在する場合だけcontent_id/content_locationを含む。
+HTML編集前は最新のget/previewを使う。旧版の保存summaryではCID欄が欠けて検証不一致となる場合がある。
 結果JSON自体も宛先や件名を含む機密資料として扱う。
 
 `applied=false`は未書き込み、`true`は書き込み成功、`null`は書き込み結果不明。

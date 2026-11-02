@@ -332,6 +332,185 @@ def test_html_and_inline_preserved_when_replacing_ordinary_attachment():
         content.updated(body_text="flatten")
 
 
+def html_content(layout="alternative-related", *, image_filename="logo.png"):
+    message = EmailMessage(policy=policy.SMTP)
+    for key, value in {
+        "From": "sender@example.com", "To": '"Reader, One" <other@example.com>',
+        "Cc": "Team <team@example.com>", "Bcc": "hidden@example.com", "Subject": "Re: Report",
+        "In-Reply-To": "<parent@example.com>", "References": "<ancestor@example.com> <parent@example.com>",
+        "X-Workflow": "preserve",
+    }.items():
+        message[key] = value
+    html = '<p>Old private text</p><img src="cid:logo" alt="Logo"><blockquote>Quoted history</blockquote>'
+    if "related" not in layout:
+        html = html.replace('<img src="cid:logo" alt="Logo">', '')
+    if layout.startswith("alternative"):
+        message.set_content("Old private text")
+        message.add_alternative(html, subtype="html")
+    else:
+        message.set_content(html, subtype="html")
+    html_part = message.get_body(preferencelist=("html",))
+    html_part["Content-ID"] = "<html-body>"
+    html_part["Content-Location"] = "body.html"
+    if "related" in layout:
+        html_part.add_related(b"image bytes", maintype="image", subtype="png", cid="<logo>",
+                              filename=image_filename)
+        html_part.set_param("start", "<html-body>")
+    if layout != "html-only":
+        message.add_attachment(b"ordinary bytes", maintype="text", subtype="plain", filename="notes.txt")
+    return GmailDraftContent(message, "thread-1")
+
+
+NEW_HTML = ('<p>更新 &amp; review <strong>内容</strong></p><p><a href="https://example.com/report">Report</a></p>'
+            '<img src="cid:logo" alt="Logo"><blockquote>Quoted history</blockquote>')
+
+
+@pytest.mark.parametrize("layout", ["alternative-related", "alternative", "html-related", "html-only"])
+@pytest.mark.parametrize("image_filename", ["logo.png", None])
+def test_html_update_keeps_envelope_tree_assets_and_generates_plain(layout, image_filename):
+    before = html_content(layout, image_filename=image_filename)
+    original = before.message.as_bytes()
+    assets = [p.as_bytes() for p in before.message.walk()
+              if p.get_content_maintype() == "image" or p.get_filename()]
+    replacement = NEW_HTML if "related" in layout else NEW_HTML.replace('<img src="cid:logo" alt="Logo">', '')
+    changed = before.updated(body_html=replacement)
+    assert before.message.as_bytes() == original
+    for header in ("From", "To", "Cc", "Bcc", "Subject", "In-Reply-To", "References", "X-Workflow"):
+        assert str(changed.message[header]) == str(before.message[header])
+    assert changed.thread_id == before.thread_id
+    assert changed.summary()["attachments"] == before.summary()["attachments"]
+    assert assets == [p.as_bytes() for p in changed.message.walk()
+                      if p.get_content_maintype() == "image" or p.get_filename()]
+    plain = changed.message.get_body(preferencelist=("plain",)).get_content()
+    assert "更新 & review 内容" in plain
+    assert "https://example.com/report" in plain
+    assert "Quoted history" in plain and "Old private text" not in plain
+    html = changed.message.get_body(preferencelist=("html",))
+    assert html.get_content().strip() == replacement
+    assert str(html["Content-ID"]) == "<html-body>"
+    assert str(html["Content-Location"]) == "body.html"
+    assert not any(p.defects for p in parsed(raw(changed.message)).walk())
+
+
+def test_html_update_rejects_ambiguous_or_conflicting_body_inputs():
+    content = html_content()
+    with pytest.raises(ValueError, match="only one"):
+        content.updated(body_text="plain", body_html=NEW_HTML)
+    with pytest.raises(ValueError, match="string"):
+        content.updated(body_html=123)
+    with pytest.raises(ValueError, match="existing HTML"):
+        new_content().updated(body_html=NEW_HTML)
+    content.message.add_attachment(b"file", maintype="application", subtype="pdf", filename="extra.pdf")
+    content.message.attach(EmailMessage())
+    content.message.get_payload()[-1].set_content("Ambiguous second body")
+    with pytest.raises(ValueError, match="unambiguous"):
+        content.updated(body_html=NEW_HTML)
+
+
+def test_html_update_rejects_mixed_sibling_bodies():
+    content = new_content()
+    html = EmailMessage()
+    html.set_content("<p>Different body</p>", subtype="html")
+    content.message.attach(html)
+    with pytest.raises(ValueError, match="same multipart/alternative"):
+        content.updated(body_html="<p>Replacement</p>")
+
+
+def test_html_conversion_does_not_log_private_body_or_include_scripts():
+    import warnings
+
+    with warnings.catch_warnings(record=True) as caught:
+        changed = html_content("html-only").updated(body_html="https://private.example.com/secret")
+    assert not caught
+    assert changed.message.get_body(preferencelist=("plain",)).get_content().strip() == "https://private.example.com/secret"
+    changed = html_content("html-only").updated(body_html="<style>private-style</style><script>private-script</script><p>Visible</p>")
+    assert changed.message.get_body(preferencelist=("plain",)).get_content().strip() == "Visible"
+
+
+@pytest.mark.parametrize("html", ["<p>No image</p>", NEW_HTML.replace("cid:logo", "cid:missing")])
+def test_html_update_rejects_lost_or_unknown_cid_without_disclosing_body(html):
+    content = html_content()
+    before = content.message.as_bytes()
+    with pytest.raises(ValueError, match="CID") as caught:
+        content.updated(body_html=html)
+    assert html not in str(caught.value)
+    assert content.message.as_bytes() == before
+
+
+@pytest.mark.parametrize("corruption", ["plain", "html", "cid", "image", "thread"])
+def test_html_apply_verifies_both_bodies_assets_and_thread(setup, monkeypatch, corruption):
+    client, service = setup
+    client.save_draft(html_content(image_filename=None), expected_email=service.account)
+    before = client.get_draft("draft-1")
+    real_write = service.write
+
+    def corrupt_write(action, draft_id, kwargs):
+        response = real_write(action, draft_id, kwargs)
+        saved = service.drafts_data[draft_id]["message"]
+        message = parsed(saved["raw"])
+        if corruption in {"plain", "html"}:
+            message.get_body(preferencelist=(corruption,)).set_content("stale", subtype=corruption)
+        elif corruption == "thread":
+            saved["threadId"] = "wrong-thread"
+        else:
+            image = next(p for p in message.walk() if p.get_content_maintype() == "image")
+            if corruption == "cid":
+                image.replace_header("Content-ID", "<wrong>")
+            else:
+                image.set_content(b"wrong bytes", maintype="image", subtype="png")
+        saved["raw"] = raw(message)
+        return response
+
+    monkeypatch.setattr(service, "write", corrupt_write)
+    result = client.update_draft(before.id, expected_email=service.account,
+                                 expected_fingerprint=before.fingerprint, body_html=NEW_HTML)
+    assert result["applied"] and not result["verified"] and not result["ok"]
+    assert len(service.writes) == 2
+
+
+def test_html_cli_preview_apply_conflict_and_verify(cli_setup, tmp_path, capsys):
+    client, service = cli_setup
+    client.save_draft(html_content(), expected_email=service.account)
+    before = client.get_draft("draft-1")
+    body = tmp_path / "body.html"
+    assert cli.main(["get", "--draft-id", before.id, "--body-format", "html",
+                     "--body-output", str(body)]) == 0
+    capsys.readouterr()
+    assert body.stat().st_mode & 0o777 == 0o600
+    assert "Old private text" in body.read_text()
+    body.write_text(NEW_HTML, encoding="utf-8")
+    command = ["update", "--draft-id", before.id, "--expected-fingerprint", before.fingerprint,
+               "--body-html-file", str(body)]
+    assert cli.main(command) == 0
+    output = capsys.readouterr()
+    assert "更新" not in output.out + output.err
+    preview = json.loads(output.out)
+    assert not preview["applied"] and len(service.writes) == 1
+    assert service.drafts_data[before.id]["message"]["raw"] == raw(before.content.message)
+    expected = tmp_path / "expected.json"
+    expected.write_text(json.dumps(preview))
+    assert cli.main([*command, "--apply"]) == 0
+    applied = json.loads(capsys.readouterr().out)
+    assert applied["verified"] and applied["applied"] and len(service.writes) == 2
+    assert cli.main(["verify", "--draft-id", before.id, "--expected-json", str(expected)]) == 0
+    assert json.loads(capsys.readouterr().out)["verified"]
+    assert cli.main([*command, "--apply"]) == 1
+    assert not json.loads(capsys.readouterr().out)["applied"] and len(service.writes) == 2
+    with pytest.raises(SystemExit):
+        cli.create_parser().parse_args([*command, "--body-file", str(body)])
+
+
+def test_html_write_timeout_is_not_retried(setup):
+    client, service = setup
+    client.save_draft(html_content(), expected_email=service.account)
+    before = client.get_draft("draft-1")
+    service.fail_write = True
+    result = client.update_draft(before.id, expected_email=service.account,
+                                 expected_fingerprint=before.fingerprint, body_html=NEW_HTML)
+    assert result["applied"] is None and not result["verified"]
+    assert len(service.writes) == 2
+
+
 def test_signed_mime_rejected():
     content = new_content()
     content.message.set_type("multipart/signed")

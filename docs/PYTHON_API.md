@@ -222,6 +222,25 @@ default. This is not an automatic report finish hook. Recurring completion and
 general task/project management are unsupported. Full receipt/verification
 contract: [REFERENCE](REFERENCE.md#todoist-task-handoffs-megaton_libtodoist_client).
 
+## Monthly analytics work logs
+
+`megaton_lib.report_work_log` records monthly work after caller-owned analytics
+completion gates. `MonthlyWorkLog` takes a tab, six headers, customer, item/hour/
+amount tuples, and a `bill_month` flag. No customer identities, rates, destination
+IDs or credentials are embedded in the shared library.
+
+`record_monthly(book, work_date, spec)` previews. After reviewing, pass
+`apply=True, receipt_path=...` to append with native formats and verify values and
+formats. Blank billing months use the work date for monthly deduplication; exact
+existing rows skip without changing the original work date. Conflicting or
+partial rows fail closed. A matching historical format exemplar is required.
+
+Unknown writes retain a private pending Receipt; inspect the sheet and reuse that
+same Receipt, never a fresh path. The API does not retry an append. Calls for the
+same customer/item/month must be serialized by the consumer, including across
+repositories. This API does not support per-request billing or general ledger
+editing. Low-level Sheets requests remain delegated to Megaton.
+
 ## Box API artifact transfer
 
 `megaton_lib.box_api.upload_files_to_box_folder_via_api_sync(...)` と

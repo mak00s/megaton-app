@@ -9,6 +9,7 @@ import hashlib
 import os
 import re
 import tempfile
+import warnings
 from copy import deepcopy
 from dataclasses import dataclass
 from email import policy
@@ -16,8 +17,10 @@ from email.headerregistry import HeaderRegistry
 from email.message import EmailMessage
 from email.parser import BytesParser
 from email.utils import getaddresses, formataddr
+from html import unescape
 from pathlib import Path
 from typing import Any, Iterable, Sequence
+from urllib.parse import unquote
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -273,6 +276,86 @@ def _parse_message(raw: str) -> EmailMessage:
     return message
 
 
+def _html_plain_text(body_html: str) -> str:
+    from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning, XMLParsedAsHTMLWarning
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MarkupResemblesLocatorWarning)
+        warnings.simplefilter("ignore", XMLParsedAsHTMLWarning)
+        soup = BeautifulSoup(body_html, "html.parser")
+    for tag in soup(["script", "style", "head"]):
+        tag.decompose()
+    for link in soup.find_all("a", href=True):
+        if not link["href"].startswith("#"):
+            link.append(f" ({link['href']})")
+    for image in soup.find_all("img"):
+        image.replace_with(image.get("alt", ""))
+    for tag in soup.find_all(["br", "p", "div", "li", "blockquote", "tr", "h1", "h2", "h3", "h4", "h5", "h6"]):
+        tag.insert_before("\n")
+        tag.insert_after("\n")
+    for cell in soup.find_all(["td", "th"]):
+        cell.insert_after("\t")
+    text = re.sub(r"[ \t\r\f\v]+", " ", soup.get_text())
+    text = re.sub(r" *\n *", "\n", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def _set_body_content(part: EmailMessage, text: str, subtype: str) -> None:
+    # set_content clears Content-* headers, including related-root identifiers.
+    retained = [(name, value) for name, value in part.raw_items()
+                if name.lower().startswith("content-") and name.lower() not in {
+                    "content-type", "content-transfer-encoding", "content-length", "content-md5"}]
+    part.set_content(text, subtype=subtype, charset="utf-8")
+    for name, value in retained:
+        part[name] = value
+
+
+def _update_html_body(message: EmailMessage, body_html: str) -> None:
+    bodies = {"text/plain": [], "text/html": []}
+
+    def visit(part, ancestors=()):
+        if part.get_filename() or part.get_content_disposition() == "attachment":
+            return
+        if part.is_multipart():
+            for child in part.iter_parts():
+                visit(child, (*ancestors, part))
+        elif part.get_content_type() in bodies:
+            bodies[part.get_content_type()].append((part, ancestors))
+
+    visit(message)
+    if len(bodies["text/html"]) != 1 or len(bodies["text/plain"]) > 1:
+        raise ValueError("HTML update requires one unambiguous existing HTML body and at most one plain body")
+    html, ancestors = bodies["text/html"][0]
+    def cid_references(value):
+        return {unquote(cid) for cid in re.findall(r"\bcid:([^\s<>\"')]+)", unescape(value), flags=re.I)}
+
+    existing_cids = {str(p["Content-ID"]).strip().strip("<>") for p in message.walk()
+                     if p.get("Content-ID") and p is not html}
+    old_refs = cid_references(html.get_content())
+    new_refs = cid_references(body_html)
+    if (old_refs & existing_cids) - new_refs or new_refs - existing_cids:
+        raise ValueError("HTML must retain existing embedded CID image references and not introduce unresolved CIDs")
+    if bodies["text/plain"]:
+        plain, plain_ancestors = bodies["text/plain"][0]
+        common = [a for a, b in zip(ancestors, plain_ancestors) if a is b]
+        if not common or common[-1].get_content_type() != "multipart/alternative":
+            raise ValueError("Plain and HTML bodies must belong to the same multipart/alternative")
+    else:
+        plain = EmailMessage(policy=policy.SMTP)
+        alternative = next((p for p in reversed(ancestors)
+                            if p.get_content_type() == "multipart/alternative"), None)
+        if alternative is None:
+            alternative = next((p for p in ancestors if p.get_content_type() == "multipart/related"), html)
+            alternative.make_alternative()
+        alternative.set_payload([plain, *alternative.iter_parts()])
+    # Conversion never fetches resources or executes HTML; the caller supplies the full body.
+    _set_body_content(plain, _html_plain_text(body_html), "plain")
+    # make_alternative moves a single HTML leaf into a child.
+    if html.is_multipart():
+        html = html.get_body(preferencelist=("html",))
+    _set_body_content(html, body_html, "html")
+
+
 @dataclass
 class GmailDraftContent:
     """Prepared MIME and thread metadata; never contains an implied send action."""
@@ -305,8 +388,12 @@ class GmailDraftContent:
                 # MIME transfer encodings/newline conventions may change in Gmail.
                 if part.get_content_maintype() == "text":
                     data = part.get_content().replace("\r\n", "\n").encode("utf-8")
-                bodies.append({"mime_type": part.get_content_type(),
-                               "sha256": hashlib.sha256(data).hexdigest()})
+                body = {"mime_type": part.get_content_type(),
+                        "sha256": hashlib.sha256(data).hexdigest()}
+                for name, key in (("Content-ID", "content_id"), ("Content-Location", "content_location")):
+                    if part.get(name):
+                        body[key] = str(part[name])
+                bodies.append(body)
         return {"thread_id": self.thread_id,
                 "sender": _addresses(message.get_all("From", [])),
                 "to": _addresses(message.get_all("To", [])),
@@ -317,14 +404,18 @@ class GmailDraftContent:
                 "references": " ".join(str(message.get("References", "")).split()),
                 "attachments": attachments, "body_parts": bodies}
 
-    def updated(self, *, body_text=None, to=None, cc=None, bcc=None,
+    def updated(self, *, body_text=None, body_html=None, to=None, cc=None, bcc=None,
                 subject=None, attachments=None) -> GmailDraftContent:
         """None preserves a field; [] clears attachments/CC/BCC.
 
-        Body replacement is deliberately limited to plain-text drafts. Other
-        edits retain HTML and inline parts. Signed/encrypted/embedded MIME is
-        rejected, not silently flattened.
+        body_html replaces an existing HTML body and regenerates plain text.
+        body_text remains plain-only; supplying both is rejected. Other edits
+        retain HTML/inline parts. Signed/encrypted/embedded MIME is rejected.
         """
+        if body_text is not None and body_html is not None:
+            raise ValueError("Pass only one of body_text or body_html")
+        if body_html is not None and not isinstance(body_html, str):
+            raise ValueError("body_html must be a string")
         message = deepcopy(self.message)
         if message.get_filename() or message.get_content_disposition() == "attachment":
             raise ValueError("Attachment-only root MIME cannot be safely edited")
@@ -340,10 +431,11 @@ class GmailDraftContent:
             cc if cc is not None else message.get_all("Cc", []),
             bcc if bcc is not None else message.get_all("Bcc", []),
         )
-        for key, values in zip(("To", "Cc", "Bcc"), groups):
-            del message[key]
-            if values:
-                message[key] = ", ".join(values)
+        if any(value is not None for value in (to, cc, bcc)):
+            for key, values in zip(("To", "Cc", "Bcc"), groups):
+                del message[key]
+                if values:
+                    message[key] = ", ".join(values)
         if subject is not None:
             del message["Subject"]
             message["Subject"] = subject
@@ -353,6 +445,8 @@ class GmailDraftContent:
             if len(leaves) != 1 or leaves[0].get_content_type() != "text/plain":
                 raise ValueError("Body replacement requires a plain-text draft; HTML/inline content preserved")
             leaves[0].set_content(body_text)
+        if body_html is not None:
+            _update_html_body(message, body_html)
         if attachments is not None:
             for part in message.walk():
                 if part.is_multipart():

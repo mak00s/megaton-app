@@ -18,6 +18,7 @@ def create_parser():
             "python -m megaton_lib.gmail_draft reply --message-id ID --reply-all --body-file reply.txt",
             "python -m megaton_lib.gmail_draft get --draft-id ID --body-output draft.txt",
             "python -m megaton_lib.gmail_draft update --draft-id ID --expected-fingerprint HASH --attach report.pdf --apply",
+            "python -m megaton_lib.gmail_draft update --draft-id ID --expected-fingerprint HASH --body-html-file body.html",
         ],
         notes=["Set GMAIL_DRAFT_TOKEN_PATH (user OAuth) and GMAIL_DRAFT_EXPECTED_EMAIL.",
                "Writes default to preview. --apply writes once and verifies by reading back.",
@@ -34,12 +35,18 @@ def create_parser():
             sub.add_argument("--draft-id", required=True, help="Gmail draft ID, not its message ID")
         if name == "get":
             sub.add_argument("--body-output", type=Path, help="Explicit sensitive body export; new file only, mode 0600")
+            sub.add_argument("--body-format", choices=("plain", "html"),
+                             help="Body representation to export; default prefers plain, then HTML")
         if name == "verify":
             sub.add_argument("--expected-json", type=Path, required=True,
                              help="Saved preview/get/write JSON containing the expected content summary")
         if name in ("create", "reply", "update"):
             sub.add_argument("--apply", action="store_true", help="Create/update on Gmail; never send")
-            sub.add_argument("--body-file", type=Path, required=name != "update", help="UTF-8 plain-text body")
+            bodies = sub.add_mutually_exclusive_group() if name == "update" else sub
+            bodies.add_argument("--body-file", type=Path, required=name != "update", help="UTF-8 plain-text body; update requires a plain-only draft")
+            if name == "update":
+                bodies.add_argument("--body-html-file", type=Path,
+                                    help="Full UTF-8 HTML body for an existing HTML draft; regenerates text/plain, preserves attachments and CID images")
             files = sub.add_mutually_exclusive_group()
             files.add_argument("--attach", action="append", type=Path,
                                help="Repeat for each file; update replaces ordinary attachments, preserves inline parts")
@@ -102,7 +109,8 @@ def _run(args):
         draft = client.get_draft(args.draft_id)
         result = {**base, **draft.summary()}
         if args.command == "get" and args.body_output:
-            body = draft.content.message.get_body(preferencelist=("plain", "html"))
+            preference = (args.body_format,) if args.body_format else ("plain", "html")
+            body = draft.content.message.get_body(preferencelist=preference)
             if body is None:
                 raise ValueError("No exportable text body")
             fd = os.open(args.body_output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -125,7 +133,9 @@ def _run(args):
         draft = client.get_draft(args.draft_id)
         if draft.fingerprint != args.expected_fingerprint:
             raise ValueError("Draft changed since read; get and review it again")
-        content = draft.content.updated(body_text=body, to=args.to,
+        html_path = getattr(args, "body_html_file", None)
+        content = draft.content.updated(body_text=body,
+                                        body_html=html_path.read_text(encoding="utf-8") if html_path else None, to=args.to,
                                         cc=[] if args.clear_cc else args.cc,
                                         bcc=[] if args.clear_bcc else args.bcc,
                                         subject=args.subject, attachments=attachments)
