@@ -511,6 +511,20 @@ def test_html_write_timeout_is_not_retried(setup):
     assert len(service.writes) == 2
 
 
+@pytest.mark.parametrize("cid", ["<>", "< >", ""])
+def test_empty_content_id_does_not_preserve_replaced_attachment(cid):
+    message = EmailMessage()
+    message["From"] = "sender@example.com"
+    message["To"] = "other@example.com"
+    message.set_content("plain")
+    message.add_attachment(b"old", maintype="application", subtype="pdf", filename="old.pdf")
+    message.get_payload()[-1]["Content-ID"] = cid
+    content = GmailDraftContent(message)
+    changed = content.updated(attachments=[("new.pdf", b"new", "application/pdf")])
+    assert [a["filename"] for a in changed.summary()["attachments"]] == ["new.pdf"]
+    assert len(content.summary()["attachments"]) == 1
+
+
 def test_signed_mime_rejected():
     content = new_content()
     content.message.set_type("multipart/signed")

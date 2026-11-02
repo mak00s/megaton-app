@@ -451,7 +451,7 @@ class GmailDraftContent:
             for part in message.walk():
                 if part.is_multipart():
                     part.set_payload([p for p in part.iter_parts()
-                                      if p.get("Content-ID") or not (
+                                      if str(p.get("Content-ID", "")).strip().strip("<>").strip() or not (
                                           p.get_filename() or p.get_content_disposition() == "attachment")])
             _attach(message, attachments)
         return GmailDraftContent(message, self.thread_id)
