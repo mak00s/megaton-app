@@ -9,7 +9,7 @@ import tempfile
 import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from megaton_lib.playwright_browser import async_browser_page
 
@@ -287,6 +287,7 @@ async def upload_file_to_box_folder_via_ui(
     upload_post_wait_ms: int = 3_000,
     create_shared_link: bool = False,
     shared_link_access: str = "invited",
+    storage_state_path: str | Path | None = None,
 ) -> dict:
     """Upload a file to a Box folder via the web UI.
 
@@ -315,6 +316,7 @@ async def upload_file_to_box_folder_via_ui(
         timeout_ms=timeout_ms,
         post_login_wait_ms=post_login_wait_ms,
         print_permission_dialog_hint=print_permission_dialog_hint,
+        storage_state_path=storage_state_path,
     ) as (_context, page):
         await _ensure_box_folder_page_ready(page=page, timeout_ms=timeout_ms)
 
@@ -406,6 +408,7 @@ async def upload_files_to_box_folder_via_ui(
     create_shared_link: bool = False,
     shared_link_access: str = "invited",
     shared_link_target: str = "file",
+    storage_state_path: str | Path | None = None,
 ) -> list[dict]:
     """Upload multiple files to a (optionally nested) Box folder in one session.
 
@@ -452,6 +455,7 @@ async def upload_files_to_box_folder_via_ui(
         timeout_ms=timeout_ms,
         post_login_wait_ms=post_login_wait_ms,
         print_permission_dialog_hint=print_permission_dialog_hint,
+        storage_state_path=storage_state_path,
     ) as (_context, page):
         await _ensure_box_folder_page_ready(page=page, timeout_ms=timeout_ms)
 
@@ -626,8 +630,12 @@ async def _open_box_session(
     timeout_ms: int,
     post_login_wait_ms: int,
     print_permission_dialog_hint: bool,
+    storage_state_path: str | Path | None = None,
 ):
     args = launch_args if launch_args is not None else list(_DEFAULT_BOX_LAUNCH_ARGS)
+    state_path = Path(storage_state_path).expanduser() if storage_state_path else None
+    if state_path is not None and not state_path.is_file():
+        raise FileNotFoundError(state_path)
 
     async with async_browser_page(
         headless=headless,
@@ -636,21 +644,26 @@ async def _open_box_session(
         launch_args=args,
         accept_downloads=True,
         device_name=mobile_device_name if emulate_mobile else None,
+        storage_state_path=state_path,
     ) as page:
-        await _login_to_box(
-            page=page,
-            url=url,
-            login=login,
-            password=password,
-            login_link_selector=login_link_selector,
-            login_input_selector=login_input_selector,
-            password_input_selector=password_input_selector,
-            submit_selector=submit_selector,
-            timeout_ms=timeout_ms,
-            post_login_wait_ms=post_login_wait_ms,
-            print_permission_dialog_hint=print_permission_dialog_hint,
-        )
         try:
+            if state_path is not None:
+                await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                await _require_box_authenticated_page(page=page)
+            else:
+                await _login_to_box(
+                    page=page,
+                    url=url,
+                    login=login,
+                    password=password,
+                    login_link_selector=login_link_selector,
+                    login_input_selector=login_input_selector,
+                    password_input_selector=password_input_selector,
+                    submit_selector=submit_selector,
+                    timeout_ms=timeout_ms,
+                    post_login_wait_ms=post_login_wait_ms,
+                    print_permission_dialog_hint=print_permission_dialog_hint,
+                )
             yield page.context, page
         except Exception:
             # Capture folder/upload failures before the session closes, too.
@@ -823,6 +836,21 @@ async def _login_to_box(
     await page.wait_for_timeout(post_login_wait_ms)
     await page.goto(url)
     await page.wait_for_load_state("domcontentloaded")
+    await _require_box_authenticated_page(page=page)
+
+
+async def _require_box_authenticated_page(*, page) -> None:
+    host = urlparse(page.url).hostname or ""
+    if host != "account.box.com":
+        return
+    verification_required = "/login/mfa" in page.url
+    reason = "verification-required" if verification_required else "login-incomplete"
+    debug_dir = await _dump_box_login_debug(page=page, reason=reason)
+    detail = "email verification required" if verification_required else "login did not complete"
+    raise RuntimeError(
+        f"Box {detail}. Complete authentication before retrying; "
+        f"no folder or upload operation was attempted. debug_dir={debug_dir}"
+    )
 
 
 async def _click_box_submit(*, page, submit_selector: str, timeout_ms: int) -> None:

@@ -32,6 +32,61 @@ def test_box_action_button_keeps_live_locator_before_lazy_render():
     assert isinstance(locator, _FakeComboLocator)
 
 
+@pytest.mark.parametrize("path,detail", [
+    ("/login/mfa?session-challenge", "email verification required"),
+    ("/login", "login did not complete"),
+])
+def test_box_authentication_challenge_fails_before_upload(monkeypatch, path, detail):
+    page = AsyncMock()
+    page.url = f"https://account.box.com{path}"
+    monkeypatch.setattr(box_ui, "_dump_box_login_debug", AsyncMock(return_value="private-debug"))
+    with pytest.raises(RuntimeError, match=detail):
+        asyncio.run(box_ui._require_box_authenticated_page(page=page))
+
+
+def test_authenticated_box_folder_does_not_trigger_auth_diagnostics(monkeypatch):
+    page = AsyncMock()
+    page.url = "https://app.box.com/folder/123"
+    dump = AsyncMock()
+    monkeypatch.setattr(box_ui, "_dump_box_login_debug", dump)
+    asyncio.run(box_ui._require_box_authenticated_page(page=page))
+    dump.assert_not_awaited()
+
+
+def test_box_session_reuses_explicit_state_without_password_login(monkeypatch, tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text('{"cookies": [], "origins": []}')
+    page = AsyncMock()
+    page.url = "https://app.box.com/folder/123"
+    opened = {}
+
+    @asynccontextmanager
+    async def browser(**kwargs):
+        opened.update(kwargs)
+        yield page
+
+    login = AsyncMock()
+    monkeypatch.setattr(box_ui, "async_browser_page", browser)
+    monkeypatch.setattr(box_ui, "_login_to_box", login)
+
+    async def run():
+        async with box_ui._open_box_session(
+            url=page.url, login="user@example.test", password="secret",
+            login_link_selector="a", login_input_selector="input",
+            password_input_selector="input", submit_selector="button", headless=True,
+            emulate_mobile=False, mobile_device_name="", locale="en-US",
+            browser_channel="", launch_args=None, timeout_ms=1000,
+            post_login_wait_ms=0, print_permission_dialog_hint=False,
+            storage_state_path=path,
+        ):
+            pass
+
+    asyncio.run(run())
+    assert opened["storage_state_path"] == path
+    login.assert_not_awaited()
+    page.goto.assert_awaited_once()
+
+
 def test_existing_box_subfolder_does_not_require_create_button(monkeypatch):
     page = AsyncMock()
     existing = AsyncMock()
