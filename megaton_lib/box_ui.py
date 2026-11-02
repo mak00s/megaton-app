@@ -20,6 +20,7 @@ except ImportError:  # pragma: no cover - exercised when optional extra is absen
         pass
 
 
+_BOX_UPLOAD_PROBE_INTERVAL_MS = 30_000
 _DEFAULT_BOX_LAUNCH_ARGS = [
     "--disable-popup-blocking",
     "--disable-blink-features=AutomationControlled",
@@ -665,10 +666,10 @@ async def _open_box_session(
                     print_permission_dialog_hint=print_permission_dialog_hint,
                 )
             yield page.context, page
-        except Exception:
+        except Exception as exc:
             # Capture folder/upload failures before the session closes, too.
             try:
-                await _dump_box_login_debug(page=page, reason="operation-failed")
+                _record_box_operation_failure(page=page, error=exc)
             except Exception:
                 pass
             raise
@@ -841,7 +842,7 @@ async def _login_to_box(
 
 async def _require_box_authenticated_page(*, page) -> None:
     host = urlparse(page.url).hostname or ""
-    if host != "account.box.com":
+    if host != "account.box.com" and not host.endswith(".account.box.com"):
         return
     verification_required = "/login/mfa" in page.url
     reason = "verification-required" if verification_required else "login-incomplete"
@@ -869,6 +870,24 @@ async def _click_box_submit(*, page, submit_selector: str, timeout_ms: int) -> N
             return
 
     await page.keyboard.press("Enter")
+
+
+def _record_box_operation_failure(*, page, error: Exception) -> str:
+    """Metadata only: authenticated pages show customer file and folder names.
+
+    This directory can be uploaded as a CI artifact, so unlike the login-page
+    dump it holds no HTML, screenshot, title or visible text.
+    """
+    debug_dir = Path(tempfile.gettempdir()) / "box-login-debug" / f"operation-failed-{time.strftime('%Y%m%d-%H%M%S')}"
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    segment = urlparse(page.url).path.strip("/").split("/")[0]
+    page_kind = {"folder": "folder", "file": "file", "s": "shared"}.get(segment, "other")
+    (debug_dir / "failure.json").write_text(
+        json.dumps({"page_kind": page_kind, "error_type": type(error).__name__}, indent=2),
+        encoding="utf-8",
+    )
+    print(f"[warn] Box operation failure recorded: {debug_dir}")
+    return str(debug_dir)
 
 
 async def _dump_box_login_debug(*, page, reason: str) -> str:
@@ -1065,35 +1084,30 @@ async def _upload_file_to_current_box_folder(
     )
 
 
-async def _handle_box_refresh_notification(*, page, timeout_ms: int) -> bool:
-    refresh_patterns = [
-        r"refresh|reload|update|最新表示|更新|再読み込み|再表示",
-        r"^(OK|確認|更新する|再読み込み)$",
-    ]
-    deadline = time.time() + (timeout_ms / 1000)
-    click_count = 0
-    while time.time() < deadline:
-        clicked = False
-        for pattern in refresh_patterns:
-            button = page.get_by_role("button", name=re.compile(pattern, re.I)).first
+async def _box_item_visible_in_new_tab(*, page, item_name: str, timeout_ms: int) -> bool:
+    """Check a fresh folder listing without touching the uploading tab."""
+    probe = None
+    try:
+        probe = await page.context.new_page()
+        await probe.goto(page.url, wait_until="domcontentloaded", timeout=timeout_ms)
+        await _ensure_box_folder_page_ready(page=probe, timeout_ms=timeout_ms)
+        # The ready check can pass on toolbar buttons before rows render.
+        await probe.wait_for_timeout(2_000)
+        return await _find_box_item_link(page=probe, item_name=item_name) is not None
+    except Exception:
+        # A failed probe proves nothing; the uploading tab keeps waiting.
+        return False
+    finally:
+        if probe is not None:
             try:
-                if await button.count() > 0 and await button.is_visible():
-                    await button.click(timeout=2_000)
-                    clicked = True
-                    click_count += 1
-                    break
-            except PlaywrightTimeoutError:
-                continue
-        if not clicked:
-            return click_count > 0
-        if click_count >= 3:
-            return True
-        await page.wait_for_timeout(1_000)
-    return click_count > 0
+                await probe.close()
+            except Exception:
+                pass
 
 
 async def _wait_for_box_upload_completion(*, page, item_name: str, timeout_ms: int) -> None:
     deadline = time.monotonic() + (timeout_ms / 1000)
+    next_probe = time.monotonic() + (_BOX_UPLOAD_PROBE_INTERVAL_MS / 1000)
     # Reloading here can cancel the upload itself. Keep the uploader alive for
     # the whole deadline, including periods without visible progress text.
     while time.monotonic() < deadline:
@@ -1101,10 +1115,22 @@ async def _wait_for_box_upload_completion(*, page, item_name: str, timeout_ms: i
         if locator is not None:
             return
 
+        # This tab's list may never update on its own, so a finished upload
+        # stays invisible here. A separate tab cannot cancel the upload.
+        now = time.monotonic()
+        if now >= next_probe:
+            next_probe = now + (_BOX_UPLOAD_PROBE_INTERVAL_MS / 1000)
+            probe_ms = min(15_000, max(1, int((deadline - now) * 1000)))
+            if await _box_item_visible_in_new_tab(page=page, item_name=item_name, timeout_ms=probe_ms):
+                return
+
         remaining_ms = max(0, int((deadline - time.monotonic()) * 1000))
         await page.wait_for_timeout(min(2_000, remaining_ms))
 
-    raise RuntimeError(f"Timed out waiting for uploaded Box file to appear: {item_name}")
+    raise RuntimeError(
+        f"Timed out waiting for uploaded Box file to appear: {item_name}. "
+        "The upload may still complete; inspect the folder before retrying."
+    )
 
 
 async def _create_or_get_box_shared_link(

@@ -8,7 +8,7 @@ import re
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -115,8 +115,8 @@ def test_box_operation_failure_captures_debug_without_masking_error(monkeypatch,
 
     monkeypatch.setattr(box_ui, "async_browser_page", browser)
     monkeypatch.setattr(box_ui, "_login_to_box", AsyncMock())
-    dump = AsyncMock(side_effect=OSError("debug disk full") if diagnostic_fails else None)
-    monkeypatch.setattr(box_ui, "_dump_box_login_debug", dump)
+    dump = MagicMock(side_effect=OSError("debug disk full") if diagnostic_fails else None)
+    monkeypatch.setattr(box_ui, "_record_box_operation_failure", dump)
 
     async def fail():
         async with box_ui._open_box_session(
@@ -131,7 +131,8 @@ def test_box_operation_failure_captures_debug_without_masking_error(monkeypatch,
 
     with pytest.raises(RuntimeError, match="upload result unknown"):
         asyncio.run(fail())
-    dump.assert_awaited_once_with(page=page, reason="operation-failed")
+    dump.assert_called_once()
+    assert dump.call_args.kwargs["page"] is page
 
 
 @pytest.mark.parametrize("appears_at_ms", [8_000, 118_000, None])
@@ -148,8 +149,6 @@ def test_upload_completion_waits_without_cancelling_upload(monkeypatch, appears_
     page = AsyncMock()
     page.wait_for_timeout.side_effect = wait
     monkeypatch.setattr(box_ui, "_find_box_item_link", find)
-    refresh = AsyncMock(side_effect=AssertionError("must not refresh during upload"))
-    monkeypatch.setattr(box_ui, "_handle_box_refresh_notification", refresh)
     if appears_at_ms is None:
         with pytest.raises(RuntimeError, match="Timed out waiting for uploaded Box file"):
             asyncio.run(box_ui._wait_for_box_upload_completion(
@@ -162,7 +161,72 @@ def test_upload_completion_waits_without_cancelling_upload(monkeypatch, appears_
         ))
         assert elapsed[0] == appears_at_ms
     page.reload.assert_not_awaited()
-    refresh.assert_not_awaited()
+
+
+def test_stale_list_finds_finished_upload_in_second_tab(monkeypatch):
+    elapsed = [0]
+    monkeypatch.setattr(box_ui.time, "monotonic", lambda: elapsed[0] / 1000)
+
+    async def wait(ms):
+        elapsed[0] += ms
+
+    page = AsyncMock()
+    page.url = "https://app.box.com/folder/123"
+    page.wait_for_timeout.side_effect = wait
+    probe = AsyncMock()
+    page.context.new_page.return_value = probe
+
+    async def find(*, page, item_name):
+        return object() if page is probe else None
+
+    monkeypatch.setattr(box_ui, "_find_box_item_link", find)
+    asyncio.run(box_ui._wait_for_box_upload_completion(page=page, item_name="report.xlsx", timeout_ms=120_000))
+    assert elapsed[0] < 120_000
+    probe.goto.assert_awaited_once()
+    assert probe.goto.await_args.args[0] == page.url
+    probe.close.assert_awaited_once()
+    page.reload.assert_not_awaited()
+    page.goto.assert_not_awaited()
+
+
+def test_failed_second_tab_probe_keeps_waiting_and_closes(monkeypatch):
+    elapsed = [0]
+    monkeypatch.setattr(box_ui.time, "monotonic", lambda: elapsed[0] / 1000)
+
+    async def wait(ms):
+        elapsed[0] += ms
+
+    page = AsyncMock()
+    page.wait_for_timeout.side_effect = wait
+    probe = AsyncMock()
+    probe.goto.side_effect = RuntimeError("navigation failed")
+    page.context.new_page.return_value = probe
+    monkeypatch.setattr(box_ui, "_find_box_item_link", AsyncMock(return_value=None))
+    with pytest.raises(RuntimeError, match="inspect the folder before retrying"):
+        asyncio.run(box_ui._wait_for_box_upload_completion(page=page, item_name="report.xlsx", timeout_ms=60_000))
+    assert elapsed[0] == 60_000
+    assert probe.close.await_count == probe.goto.await_count >= 1
+
+
+def test_operation_failure_record_holds_no_page_content(monkeypatch, tmp_path):
+    monkeypatch.setattr(box_ui.tempfile, "gettempdir", lambda: str(tmp_path))
+    page = MagicMock()
+    page.url = "https://customer.app.box.com/s/private-token?p=private-query"
+    debug_dir = Path(box_ui._record_box_operation_failure(page=page, error=RuntimeError("Customer report.xlsx")))
+    assert [item.name for item in debug_dir.iterdir()] == ["failure.json"]
+    text = (debug_dir / "failure.json").read_text()
+    assert '"page_kind": "shared"' in text and "RuntimeError" in text
+    for private in ("private-token", "private-query", "customer", "Customer"):
+        assert private not in text
+    assert not page.content.called and not page.screenshot.called
+
+
+def test_enterprise_login_subdomain_is_an_authentication_challenge(monkeypatch):
+    page = AsyncMock()
+    page.url = "https://example.account.box.com/login"
+    monkeypatch.setattr(box_ui, "_dump_box_login_debug", AsyncMock(return_value="private-debug"))
+    with pytest.raises(RuntimeError, match="login did not complete"):
+        asyncio.run(box_ui._require_box_authenticated_page(page=page))
 
 
 def test_box_ui_imports_without_playwright(monkeypatch):

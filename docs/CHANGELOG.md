@@ -4,6 +4,12 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+- Box uploads confirm a stale folder list from a separate read-only tab instead of
+  timing out, without reloading the uploading tab. A timeout now says the upload may
+  still complete. Failures after login record only a coarse page kind and the error
+  type (no URL, HTML, screenshot or page text), and enterprise `*.account.box.com`
+  login pages stop as unauthenticated.
+
 ## 2026-10-23 (v0.44.0)
 
 - Docs, structured Docs mutations, Gmail drafts and GTM review CLIs accept
