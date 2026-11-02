@@ -218,8 +218,15 @@ assert result["verified"]  # Do not equate an HTTP response with verified comple
 ```
 
 Follow-up creation uses `client.create_task(content=..., ...)`, also preview by
-default. This is not an automatic report finish hook. Recurring completion and
-general task/project management are unsupported. Full receipt/verification
+default. This is not an automatic report finish hook. Recurring completion is
+supported with a reviewed fingerprint and the exact original due date passed as
+`expected_occurrence`; readback verifies the next due date and completed-count
+progression. Explicitly reviewed `rename_task(...)` changes only the title, and
+`restore_recurring_occurrence(...)` restores an earlier date-only occurrence
+without completing it or changing its recurrence rule. These writes also default
+to preview and require explicit apply, a private Receipt and readback verification.
+General task updates, deletion and project management remain unsupported.
+Full receipt/verification
 contract: [REFERENCE](REFERENCE.md#todoist-task-handoffs-megaton_libtodoist_client).
 
 ## Monthly analytics work logs

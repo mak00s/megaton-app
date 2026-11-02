@@ -4,6 +4,10 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+- Treat blank or empty-angle-bracket Content-ID headers as absent when replacing
+  or clearing draft attachments, so old ordinary attachments are removed while
+  inline resources with nonempty Content-IDs remain preserved.
+
 - Allow request work-log appends to preformatted empty tail rows. Emptiness is
   based on entered values rather than formatting; populated rows (including zero,
   false and formulas), stale row plans and intervening snapshot changes still stop
