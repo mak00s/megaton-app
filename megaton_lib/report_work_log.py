@@ -213,7 +213,7 @@ def record_row_plan(book, operation, *, tab, apply=False, receipt_path=None):
         if operation["action"] == "append":
             last = max((i for i, r in enumerate(observed["rows"], 1) if any(
                 c.get("userEnteredValue") for c in r)), default=1)
-            if row != last + 1 or any(normalized(before)):
+            if row != last + 1 or any(c.get("userEnteredValue") for c in before):
                 raise ValueError("Work-log append target is no longer the empty tail")
     if not apply:
         return {"action": "skip" if done else operation["action"], "row": row, "verified": done}

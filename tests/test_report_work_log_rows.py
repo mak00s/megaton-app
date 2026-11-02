@@ -65,6 +65,79 @@ def test_row_preview_append_once_native_formula_and_receipt(row_env):
     assert json.loads(path.read_text())["status"] == "verified"
 
 
+@pytest.fixture
+def formatted_tail(row_env):
+    state, plan, *_ = row_env
+    before = [{} for _ in plan["before"]]
+    before[2] = {"userEnteredFormat": {"numberFormat": {"type": "DATE", "pattern": "m/d"}}}
+    before[5] = {"userEnteredFormat": {"numberFormat": {"type": "CURRENCY"}}}
+    state["row_count"] = 3
+    state["rows"].append(deepcopy(before))
+    plan["before"] = deepcopy(before)
+    for target, template in zip(plan["after"], before):
+        target.update(deepcopy(template))
+    return row_env
+
+
+def test_append_to_formatted_empty_tail_preserves_formats_and_verifies(formatted_tail):
+    state, plan, path, calls, _, record, _ = formatted_tail
+    original = deepcopy(state)
+    assert record()["action"] == "append"
+    assert state == original and not calls and not path.exists()
+    assert record(True)["verified"]
+    assert len(calls) == 1 and len(calls[0]) == 1
+    assert "updateCells" in calls[0][0]
+    assert state["rows"][2] == plan["after"]
+    for column in (2, 5):
+        assert state["rows"][2][column]["userEnteredFormat"] == original["rows"][2][column]["userEnteredFormat"]
+    assert json.loads(path.read_text())["status"] == "verified"
+    assert record(True)["action"] == "skip" and len(calls) == 1
+
+
+@pytest.mark.parametrize("existing", [
+    {"stringValue": "existing"}, {"numberValue": 0}, {"boolValue": False}, {"formulaValue": '=""'},
+])
+def test_append_rejects_populated_tail_even_when_before_matches(formatted_tail, existing):
+    state, plan, path, calls, _, record, _ = formatted_tail
+    state["rows"][2][0]["userEnteredValue"] = existing
+    plan["before"] = deepcopy(state["rows"][2])
+    with pytest.raises(ValueError, match="empty tail"):
+        record(True)
+    assert not calls and not path.exists()
+
+
+def test_append_rejects_value_beyond_planned_columns(formatted_tail):
+    state, _, path, calls, _, record, _ = formatted_tail
+    state["rows"][2].append(cell("existing outside the write range"))
+    with pytest.raises(ValueError, match="empty tail"):
+        record(True)
+    assert not calls and not path.exists()
+
+
+@pytest.mark.parametrize("change", ["value", "format"])
+@pytest.mark.parametrize("changed_on_read", [1, 2])
+def test_formatted_tail_concurrent_change_stops_before_receipt_or_write(
+        formatted_tail, monkeypatch, change, changed_on_read):
+    state, _, path, calls, _, record, _ = formatted_tail
+    count = 0
+
+    def read(*args, **kwargs):
+        nonlocal count
+        count += 1
+        observed = deepcopy(state)
+        if count >= changed_on_read:
+            if change == "value":
+                observed["rows"][2][0] = cell("concurrent task")
+            else:
+                observed["rows"][2][2]["userEnteredFormat"] = {"numberFormat": {"type": "TEXT"}}
+        return observed
+
+    monkeypatch.setattr(log, "snapshot", read)
+    with pytest.raises(ValueError, match="changed after preview"):
+        record(True)
+    assert not calls and not path.exists()
+
+
 def test_complete_row_preserves_existing_native_metadata(row_env):
     state, plan, _, calls, _, record, _ = row_env
     before = deepcopy(plan["after"])

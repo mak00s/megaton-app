@@ -252,7 +252,11 @@ reconciliation of an uncertain write; never create a replacement path.
 
 This mode retains fixed row references in caller-approved formulas and supports
 value-only completion of a partial row. An append must still target the empty
-tail at recheck. Unlike monthly `appendCells`, fixed-row updates are not an
+tail at recheck. A row with formatting but no `userEnteredValue` is an empty
+tail; its native metadata must still match `before` and the reviewed `after`
+determines the resulting formatting. Zero, false and formulas count as values,
+and any intervening snapshot change still blocks the write.
+Unlike monthly `appendCells`, fixed-row updates are not an
 atomic compare-and-swap; consumers must serialize all writers to that ledger.
 `snapshot(book, tab, cell_fields=..., min_columns=...)` shares the bounded native
 reader with monthly workflows. Credentials, request matching and business gates

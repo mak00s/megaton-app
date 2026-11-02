@@ -4,6 +4,11 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+- Allow request work-log appends to preformatted empty tail rows. Emptiness is
+  based on entered values rather than formatting; populated rows (including zero,
+  false and formulas), stale row plans and intervening snapshot changes still stop
+  before receipt creation or writing.
+
 - Extend `report_work_log` with caller-reviewed request-scoped row completion,
   native formula/format preservation and receipt-bound readback. Monthly appends
   keep their existing policy. Empty or malformed existing receipts now fail closed
