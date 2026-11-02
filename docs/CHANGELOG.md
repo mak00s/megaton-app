@@ -10,6 +10,11 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
   type (no URL, HTML, screenshot or page text), and enterprise `*.account.box.com`
   login pages stop as unauthenticated.
 
+- Add `report_work_log` for preview-first monthly work-log appends to a Google Sheet.
+  Apply requires a private receipt, writes once without retry and verifies by readback.
+  Every receipt reuse compares the row's values and format with the expected cells, so
+  later edits or a receipt without them stop for inspection instead of passing as verified.
+
 ## 2026-10-23 (v0.44.0)
 
 - Docs, structured Docs mutations, Gmail drafts and GTM review CLIs accept

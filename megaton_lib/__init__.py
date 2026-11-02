@@ -55,6 +55,7 @@ Reporting & delivery:
     docs_assets      : explicitly approved temporary image copies for Docs
     env_utils        : .env loading / required-env checks
     report_validation: ExecutionTracker for report runs + sheet caching
+    report_work_log  : preview-first monthly work-log append with private receipts
     csv_validation   : validate generated import CSVs against source DataFrames
     report_gmail_draft: build Gmail drafts from execution summaries
     gmail_client     : user-OAuth message reads and draft-only reply/update/verification
