@@ -238,8 +238,26 @@ partial rows fail closed. A matching historical format exemplar is required.
 Unknown writes retain a private pending Receipt; inspect the sheet and reuse that
 same Receipt, never a fresh path. The API does not retry an append. Calls for the
 same customer/item/month must be serialized by the consumer, including across
-repositories. This API does not support per-request billing or general ledger
-editing. Low-level Sheets requests remain delegated to Megaton.
+repositories. `record_monthly` does not use per-request duplicate keys.
+
+For request-scoped analytics implementation work, consumers can keep their own
+identity/amount/completion policy and pass a reviewed single-row operation to
+`record_row_plan(book, operation, tab=..., apply=False)`. The operation contains
+`action` (`append`, `complete`, `skip`), `sheet_id`, a one-based `row`, and native
+`before`/`after` cell lists. After review, `apply=True, receipt_path=...` rechecks
+the worksheet and row, persists a pending Receipt, writes once without retries,
+and verifies values, formulas, formats, validation and chips. Receipt binding
+includes the book, tab and full plan digest. Reuse the same Receipt for read-only
+reconciliation of an uncertain write; never create a replacement path.
+
+This mode retains fixed row references in caller-approved formulas and supports
+value-only completion of a partial row. An append must still target the empty
+tail at recheck. Unlike monthly `appendCells`, fixed-row updates are not an
+atomic compare-and-swap; consumers must serialize all writers to that ledger.
+`snapshot(book, tab, cell_fields=..., min_columns=...)` shares the bounded native
+reader with monthly workflows. Credentials, request matching and business gates
+remain in consumers. General ledger editing remains outside this module.
+Low-level Sheets requests remain delegated to Megaton.
 
 ## Box API artifact transfer
 

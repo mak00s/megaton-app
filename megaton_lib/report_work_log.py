@@ -8,6 +8,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date, timedelta
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -55,14 +56,16 @@ def values(row):
     return [value(c) for c in (row + [{}] * 6)[:6]]
 
 
-def snapshot(book, spec):
-    matches = [s for s in book.fetch_sheet_metadata()["sheets"] if s["properties"]["title"] == spec.tab]
+def snapshot(book, spec, *, cell_fields=CELL_FIELDS, min_columns=6):
+    """Read a monthly spec or an explicit worksheet title, preserving row offsets."""
+    tab = spec if isinstance(spec, str) else spec.tab
+    matches = [s for s in book.fetch_sheet_metadata()["sheets"] if s["properties"]["title"] == tab]
     if len(matches) != 1 or matches[0].get("tables") or matches[0].get("merges"):
         raise ValueError("Work log must be one ordinary unmerged worksheet")
     props = matches[0]["properties"]
-    if props.get("sheetType", "GRID") != "GRID" or props["gridProperties"]["columnCount"] < 6:
-        raise ValueError("Work log requires a grid with columns A:F")
-    quoted = "'" + spec.tab.replace("'", "''") + "'"
+    if props.get("sheetType", "GRID") != "GRID" or props["gridProperties"]["columnCount"] < min_columns:
+        raise ValueError("Work log requires a grid with enough columns")
+    quoted = "'" + tab.replace("'", "''") + "'"
     height = props["gridProperties"]["rowCount"]
     width = props["gridProperties"]["columnCount"]
     chunk_size = max(1, 25000 // width)
@@ -71,7 +74,7 @@ def snapshot(book, spec):
         stop = min(start + chunk_size, height)
         result = book.fetch_sheet_metadata(params={
             "includeGridData": True, "ranges": f"{quoted}!{start + 1}:{stop}",
-            "fields": f"sheets(data(rowData(values({CELL_FIELDS}))))",
+            "fields": f"sheets(data(rowData(values({cell_fields}))))",
         })
         block = result["sheets"][0].get("data", [{}])[0].get("rowData", [])
         rows.extend(r.get("values", []) for r in block)
@@ -141,6 +144,111 @@ def plan_monthly(snapshot, work_date, spec):
             "rows": list(range(start + 1, start + len(cells) + 1)), "cells": cells}
 
 
+def _persist_receipt(receipt, binding, status, result):
+    receipt.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with tempfile.NamedTemporaryFile(mode="w", dir=receipt.parent, encoding="utf-8", delete=False) as tmp:
+        json.dump({"binding": binding, "status": status, "result": result}, tmp, ensure_ascii=False, indent=2)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+    os.replace(tmp.name, receipt)
+
+
+def _read_receipt(receipt, binding):
+    if receipt is None or not receipt.exists():
+        return None
+    previous = json.loads(receipt.read_text())
+    if (not isinstance(previous, dict) or previous.get("binding") != binding
+            or previous.get("status") not in {"pending", "verified"}
+            or not isinstance(previous.get("result"), dict)):
+        raise ValueError("Work-log receipt belongs to another operation or is invalid; inspect without retry")
+    return previous
+
+
+def record_row_plan(book, operation, *, tab, apply=False, receipt_path=None):
+    """Apply a caller-reviewed, fixed-row work-log plan with exact native readback.
+
+    The caller owns request-level duplicate detection, amounts/formulas, approval
+    and serialization. This preserves planned formula row references; unlike the
+    monthly append-only API it uses a fixed row, not an atomic tail append.
+    Never modify a plan or switch receipt paths to recover an unknown write.
+    """
+    fields = "userEnteredValue,userEnteredFormat,dataValidation,chipRuns"
+    if operation.get("action") not in {"append", "complete", "skip"}:
+        raise ValueError("Unsupported work-log row operation")
+    row = operation.get("row")
+    after, before = operation.get("after"), operation.get("before")
+    if (type(row) is not int or row < 2 or not isinstance(after, list) or not after
+            or not isinstance(before, list) or len(before) != len(after)):
+        raise ValueError("Work-log plan requires one non-header row and equal native cell widths")
+    width = len(after)
+
+    def normalized(item):
+        if isinstance(item, dict):
+            return {k: normalized(v) for k, v in item.items() if v not in ({}, [], None)}
+        if isinstance(item, list):
+            return [normalized(v) for v in item]
+        return item
+
+    def cells(state):
+        raw = state["rows"][row - 1] if row <= len(state["rows"]) else []
+        return normalized((raw + [{}] * width)[:width])
+
+    def read():
+        state = snapshot(book, tab, cell_fields=fields, min_columns=width)
+        if state["sheet_id"] != operation.get("sheet_id"):
+            raise ValueError("Work-log worksheet identity changed")
+        return state
+
+    binding = {"spreadsheet_id": book.id, "tab": tab, "schema": "work-log-row/v1",
+               "plan_hash": hashlib.sha256(json.dumps(operation, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}
+    receipt = Path(receipt_path).expanduser() if receipt_path else None
+    previous = _read_receipt(receipt, binding)
+    observed = read()
+    done = cells(observed) == normalized(after)
+    if previous and not done:
+        raise RuntimeError("Prior work-log write is unresolved; inspect without retry")
+    if not done:
+        if operation["action"] == "skip" or cells(observed) != normalized(before):
+            raise ValueError("Work-log row changed after preview")
+        if operation["action"] == "append":
+            last = max((i for i, r in enumerate(observed["rows"], 1) if any(
+                c.get("userEnteredValue") for c in r)), default=1)
+            if row != last + 1 or any(normalized(before)):
+                raise ValueError("Work-log append target is no longer the empty tail")
+    if not apply:
+        return {"action": "skip" if done else operation["action"], "row": row, "verified": done}
+    if receipt is None:
+        raise ValueError("Applying a work-log row requires a private receipt path")
+    if not done:
+        if read() != observed:
+            raise ValueError("Work log changed after preview; no write attempted")
+        requests = []
+        if row > observed["row_count"]:
+            requests.append({"appendDimension": {"sheetId": observed["sheet_id"], "dimension": "ROWS",
+                                                  "length": row - observed["row_count"]}})
+        if operation["action"] == "append":
+            requests.append({"updateCells": {"range": {"sheetId": observed["sheet_id"],
+                "startRowIndex": row - 1, "endRowIndex": row, "startColumnIndex": 0, "endColumnIndex": width},
+                "rows": [{"values": after}], "fields": fields}})
+        else:
+            for index, (old, new) in enumerate(zip(before, after)):
+                if normalized(old) == normalized(new):
+                    continue
+                if normalized({k: v for k, v in old.items() if k != "userEnteredValue"}) != normalized(
+                        {k: v for k, v in new.items() if k != "userEnteredValue"}):
+                    raise ValueError("Completing a work-log row must preserve formats/validation/chips")
+                requests.append({"updateCells": {"range": {"sheetId": observed["sheet_id"],
+                    "startRowIndex": row - 1, "endRowIndex": row, "startColumnIndex": index, "endColumnIndex": index + 1},
+                    "rows": [{"values": [new]}], "fields": "userEnteredValue"}})
+        _persist_receipt(receipt, binding, "pending", operation)
+        batch_update_spreadsheet(book, requests, retry=False)
+        if cells(read()) != normalized(after):
+            raise RuntimeError("Work-log row readback differs; inspect without retry")
+    result = {"action": "skip" if done else operation["action"], "row": row, "verified": True}
+    _persist_receipt(receipt, binding, "verified", result)
+    return result
+
+
 def record_monthly(book, work_date, spec, *, apply=False, receipt_path=None):
     before = snapshot(book, spec)
     plan = plan_monthly(before, work_date, spec)
@@ -148,9 +256,7 @@ def record_monthly(book, work_date, spec, *, apply=False, receipt_path=None):
                "month": work_date.replace(day=1).isoformat(), "bill_month": spec.bill_month,
                "items": [list(item) for item in spec.items]}
     receipt = Path(receipt_path).expanduser() if receipt_path else None
-    previous = json.loads(receipt.read_text()) if receipt and receipt.exists() else None
-    if previous and previous.get("binding") != binding:
-        raise ValueError("Work-log receipt belongs to another operation")
+    previous = _read_receipt(receipt, binding)
     if previous and plan["action"] != "skip":
         raise RuntimeError("Prior work-log write is unresolved or its row disappeared; inspect without another append")
     expected = None
@@ -164,12 +270,7 @@ def record_monthly(book, work_date, spec, *, apply=False, receipt_path=None):
     if receipt is None:
         raise ValueError("Applying a work-log append requires a private receipt path")
     def persist(status, result):
-        receipt.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(mode="w", dir=receipt.parent, encoding="utf-8", delete=False) as tmp:
-            json.dump({"binding": binding, "status": status, "result": result}, tmp, ensure_ascii=False, indent=2)
-            tmp.flush()
-            os.fsync(tmp.fileno())
-        os.replace(tmp.name, receipt)
+        _persist_receipt(receipt, binding, status, result)
     if plan["action"] == "skip":
         persist("verified", {**plan, "cells": expected or observed_cells(before, plan["rows"])})
         return {**plan, "verified": True}

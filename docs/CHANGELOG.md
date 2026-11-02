@@ -4,6 +4,11 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+- Extend `report_work_log` with caller-reviewed request-scoped row completion,
+  native formula/format preservation and receipt-bound readback. Monthly appends
+  keep their existing policy. Empty or malformed existing receipts now fail closed
+  instead of being treated as permission for another write.
+
 - Box uploads confirm a stale folder list from a separate read-only tab instead of
   timing out, without reloading the uploading tab. A timeout now says the upload may
   still complete. Failures after login record only a coarse page kind and the error

@@ -294,3 +294,15 @@ def test_verify_cells_pads_short_expected_rows():
     observed = {"rows": [[{}] * 5 + [{"userEnteredFormat": {"bold": True}}]]}
     with pytest.raises(RuntimeError, match="readback differs"):
         log.verify_cells(observed, [1], [{"values": [{}] * 5}])
+
+
+@pytest.mark.parametrize("invalid", [{}, None, []])
+def test_invalid_receipt_never_allows_another_monthly_append(monkeypatch, tmp_path, invalid):
+    policy = spec()
+    monkeypatch.setattr(log, "snapshot", lambda *_: source(policy))
+    monkeypatch.setattr(log, "batch_update_spreadsheet", lambda *a, **kw: pytest.fail("No write"))
+    path = tmp_path / "receipt.json"
+    path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="invalid"):
+        log.record_monthly(SimpleNamespace(id="book"), date(2026, 11, 2), policy,
+                           apply=True, receipt_path=path)
