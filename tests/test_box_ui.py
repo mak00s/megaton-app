@@ -8,11 +8,106 @@ import re
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 
 from megaton_lib import box_ui
+
+
+def test_box_action_button_keeps_live_locator_before_lazy_render():
+    class Page:
+        def get_by_role(self, role, *, name):
+            assert role == "button"
+            assert name.search("New")
+            assert name.search("Create New")
+            assert name.search("新規作成")
+            return _FakeComboLocator()
+
+    locator = asyncio.run(box_ui._find_box_action_button(
+        page=Page(), primary_pattern=r"^New$",
+        fallback_patterns=[r"^Create New$", r"^新規作成$"],
+    ))
+    assert isinstance(locator, _FakeComboLocator)
+
+
+def test_existing_box_subfolder_does_not_require_create_button(monkeypatch):
+    page = AsyncMock()
+    existing = AsyncMock()
+    monkeypatch.setattr(box_ui, "_find_box_item_link", AsyncMock(return_value=existing))
+    monkeypatch.setattr(box_ui, "_ensure_box_folder_page_ready", AsyncMock())
+    find_action = AsyncMock(side_effect=AssertionError("must not find New"))
+    monkeypatch.setattr(box_ui, "_find_box_action_button", find_action)
+
+    result = asyncio.run(box_ui._open_or_create_box_subfolder(
+        page=page, folder_names=["202610"], timeout_ms=1000,
+        new_item_button_pattern="New", new_folder_item_pattern="Folder",
+        create_button_pattern="Create",
+    ))
+    assert result == (False, "202610")
+    existing.click.assert_awaited_once()
+    find_action.assert_not_awaited()
+
+
+@pytest.mark.parametrize("diagnostic_fails", [False, True])
+def test_box_operation_failure_captures_debug_without_masking_error(monkeypatch, diagnostic_fails):
+    page = AsyncMock()
+
+    @asynccontextmanager
+    async def browser(**kwargs):
+        yield page
+
+    monkeypatch.setattr(box_ui, "async_browser_page", browser)
+    monkeypatch.setattr(box_ui, "_login_to_box", AsyncMock())
+    dump = AsyncMock(side_effect=OSError("debug disk full") if diagnostic_fails else None)
+    monkeypatch.setattr(box_ui, "_dump_box_login_debug", dump)
+
+    async def fail():
+        async with box_ui._open_box_session(
+            url="https://app.box.com/folder/123", login="user@example.test",
+            password="secret", login_link_selector="a", login_input_selector="input",
+            password_input_selector="input", submit_selector="button", headless=True,
+            emulate_mobile=False, mobile_device_name="", locale="en-US",
+            browser_channel="", launch_args=None, timeout_ms=1000,
+            post_login_wait_ms=0, print_permission_dialog_hint=False,
+        ):
+            raise RuntimeError("upload result unknown")
+
+    with pytest.raises(RuntimeError, match="upload result unknown"):
+        asyncio.run(fail())
+    dump.assert_awaited_once_with(page=page, reason="operation-failed")
+
+
+@pytest.mark.parametrize("appears_at_ms", [8_000, 118_000, None])
+def test_upload_completion_waits_without_cancelling_upload(monkeypatch, appears_at_ms):
+    elapsed = [0]
+    monkeypatch.setattr(box_ui.time, "monotonic", lambda: elapsed[0] / 1000)
+
+    async def wait(ms):
+        elapsed[0] += ms
+
+    async def find(**kwargs):
+        return object() if appears_at_ms is not None and elapsed[0] >= appears_at_ms else None
+
+    page = AsyncMock()
+    page.wait_for_timeout.side_effect = wait
+    monkeypatch.setattr(box_ui, "_find_box_item_link", find)
+    refresh = AsyncMock(side_effect=AssertionError("must not refresh during upload"))
+    monkeypatch.setattr(box_ui, "_handle_box_refresh_notification", refresh)
+    if appears_at_ms is None:
+        with pytest.raises(RuntimeError, match="Timed out waiting for uploaded Box file"):
+            asyncio.run(box_ui._wait_for_box_upload_completion(
+                page=page, item_name="report.xlsx", timeout_ms=120_000,
+            ))
+        assert elapsed[0] == 120_000
+    else:
+        asyncio.run(box_ui._wait_for_box_upload_completion(
+            page=page, item_name="report.xlsx", timeout_ms=120_000,
+        ))
+        assert elapsed[0] == appears_at_ms
+    page.reload.assert_not_awaited()
+    refresh.assert_not_awaited()
 
 
 def test_box_ui_imports_without_playwright(monkeypatch):

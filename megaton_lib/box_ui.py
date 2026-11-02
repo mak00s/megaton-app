@@ -650,7 +650,15 @@ async def _open_box_session(
             post_login_wait_ms=post_login_wait_ms,
             print_permission_dialog_hint=print_permission_dialog_hint,
         )
-        yield page.context, page
+        try:
+            yield page.context, page
+        except Exception:
+            # Capture folder/upload failures before the session closes, too.
+            try:
+                await _dump_box_login_debug(page=page, reason="operation-failed")
+            except Exception:
+                pass
+            raise
 
 
 async def _collect_box_folder_file_links(*, page, folder_file_href_pattern: str) -> list[dict[str, str]]:
@@ -853,6 +861,10 @@ async def _dump_box_login_debug(*, page, reason: str) -> str:
             {
                 "url": page.url,
                 "title": await page.title(),
+                "visible_text": [
+                    _sanitize_box_debug_text(line)
+                    for line in (await page.locator("body").inner_text()).splitlines()[:80]
+                ],
                 "inputs": await page.locator("input").evaluate_all(
                     """els => els.map(el => ({
                         type: el.getAttribute('type') || '',
@@ -912,13 +924,6 @@ async def _open_or_create_box_subfolder(
     create_button_pattern: str,
 ) -> tuple[bool, str]:
     await page.wait_for_timeout(5_000)
-    new_btn = await _find_box_action_button(
-        page=page,
-        primary_pattern=new_item_button_pattern,
-        fallback_patterns=[r"^(New Item|Create New)$", r"^(新規作成)$"],
-    )
-    await new_btn.wait_for(timeout=timeout_ms)
-
     for folder_name in folder_names:
         existing = await _find_box_item_link(page=page, item_name=folder_name)
         if existing is not None:
@@ -929,6 +934,12 @@ async def _open_or_create_box_subfolder(
 
     folder_name = folder_names[0]
 
+    new_btn = await _find_box_action_button(
+        page=page,
+        primary_pattern=new_item_button_pattern,
+        fallback_patterns=[r"^(New Item|Create New)$", r"^(新規作成)$"],
+    )
+    await new_btn.wait_for(timeout=timeout_ms)
     await new_btn.click(timeout=timeout_ms)
     folder_item = page.get_by_role("menuitem", name=re.compile(new_folder_item_pattern, re.I)).first
     await folder_item.wait_for(timeout=timeout_ms)
@@ -1012,8 +1023,6 @@ async def _upload_file_to_current_box_folder(
     except PlaywrightTimeoutError:
         pass
 
-    await _handle_box_refresh_notification(page=page, timeout_ms=min(timeout_ms, 10_000))
-
     if file_already_present:
         # A same-named file already visible in the folder would satisfy the old
         # success check immediately. For version updates, wait a bit longer so
@@ -1056,33 +1065,16 @@ async def _handle_box_refresh_notification(*, page, timeout_ms: int) -> bool:
 
 
 async def _wait_for_box_upload_completion(*, page, item_name: str, timeout_ms: int) -> None:
-    deadline = time.time() + (timeout_ms / 1000)
-    reload_attempts = 0
-    idle_checks = 0
-    while time.time() < deadline:
+    deadline = time.monotonic() + (timeout_ms / 1000)
+    # Reloading here can cancel the upload itself. Keep the uploader alive for
+    # the whole deadline, including periods without visible progress text.
+    while time.monotonic() < deadline:
         locator = await _find_box_item_link(page=page, item_name=item_name)
         if locator is not None:
             return
 
-        clicked_refresh = await _handle_box_refresh_notification(page=page, timeout_ms=2_000)
-        locator = await _find_box_item_link(page=page, item_name=item_name)
-        if locator is not None:
-            return
-
-        if reload_attempts < 3:
-            try:
-                await page.reload(wait_until="domcontentloaded", timeout=15_000)
-                await _ensure_box_folder_page_ready(page=page, timeout_ms=15_000)
-            except PlaywrightTimeoutError:
-                pass
-            reload_attempts += 1
-            idle_checks = 0
-        else:
-            idle_checks += 0 if clicked_refresh else 1
-            if idle_checks >= 3:
-                break
-
-        await page.wait_for_timeout(2_000)
+        remaining_ms = max(0, int((deadline - time.monotonic()) * 1000))
+        await page.wait_for_timeout(min(2_000, remaining_ms))
 
     raise RuntimeError(f"Timed out waiting for uploaded Box file to appear: {item_name}")
 
@@ -1485,16 +1477,10 @@ async def _read_box_shared_link_from_dialog(*, page, dialog) -> str:
 
 
 async def _find_box_action_button(*, page, primary_pattern: str, fallback_patterns: list[str]):
-    button = page.get_by_role("button", name=re.compile(primary_pattern, re.I)).first
-    if await button.count() > 0:
-        return button
-
-    for pattern in fallback_patterns:
-        candidate = page.get_by_role("button", name=re.compile(pattern, re.I)).first
-        if await candidate.count() > 0:
-            return candidate
-
-    return page.locator("__missing__")
+    patterns = [primary_pattern, *fallback_patterns]
+    combined = "|".join(f"(?:{pattern})" for pattern in patterns)
+    # Return a live locator: count() is only a snapshot before lazy rendering.
+    return page.get_by_role("button", name=re.compile(combined, re.I)).first
 
 
 async def _find_box_item_link(*, page, item_name: str):
