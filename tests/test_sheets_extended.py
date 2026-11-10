@@ -38,8 +38,7 @@ def _save_mg():
             ),
             tab=SimpleNamespace(color=tab_color_mock),
         ),
-        _sheets=SimpleNamespace(save_sheet=save_sheet_mock),
-        save=SimpleNamespace(to=SimpleNamespace(sheet=Mock())),
+        save=SimpleNamespace(to=SimpleNamespace(sheet=save_sheet_mock)),
     )
     return mg, save_sheet_mock
 
@@ -57,7 +56,7 @@ def _duplicate_mg(*, has_duplicate: bool = True):
             duplicate=duplicate_mock if has_duplicate else None,
             select=select_mock,
         ),
-        gs=SimpleNamespace(_driver=driver),
+        gs=SimpleNamespace(workbook=driver),
         sheet=SimpleNamespace(cell=SimpleNamespace(set=Mock())),
     )
     return mg, duplicate_mock, driver, select_mock
@@ -175,30 +174,12 @@ def test_duplicate_sheet_into_uses_native_duplicate_when_available():
     select_mock.assert_not_called()
 
 
-def test_duplicate_sheet_into_falls_back_to_driver_duplicate():
-    mg, _, driver, select_mock = _duplicate_mg(has_duplicate=False)
-
-    duplicated = duplicate_sheet_into(
-        mg,
-        sheet_url="https://docs.google.com/spreadsheets/d/test",
-        source_sheet_name="202501",
-        new_sheet_name="202502",
-        cell_update={"cell": "B1", "value": "202502"},
-    )
-
-    assert duplicated is True
-    driver.worksheet.assert_called_once_with("202501")
-    driver.duplicate_sheet.assert_called_once_with(101, new_sheet_name="202502")
-    select_mock.assert_called_once_with("202502")
-    mg.sheet.cell.set.assert_called_once_with("B1", "202502")
-
-
 def test_write_sheet_blocks_creates_selects_and_updates():
     worksheet = SimpleNamespace(update=Mock(), clear=Mock())
-    sheet = SimpleNamespace(create=Mock(), select=Mock(return_value=True), _driver=worksheet)
+    sheet = SimpleNamespace(create=Mock(), select=Mock(return_value=True), worksheet=worksheet)
     mg = SimpleNamespace(
         open=SimpleNamespace(sheet=Mock(return_value=True)),
-        gs=SimpleNamespace(sheets=["config"], sheet=sheet, _driver=SimpleNamespace()),
+        gs=SimpleNamespace(sheets=["config"], sheet=sheet, workbook=SimpleNamespace()),
         sheets=SimpleNamespace(select=Mock(return_value=True)),
     )
 

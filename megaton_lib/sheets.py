@@ -91,7 +91,7 @@ def read_sheet_table(
         df.columns = [str(c).strip() for c in df.columns]
         return df.dropna(how="all")
 
-    values = fetch_worksheet_values(mg.gs._driver, sheet_name)
+    values = fetch_worksheet_values(mg.gs.workbook, sheet_name)
     if not values or header_row >= len(values):
         return pd.DataFrame()
 
@@ -172,7 +172,7 @@ def replace_sheet_by_group_keys(
         try:
             mg.gs.sheet.create(sheet_name)
         except Exception:
-            mg.gs._driver.add_worksheet(title=sheet_name, rows=2000, cols=30)
+            mg.gs.workbook.add_worksheet(title=sheet_name, rows=2000, cols=30)
 
     mg.gs.sheet.select(sheet_name)
     existing = pd.DataFrame(mg.gs.sheet.data or [])
@@ -216,7 +216,7 @@ def update_cells(mg, *, sheet_url: str, sheet_name: str, values: dict[str, str])
         raise RuntimeError(f"Could not open sheet URL: {sheet_url}")
     mg.gs.sheet.select(sheet_name)
     for cell, value in values.items():
-        mg.gs.sheet._driver.update_acell(cell, value)
+        mg.gs.sheet.worksheet.update_acell(cell, value)
 
 
 def save_sheet_table(
@@ -248,7 +248,7 @@ def save_sheet_table(
         raise RuntimeError(f"Could not open sheet URL: {sheet_url}")
 
     if start_row is None:
-        mg._sheets.save_sheet(
+        mg.save.to.sheet(
             sheet_name,
             df,
             sort_by=sort_by,
@@ -328,25 +328,7 @@ def duplicate_sheet_into(
     if not mg.open.sheet(sheet_url):
         raise RuntimeError(f"Could not open sheet URL: {sheet_url}")
 
-    duplicate_fn = getattr(mg.sheets, "duplicate", None)
-    if callable(duplicate_fn):
-        return bool(
-            duplicate_fn(
-                source_sheet_name,
-                new_sheet_name,
-                cell_update=cell_update,
-            )
-        )
-
-    source_worksheet = mg.gs._driver.worksheet(source_sheet_name)
-    mg.gs._driver.duplicate_sheet(
-        source_worksheet.id,
-        new_sheet_name=new_sheet_name,
-    )
-    duplicated = mg.sheets.select(new_sheet_name)
-    if duplicated and cell_update:
-        mg.sheet.cell.set(cell_update["cell"], cell_update["value"])
-    return bool(duplicated)
+    return bool(mg.sheets.duplicate(source_sheet_name, new_sheet_name, cell_update=cell_update))
 
 
 def save_sheet_from_template(
@@ -390,7 +372,7 @@ def save_sheet_from_template(
         print(f"[skip] {sheet_name}: df is empty (no clear/write)")
         return False
 
-    if not getattr(mg, "gs", None) or not getattr(mg.gs, "_driver", None):
+    if not getattr(mg, "gs", None) or not getattr(mg.gs, "workbook", None):
         raise ValueError("Google Sheets is not opened. Call mg.open.sheet(url) first.")
 
     sheets = list(mg.gs.sheets)
@@ -425,7 +407,7 @@ def save_sheet_from_template(
         if not src_id:
             raise RuntimeError("Failed to read template worksheet id")
 
-        mg.gs._driver.duplicate_sheet(src_id, new_sheet_name=sheet_name)
+        mg.gs.workbook.duplicate_sheet(src_id, new_sheet_name=sheet_name)
 
         # Clear values in the duplicated sheet so the old template contents don't remain.
         # This keeps formatting while ensuring the new write is clean.
@@ -435,7 +417,7 @@ def save_sheet_from_template(
                 if start_row <= 1:
                     mg.gs.sheet.clear()
                 else:
-                    ws = getattr(mg.gs.sheet, "_driver", None)
+                    ws = getattr(mg.gs.sheet, "worksheet", None)
                     if ws and hasattr(ws, "batch_clear") and hasattr(ws, "row_count"):
                         ws.batch_clear([f"{start_row}:{ws.row_count}"])
                     else:
@@ -467,7 +449,7 @@ def write_sheet_blocks(
     """
     if sheet_url and not mg.open.sheet(sheet_url):
         raise RuntimeError(f"Could not open sheet URL: {sheet_url}")
-    if not getattr(mg, "gs", None) or not getattr(mg.gs, "_driver", None):
+    if not getattr(mg, "gs", None) or not getattr(mg.gs, "workbook", None):
         raise ValueError("Google Sheets is not opened. Call mg.open.sheet(url) first.")
 
     sheets = list(getattr(mg.gs, "sheets", []) or [])
@@ -481,7 +463,7 @@ def write_sheet_blocks(
     if not callable(select_fn) or not select_fn(sheet_name):
         raise RuntimeError(f"Failed to select worksheet: {sheet_name}")
 
-    ws = getattr(mg.gs.sheet, "_driver", None)
+    ws = getattr(mg.gs.sheet, "worksheet", None)
     if not (ws and hasattr(ws, "update")):
         print(f"[skip] {sheet_name}: worksheet driver does not support update()")
         return False

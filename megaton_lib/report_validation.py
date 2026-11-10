@@ -584,8 +584,8 @@ class ExecutionTracker:
         if pending:
             def _read_pending():
                 self._select_sheet(mg, gs_url, sheet_name)
-                if hasattr(mg.gs.sheet._driver, "batch_get"):
-                    ranges = mg.gs.sheet._driver.batch_get(pending)
+                if hasattr(mg.gs.sheet.worksheet, "batch_get"):
+                    ranges = mg.gs.sheet.worksheet.batch_get(pending)
                     values = {}
                     for cell, value_range in zip(pending, ranges):
                         cell_value = ""

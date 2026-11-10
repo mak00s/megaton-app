@@ -46,8 +46,9 @@ binding must stop instead of adopting an old completion. Preview/apply should pi
 the same message ID. Dry-run invokes shared completion preflight and never creates
 Receipts, sidecars or lockfiles.
 
-These consumer-specific journal guards do not extend the released v0.41.0
-low-level client/CLI contract.
+Since the release after v0.45.0 these guards live in `megaton_lib.todoist_completion`, so consumers
+share one implementation; a consumer keeps only its receipt folder and task
+selection. The low-level client/CLI contract is unchanged.
 
 ## Offline Validation (2026-10-17)
 

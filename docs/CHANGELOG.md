@@ -2,6 +2,25 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## Unreleased
+
+- Requires Megaton 2.7.0 or newer (for `mg.gs.sheet.worksheet`). Regenerate
+  `uv.lock` once that release is on PyPI.
+- Add `megaton_lib.todoist_completion`: the guarded per-operation completion
+  flow (`completion_receipt_path`, `close_task`, `verify_completion`,
+  `list_active_tasks`, `list_completed_tasks`) that consumers previously copied.
+  It unifies the two copies on the stricter guard: rename/restore Receipts are
+  recognized, and an earlier completion allows a later occurrence only when its
+  Receipt verifies by readback (a recorded `verified_at` alone is no longer
+  required or sufficient).
+- `megaton_lib.sheets` and `report_validation` use Megaton's public accessors
+  (`mg.save.to.sheet`, `mg.sheets.duplicate`, `mg.gs.workbook`,
+  `mg.gs.sheet.worksheet`) instead of private attributes. Behavior is unchanged.
+- `ga4_helpers.fetch_named_clinic_report_data_or_empty` is deprecated as
+  project-specific and will be removed in the next release.
+- `docs/architecture.md` now defines two tiers: analytics workflow orchestration
+  and shared guarded adapters, with an admission test for each.
+
 ## 2026-11-10 (v0.45.0)
 
 - Todoist rename and recurring-occurrence restore no longer stop on active

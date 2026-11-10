@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 from typing import Iterable
 
@@ -126,13 +127,18 @@ def fetch_named_clinic_report_data_or_empty(
     set_dates: tuple[str, str] | None = None,
     warn_label: str = "ga4",
 ) -> pd.DataFrame:
-    """Run a report for one clinic row in ``sites_df`` and return shaped data.
+    """Deprecated: project-specific; the caller now lives in megaton-notebooks.
 
-    Returns an empty DataFrame with ``expected_cols`` when:
-    - clinic row is missing
-    - GA4 property is missing
-    - report execution fails
+    Kept for one release so existing callers keep working, then removed. Returns
+    an empty DataFrame with ``expected_cols`` when the clinic row or GA4 property
+    is missing, or report execution fails.
     """
+    warnings.warn(
+        "megaton_lib.ga4_helpers.fetch_named_clinic_report_data_or_empty is project-specific "
+        "and will be removed; keep this helper in the calling repository.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if clinic_col not in sites_df.columns:
         return pd.DataFrame(columns=expected_cols)
 

@@ -21,14 +21,15 @@ def _reset_registry():
 
 
 class TestMegatonExecution(unittest.TestCase):
-    def test_dependency_requires_credential_store_capable_core(self):
+    def test_dependency_requires_public_worksheet_accessor_core(self):
         config = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
         from packaging.requirements import Requirement
 
         requirement = next(Requirement(item) for item in config["project"]["dependencies"]
                            if Requirement(item).name == "megaton")
-        self.assertNotIn("2.5.0", requirement.specifier)
-        self.assertIn("2.6.0", requirement.specifier)
+        # mg.gs.sheet.worksheet (used by megaton_lib.sheets) arrives in 2.7.0.
+        self.assertNotIn("2.6.2", requirement.specifier)
+        self.assertIn("2.7.0", requirement.specifier)
 
     def setUp(self):
         _reset_registry()

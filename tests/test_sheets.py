@@ -33,13 +33,13 @@ class _FakeSheet:
     def clear(self):
         return True
 
-    _driver = None
+    worksheet = None
 
 
 def _fake_mg(*, sheets: list[str], ids: dict[str, int]):
     driver = SimpleNamespace(duplicate_sheet=Mock())
     gs = SimpleNamespace(
-        _driver=driver,
+        workbook=driver,
         sheet=_FakeSheet(ids=ids),
         sheets=sheets,
     )
@@ -54,7 +54,7 @@ def test_skip_empty_df_does_not_duplicate_or_write():
     wrote = save_sheet_from_template(mg, "202502", df, start_row=3)
 
     assert wrote is False
-    assert mg.gs._driver.duplicate_sheet.call_count == 0
+    assert mg.gs.workbook.duplicate_sheet.call_count == 0
     assert mg.save.to.sheet.call_count == 0
 
 
@@ -65,7 +65,7 @@ def test_duplicate_when_missing_then_write():
     wrote = save_sheet_from_template(mg, "202502", df, start_row=3)
 
     assert wrote is True
-    mg.gs._driver.duplicate_sheet.assert_called_once_with(101, new_sheet_name="202502")
+    mg.gs.workbook.duplicate_sheet.assert_called_once_with(101, new_sheet_name="202502")
     mg.save.to.sheet.assert_called_once()
 
 
@@ -76,7 +76,7 @@ def test_no_duplicate_when_exists_write_only():
     wrote = save_sheet_from_template(mg, "202502", df, start_row=3)
 
     assert wrote is True
-    assert mg.gs._driver.duplicate_sheet.call_count == 0
+    assert mg.gs.workbook.duplicate_sheet.call_count == 0
     mg.save.to.sheet.assert_called_once_with("202502", df, start_row=3)
 
 
@@ -95,7 +95,7 @@ def test_create_if_missing_false_skips():
     wrote = save_sheet_from_template(mg, "202502", df, create_if_missing=False)
 
     assert wrote is False
-    assert mg.gs._driver.duplicate_sheet.call_count == 0
+    assert mg.gs.workbook.duplicate_sheet.call_count == 0
     assert mg.save.to.sheet.call_count == 0
 
 
@@ -108,17 +108,17 @@ def test_create_when_no_template_matches_regex():
     wrote = save_sheet_from_template(mg, "202502", df, template_regex=r"^\\d{6}$")
 
     assert wrote is True
-    assert mg.gs._driver.duplicate_sheet.call_count == 0
+    assert mg.gs.workbook.duplicate_sheet.call_count == 0
     mg.gs.sheet.create.assert_called_once_with("202502")
     mg.save.to.sheet.assert_called_once()
 
 
 def test_write_sheet_blocks_can_parse_user_entered_formulas():
     worksheet = SimpleNamespace(update=Mock())
-    sheet = SimpleNamespace(select=Mock(return_value=True), _driver=worksheet)
+    sheet = SimpleNamespace(select=Mock(return_value=True), worksheet=worksheet)
     mg = SimpleNamespace(
         open=SimpleNamespace(sheet=Mock(return_value=True)),
-        gs=SimpleNamespace(sheets=["trend"], sheet=sheet, _driver=SimpleNamespace()),
+        gs=SimpleNamespace(sheets=["trend"], sheet=sheet, workbook=SimpleNamespace()),
     )
 
     wrote = write_sheet_blocks(
@@ -155,12 +155,12 @@ def _replace_mg(*, existing_rows: list[dict] | None = None, sheets: list[str] | 
         data=existing_rows or [],
         select=Mock(return_value=True),
         create=Mock(),
-        _driver=SimpleNamespace(update_acell=update_acell_mock),
+        worksheet=SimpleNamespace(update_acell=update_acell_mock),
     )
     gs = SimpleNamespace(
         sheets=sheets or ["_x"],
         sheet=sheet,
-        _driver=SimpleNamespace(add_worksheet=Mock()),
+        workbook=SimpleNamespace(add_worksheet=Mock()),
     )
     mg = SimpleNamespace(
         open=SimpleNamespace(sheet=Mock(return_value=True)),
@@ -179,7 +179,7 @@ def _read_mg(*, rows: list[dict], sheet_name: str = "config"):
                 data=rows,
                 select=Mock(return_value=True),
             ),
-            _driver=SimpleNamespace(worksheet=Mock(return_value=worksheet_mock)),
+            workbook=SimpleNamespace(worksheet=Mock(return_value=worksheet_mock)),
         ),
     )
     return mg
@@ -325,7 +325,7 @@ def test_read_sheet_table_returns_trimmed_dataframe():
 
 def test_read_sheet_table_supports_non_default_header_row():
     mg = _read_mg(rows=[], sheet_name="config")
-    mg.gs._driver.worksheet.return_value.get_all_values.return_value = [
+    mg.gs.workbook.worksheet.return_value.get_all_values.return_value = [
         ["note", "note2"],
         [" 年月 ", " クリニック ", " 来院数 "],
         ["2024-01", "サンプルサイト", "10"],

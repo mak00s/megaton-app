@@ -1164,6 +1164,19 @@ account before task access. IDs are opaque strings, never converted to integers.
 | `rename_task(task_id, content=..., expected_fingerprint=..., apply=False, receipt_path=None)` | Explicit reviewed title change only. Fingerprint, private Receipt and readback are required; due, recurrence and completed_count are preserved. CLI: `rename --task-id ID --content NAME --expected-fingerprint HASH`. |
 | `restore_recurring_occurrence(task_id, expected_due=..., occurrence_date=..., expected_fingerprint=..., apply=False, receipt_path=None)` | Explicit recovery of a date-only recurring task to an earlier approved occurrence. Exact old date/fingerprint required. Uses official Sync item_update with the unchanged recurrence rule; verifies the new due, task fields and unchanged completed_count. No completion is performed. General task updates remain unsupported. |
 
+Consumer completion flow (`megaton_lib.todoist_completion`), shared by the
+consumers that close one task per business operation:
+
+| Function | Description |
+|----------|-------------|
+| `list_active_tasks(token=..., project_id=None)` / `list_completed_tasks(token=..., since=..., until=..., project_id=None)` | `TodoistTask` records (`id`, `content`, `url`, `project_id`, `due_date`, `due_string`, `fingerprint`, `is_recurring`). |
+| `completion_receipt_path(token=..., scope=..., receipt_dir=...)` | Receipt path bound to the account and the operation identity in `scope`; search refinements (`content`, `match`, `project_id`, `allow_missing_due`) do not change it. `receipt_dir` is required: the private location is the consumer's choice. |
+| `close_task(token=..., task_id=..., receipt_path=..., expected_fingerprint=None, expected_occurrence=None, context=None, apply=False)` | Preview by default. Before a write it serializes same-task attempts, stops on any earlier unresolved or unverified Receipt for the task (including rename/restore Receipts), and binds `context` (for example a source message) to the Receipt. An earlier completion allows a later occurrence only when its Receipt verifies by readback. |
+| `verify_completion(token=..., receipt_path=..., context=None)` | Resume by GET verification only. Returns the completed `TodoistTask`, `None` when no Receipt exists, and raises on mismatch or unverified state. |
+
+Which task, period, wording and receipt folder to use remain consumer policy.
+`TODOIST_EXPECTED_USER_ID`, when set, is enforced as the account guard.
+
 CLI: `python -m megaton_lib.todoist_tasks {list,get,create,complete,verify}`.
 Recovery CLI: `restore-occurrence --task-id ID --expected-due YYYY-MM-DD
 --occurrence-date YYYY-MM-DD --expected-fingerprint HASH`; preview first,

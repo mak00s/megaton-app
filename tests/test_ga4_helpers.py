@@ -4,6 +4,7 @@ import types
 from unittest.mock import MagicMock
 
 import pandas as pd
+import pytest
 
 from megaton_lib.ga4_helpers import (
     build_filter,
@@ -185,7 +186,14 @@ class TestRunReportDataOrEmpty:
         assert out.loc[0, "users"] == 10
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestFetchNamedClinicReportDataOrEmpty:
+    def test_warns_that_it_is_deprecated(self):
+        with pytest.warns(DeprecationWarning, match="project-specific"):
+            fetch_named_clinic_report_data_or_empty(
+                MagicMock(), pd.DataFrame(), clinic_name="x", dimensions=[], metrics=[], expected_cols=["a"]
+            )
+
     def test_returns_empty_when_clinic_missing(self):
         mg = MagicMock()
         sites = pd.DataFrame([{"clinic": "A", "ga4_property_id": "111"}])
