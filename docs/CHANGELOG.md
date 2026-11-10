@@ -2,7 +2,7 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-## Unreleased
+## 2026-11-10 (v0.45.0)
 
 - Todoist rename and recurring-occurrence restore no longer stop on active
   subtasks; the subtask guard applies only to completion, as before.
