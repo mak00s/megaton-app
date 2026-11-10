@@ -357,7 +357,7 @@ class TodoistClient:
                 raise TodoistError("expected_occurrence is only for recurring tasks.")
             if payload["expected_fingerprint"] is not None and task_fingerprint(before) != payload["expected_fingerprint"]:
                 raise TodoistError("Task changed since review; get and review it again.")
-            if any(
+            if action == "complete" and any(
                 task.get("parent_id") == before["id"]
                 for task in self.list_tasks(project_id=before.get("project_id"))
             ):

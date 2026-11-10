@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+from copy import deepcopy
 import sys
 from email import policy
 from email.message import EmailMessage
@@ -976,3 +977,46 @@ def test_documented_additional_scope_equivalents(grant, required):
 def test_modify_does_not_imply_unrelated_admin_scopes():
     with pytest.raises(module.GmailScopeError):
         module._require_gmail_scopes(['https://www.googleapis.com/auth/gmail.modify'],['https://www.googleapis.com/auth/gmail.settings.sharing'])
+
+
+def test_reconsent_keeps_scopes_the_saved_token_already_held(setup, monkeypatch, tmp_path):
+    from google.auth.exceptions import RefreshError
+    client, service = setup
+    token = tmp_path / "token.json"
+    modify = "https://www.googleapis.com/auth/gmail.modify"
+    token.write_text(json.dumps({"refresh_token": "r", "scopes": [modify]}))
+    monkeypatch.setattr(module, "credentials_from_authorized_user_file",
+                        lambda *a: (_ for _ in ()).throw(RefreshError("invalid_grant")))
+    requested = []
+    creds = SimpleNamespace(to_json=lambda: '{"token": "replacement"}')
+    run = SimpleNamespace(run_local_server=lambda **kw: creds)
+
+    def flow(path, scopes):
+        requested.append(list(scopes))
+        return run
+
+    monkeypatch.setitem(sys.modules, "google_auth_oauthlib.flow",
+                        SimpleNamespace(InstalledAppFlow=SimpleNamespace(from_client_secrets_file=flow)))
+    monkeypatch.setattr(module, "GmailClient", lambda creds: client)
+    module.authorize(tmp_path / "client.json", token, module.SCOPES_DRAFT, service.account)
+    assert requested == [[modify, *module.SCOPES_DRAFT]]
+
+
+def test_saved_summary_without_new_body_keys_still_verifies():
+    message = EmailMessage(policy=policy.SMTP)
+    message["To"] = "to@example.com"
+    message["Subject"] = "s"
+    message.set_content("plain")
+    message.add_alternative("<p>html</p>", subtype="html")
+    message.get_payload()[1]["Content-ID"] = "<body@example>"
+    content = module.GmailDraftContent(message)
+    summary = {"schema_version": "gmail-draft/v1", **content.summary()}
+    legacy = deepcopy(summary)
+    for part in legacy["body_parts"]:
+        part.pop("content_id", None)
+    draft = module.GmailDraft("d", "m", content, "f")
+    gc = module.GmailClient.__new__(module.GmailClient)
+    assert gc.verify_draft_summary(draft, expected=legacy)["verified"]
+    changed = deepcopy(summary)
+    changed["body_parts"][1]["content_id"] = "<other@example>"
+    assert not gc.verify_draft_summary(draft, expected=changed)["verified"]

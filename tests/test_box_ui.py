@@ -756,3 +756,28 @@ def test_upload_files_to_box_folder_via_ui_adds_folder_shared_link(monkeypatch, 
         }
     ]
     assert [call[0] for call in calls] == ["session", "ready", "subfolder", "upload", "share-folder"]
+
+
+def test_auth_challenge_dump_keeps_only_sanitized_metadata(tmp_path, monkeypatch):
+    import json as _json
+
+    monkeypatch.setattr(box_ui.tempfile, "gettempdir", lambda: str(tmp_path))
+    page = MagicMock()
+    page.url = "https://example.account.box.com/login?redirect_url=%2Ffolder%2F123&login=a%40b.example"
+    page.content = AsyncMock(return_value="<input value='user@example.com'>")
+    page.screenshot = AsyncMock()
+    page.title = AsyncMock(return_value="Log In")
+    body = MagicMock()
+    body.inner_text = AsyncMock(return_value="Signed in as user@example.com")
+    inputs = MagicMock()
+    inputs.evaluate_all = AsyncMock(return_value=[])
+    page.locator = lambda selector: body if selector == "body" else inputs
+    with pytest.raises(RuntimeError, match="login did not complete"):
+        asyncio.run(box_ui._require_box_authenticated_page(page=page))
+    page.content.assert_not_awaited()
+    page.screenshot.assert_not_awaited()
+    [dump] = list((tmp_path / "box-login-debug").iterdir())
+    assert sorted(p.name for p in dump.iterdir()) == ["page.json"]
+    saved = _json.loads((dump / "page.json").read_text())
+    assert saved["url"] == "https://example.account.box.com/login"
+    assert "user@example.com" not in (dump / "page.json").read_text()

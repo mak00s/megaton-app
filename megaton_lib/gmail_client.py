@@ -151,6 +151,17 @@ def load_draft_credentials_from_env(*, env_prefix: str = "", scopes=None) -> Cre
     raise ValueError("Set GMAIL_DRAFT_TOKEN_PATH or GMAIL_DRAFT_TOKEN_JSON to a user OAuth token")
 
 
+def _saved_token_scopes(token_path: Path) -> list[str]:
+    """Scopes recorded in an existing token file; empty when unreadable."""
+    try:
+        recorded = json.loads(token_path.read_text()).get("scopes") or []
+    except (OSError, ValueError, AttributeError):
+        return []
+    if isinstance(recorded, str):
+        recorded = recorded.split()
+    return [scope for scope in recorded if isinstance(scope, str) and scope.startswith("https://")]
+
+
 def authorize(
     client_secrets_path: Path,
     token_path: Path,
@@ -158,13 +169,15 @@ def authorize(
     expected_email: str | None = None,
 ) -> Credentials:
     """Run a desktop OAuth flow once, then reuse/refresh the saved token."""
+    consent_scopes = list(scopes)
     if token_path.exists():
         try:
             creds = credentials_from_authorized_user_file(token_path, scopes)
         except (RuntimeError, GmailScopeError, RefreshError):
             # A revoked or expired grant (invalid_grant) needs a fresh consent;
-            # the saved token is replaced only after the new flow succeeds.
-            pass
+            # the saved token is replaced only after the new flow succeeds. Keep
+            # the scopes it already held so a shared token is never narrowed.
+            consent_scopes = list(dict.fromkeys([*_saved_token_scopes(token_path), *scopes]))
         else:
             if expected_email:
                 GmailClient(creds).assert_account(expected_email)
@@ -177,7 +190,7 @@ def authorize(
             "google-auth-oauthlib is required for interactive Gmail authorization."
         ) from exc
 
-    flow = InstalledAppFlow.from_client_secrets_file(str(client_secrets_path), scopes)
+    flow = InstalledAppFlow.from_client_secrets_file(str(client_secrets_path), consent_scopes)
     creds = flow.run_local_server(
         port=0,
         open_browser=True,
@@ -357,6 +370,20 @@ def _update_html_body(message: EmailMessage, body_html: str) -> None:
     if html.is_multipart():
         html = html.get_body(preferencelist=("html",))
     _set_body_content(html, body_html, "html")
+
+
+# Body-part keys added after 0.44.0; saved summaries without them still compare.
+_OPTIONAL_BODY_KEYS = ("content_id", "content_location")
+
+
+def _comparable(key: str, actual: Any, expected: Any) -> Any:
+    if key != "body_parts" or not isinstance(actual, list) or not isinstance(expected, list):
+        return actual
+    if len(actual) != len(expected):
+        return actual
+    return [{k: v for k, v in part.items() if k not in _OPTIONAL_BODY_KEYS or k in saved}
+            if isinstance(part, dict) and isinstance(saved, dict) else part
+            for part, saved in zip(actual, expected)]
 
 
 @dataclass
@@ -665,7 +692,8 @@ class GmailClient:
         if expected.get("schema_version") != "gmail-draft/v1" or any(k not in expected for k in actual):
             raise ValueError("Expected JSON must contain a complete gmail-draft/v1 content summary")
         errors = [f"mismatch:{key}" for key in actual
-                  if (key != "thread_id" or expected[key]) and actual[key] != expected[key]]
+                  if (key != "thread_id" or expected[key])
+                  and _comparable(key, actual[key], expected[key]) != expected[key]]
         if expected.get("draft_id") and expected["draft_id"] != draft.id:
             errors.append("mismatch:draft_id")
         return _draft_result(draft, errors=errors, verified=not errors)

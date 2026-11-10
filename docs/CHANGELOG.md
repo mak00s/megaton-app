@@ -4,6 +4,20 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+- Todoist rename and recurring-occurrence restore no longer stop on active
+  subtasks; the subtask guard applies only to completion, as before.
+- Work-log monthly apply ignores recomputed values when checking for edits, so
+  tabs with volatile formulas (`TODAY()`, `IMPORTRANGE`) can be appended. A
+  definite Sheets rejection (HTTP 400/401/403/404/429) is recorded as
+  `status: "rejected"` and the same receipt may be retried; ambiguous failures
+  still stop as pending. Existing month rows are matched regardless of order.
+- `gmail_client.authorize()` re-consent requests the saved token's recorded
+  scopes plus the required ones, so a shared token is never narrowed.
+- Gmail draft summaries include body `content_id`/`content_location`; saved
+  summaries from 0.44.0 without those keys still verify.
+- Box authentication-challenge diagnostics after a reused storage state keep
+  only sanitized metadata (no HTML, screenshot, query string or email).
+
 - `gmail_client.authorize()` now starts a fresh consent flow when the saved
   token's refresh is rejected (`RefreshError`, e.g. a revoked or expired grant)
   instead of stopping. The saved token is replaced only after the new flow

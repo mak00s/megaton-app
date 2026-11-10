@@ -67,6 +67,8 @@ def snapshot(book, spec, *, cell_fields=CELL_FIELDS, min_columns=6):
         raise ValueError("Work log requires a grid with enough columns")
     quoted = "'" + tab.replace("'", "''") + "'"
     height = props["gridProperties"]["rowCount"]
+    # Whole rows: AppendCells places new rows after data in any column, so the
+    # planned tail must see notes beyond F as well.
     width = props["gridProperties"]["columnCount"]
     chunk_size = max(1, 25000 // width)
     rows = []
@@ -76,7 +78,8 @@ def snapshot(book, spec, *, cell_fields=CELL_FIELDS, min_columns=6):
             "includeGridData": True, "ranges": f"{quoted}!{start + 1}:{stop}",
             "fields": f"sheets(data(rowData(values({cell_fields}))))",
         })
-        block = result["sheets"][0].get("data", [{}])[0].get("rowData", [])
+        data = result["sheets"][0].get("data") or [{}]
+        block = data[0].get("rowData", [])
         rows.extend(r.get("values", []) for r in block)
         rows.extend([] for _ in range(stop - start - len(block)))
     return {"sheet_id": props["sheetId"], "row_count": height, "rows": rows}
@@ -111,7 +114,7 @@ def plan_monthly(snapshot, work_date, spec):
                     and cell_date(row[0] if spec.bill_month else row[2]).replace(day=1) < month):
                 exemplars[target] = row
     if current:
-        if len(current) != len(spec.items) or [values(r)[3] for _, r in current] != list(expected):
+        if len(current) != len(spec.items) or sorted(values(r)[3] for _, r in current) != sorted(expected):
             raise ValueError("Partial or duplicate monthly work-log rows; inspect without appending")
         days = [cell_date(row[2]) for _, row in current]
         if len(set(days)) != 1 or days[0].replace(day=1) != month:
@@ -153,15 +156,43 @@ def _persist_receipt(receipt, binding, status, result):
     os.replace(tmp.name, receipt)
 
 
+# HTTP statuses for which Sheets rejected the whole batch before applying it.
+_REJECTED_STATUSES = {400, 401, 403, 404, 429}
+
+
+def _rejected_status(exc):
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    return status if status in _REJECTED_STATUSES else None
+
+
 def _read_receipt(receipt, binding):
+    """Return the prior pending/verified receipt; a recorded rejection allows a retry."""
     if receipt is None or not receipt.exists():
         return None
     previous = json.loads(receipt.read_text())
     if (not isinstance(previous, dict) or previous.get("binding") != binding
-            or previous.get("status") not in {"pending", "verified"}
+            or previous.get("status") not in {"pending", "verified", "rejected"}
             or not isinstance(previous.get("result"), dict)):
         raise ValueError("Work-log receipt belongs to another operation or is invalid; inspect without retry")
-    return previous
+    return None if previous["status"] == "rejected" else previous
+
+
+def _write_once(book, requests, receipt, binding, plan):
+    """Claim, then submit one batch without retry; record definite rejections."""
+    _persist_receipt(receipt, binding, "pending", plan)
+    try:
+        batch_update_spreadsheet(book, requests, retry=False)
+    except Exception as exc:
+        status = _rejected_status(exc)
+        if status is not None:
+            _persist_receipt(receipt, binding, "rejected", {**plan, "rejection_http_status": status})
+        raise
+
+
+def _stable(state):
+    """Snapshot without computed values, so volatile formulas do not look like edits."""
+    return {**state, "rows": [[{k: v for k, v in c.items() if k != "effectiveValue"} for c in row]
+                              for row in state["rows"]]}
 
 
 def record_row_plan(book, operation, *, tab, apply=False, receipt_path=None):
@@ -240,8 +271,7 @@ def record_row_plan(book, operation, *, tab, apply=False, receipt_path=None):
                 requests.append({"updateCells": {"range": {"sheetId": observed["sheet_id"],
                     "startRowIndex": row - 1, "endRowIndex": row, "startColumnIndex": index, "endColumnIndex": index + 1},
                     "rows": [{"values": [new]}], "fields": "userEnteredValue"}})
-        _persist_receipt(receipt, binding, "pending", operation)
-        batch_update_spreadsheet(book, requests, retry=False)
+        _write_once(book, requests, receipt, binding, operation)
         if cells(read()) != normalized(after):
             raise RuntimeError("Work-log row readback differs; inspect without retry")
     result = {"action": "skip" if done else operation["action"], "row": row, "verified": True}
@@ -274,15 +304,14 @@ def record_monthly(book, work_date, spec, *, apply=False, receipt_path=None):
     if plan["action"] == "skip":
         persist("verified", {**plan, "cells": expected or observed_cells(before, plan["rows"])})
         return {**plan, "verified": True}
-    if snapshot(book, spec) != before:
+    if _stable(snapshot(book, spec)) != _stable(before):
         raise ValueError("Work log changed after preview; no write attempted")
-    persist("pending", plan)
     # AppendCells lets Sheets choose the tail atomically; other callers cannot be
     # overwritten by an outdated row index. Never retry an unknown append.
-    batch_update_spreadsheet(book, [{"appendCells": {
+    _write_once(book, [{"appendCells": {
         "sheetId": before["sheet_id"], "rows": plan["cells"],
         "fields": "userEnteredValue,userEnteredFormat",
-    }}], retry=False)
+    }}], receipt, binding, plan)
     observed = snapshot(book, spec)
     verified = plan_monthly(observed, work_date, spec)
     if verified["action"] != "skip":

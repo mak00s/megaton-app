@@ -737,3 +737,20 @@ def test_list_completed_tasks_checks_account(client):
     with pytest.raises(TodoistError, match="account"):
         c.list_completed_tasks(since=since, until=until)
     assert not any(call[1].endswith("/completed/by_completion_date") for call in s.calls)
+
+
+def test_rename_parent_with_active_subtask_is_allowed(client, tmp_path):
+    c, s = client
+    s.tasks["6Xchild"] = task(id="6Xchild", content="Child", parent_id="6Xtask")
+    original = deepcopy(s.tasks["6Xtask"])
+    result = c.rename_task("6Xtask", content="Renamed parent", expected_fingerprint=task_fingerprint(original),
+                           apply=True, receipt_path=tmp_path / "rename.json")
+    assert result["verified"] and s.tasks["6Xtask"]["content"] == "Renamed parent"
+
+
+def test_complete_parent_with_active_subtask_still_stops(client, tmp_path):
+    c, s = client
+    s.tasks["6Xchild"] = task(id="6Xchild", content="Child", parent_id="6Xtask")
+    with pytest.raises(TodoistError, match="subtasks"):
+        c.complete_task("6Xtask", apply=True, receipt_path=tmp_path / "complete.json")
+    assert not s.posts

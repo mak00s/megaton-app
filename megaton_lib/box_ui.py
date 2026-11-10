@@ -846,7 +846,7 @@ async def _require_box_authenticated_page(*, page) -> None:
         return
     verification_required = "/login/mfa" in page.url
     reason = "verification-required" if verification_required else "login-incomplete"
-    debug_dir = await _dump_box_login_debug(page=page, reason=reason)
+    debug_dir = await _dump_box_login_debug(page=page, reason=reason, include_page=False)
     detail = "email verification required" if verification_required else "login did not complete"
     raise RuntimeError(
         f"Box {detail}. Complete authentication before retrying; "
@@ -890,7 +890,12 @@ def _record_box_operation_failure(*, page, error: Exception) -> str:
     return str(debug_dir)
 
 
-async def _dump_box_login_debug(*, page, reason: str) -> str:
+async def _dump_box_login_debug(*, page, reason: str, include_page: bool = True) -> str:
+    """Login diagnostics. ``include_page=False`` keeps only sanitized metadata.
+
+    Use it when the page may carry a prefilled account or folder redirect, e.g.
+    a reused storage state bounced to an (enterprise) login or MFA page.
+    """
     debug_root = Path(tempfile.gettempdir()) / "box-login-debug"
     debug_root.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -901,12 +906,14 @@ async def _dump_box_login_debug(*, page, reason: str) -> str:
     json_path = debug_dir / "page.json"
     screenshot_path = debug_dir / "page.png"
 
-    html_path.write_text(await page.content(), encoding="utf-8")
-    await page.screenshot(path=str(screenshot_path), full_page=True)
+    if include_page:
+        html_path.write_text(await page.content(), encoding="utf-8")
+        await page.screenshot(path=str(screenshot_path), full_page=True)
+    parsed = urlparse(page.url)
     json_path.write_text(
         json.dumps(
             {
-                "url": page.url,
+                "url": page.url if include_page else f"{parsed.scheme}://{parsed.hostname}{parsed.path}",
                 "title": await page.title(),
                 "visible_text": [
                     _sanitize_box_debug_text(line)

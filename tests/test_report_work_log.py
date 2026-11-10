@@ -52,12 +52,17 @@ def test_conflicts_fail_closed(bad):
     policy=spec(blank=bad=="blank_month",pair=bad in ("partial","date"))
     data=source(policy)
     added=rows(policy,date(2026,11,2))
-    if bad=="duplicate": added*=2
-    elif bad=="partial": added=added[:1]
-    elif bad=="date": added[1][2]=cell(46329)
-    else: added[0][{"hours":4,"amount":5,"blank_month":0}[bad]]=cell(99)
+    if bad=="duplicate":
+        added*=2
+    elif bad=="partial":
+        added=added[:1]
+    elif bad=="date":
+        added[1][2]=cell(46329)
+    else:
+        added[0][{"hours":4,"amount":5,"blank_month":0}[bad]]=cell(99)
     data["rows"].extend(added)
-    with pytest.raises(ValueError): log.plan_monthly(data,date(2026,11,2),policy)
+    with pytest.raises(ValueError):
+        log.plan_monthly(data,date(2026,11,2),policy)
 
 
 def test_missing_schema_or_exemplar_and_structured_exemplar_stop():
@@ -66,7 +71,8 @@ def test_missing_schema_or_exemplar_and_structured_exemplar_stop():
                    lambda x:x["rows"][1][1].update(chipRuns=[{}])):
         data=source(policy)
         change(data)
-        with pytest.raises(ValueError): log.plan_monthly(data,date(2026,11,2),policy)
+        with pytest.raises(ValueError):
+            log.plan_monthly(data,date(2026,11,2),policy)
 
 
 def test_explicit_format_alias_preserves_history_and_only_renames_new_row():
@@ -130,8 +136,10 @@ def test_unknown_append_is_not_retried(monkeypatch,tmp_path):
     monkeypatch.setattr(log,"batch_update_spreadsheet",write)
     path=tmp_path/"receipt.json"
     book=SimpleNamespace(id="book")
-    with pytest.raises(TimeoutError): log.record_monthly(book,date(2026,11,2),policy,apply=True,receipt_path=path)
-    with pytest.raises(RuntimeError,match="unresolved"): log.record_monthly(book,date(2026,11,2),policy,apply=True,receipt_path=path)
+    with pytest.raises(TimeoutError):
+        log.record_monthly(book,date(2026,11,2),policy,apply=True,receipt_path=path)
+    with pytest.raises(RuntimeError,match="unresolved"):
+        log.record_monthly(book,date(2026,11,2),policy,apply=True,receipt_path=path)
     assert len(calls)==1
 
 
@@ -197,7 +205,8 @@ def test_snapshot_refuses_unsupported_native_structure(unsupported):
     else:
         meta["properties"]["gridProperties"]["columnCount"]=5
     book=SimpleNamespace(fetch_sheet_metadata=lambda:{"sheets":[meta]})
-    with pytest.raises(ValueError): log.snapshot(book,spec())
+    with pytest.raises(ValueError):
+        log.snapshot(book,spec())
 
 
 def test_snapshot_chunks_all_columns_and_keeps_blank_row_offsets():
@@ -306,3 +315,63 @@ def test_invalid_receipt_never_allows_another_monthly_append(monkeypatch, tmp_pa
     with pytest.raises(ValueError, match="invalid"):
         log.record_monthly(SimpleNamespace(id="book"), date(2026, 11, 2), policy,
                            apply=True, receipt_path=path)
+
+
+def test_volatile_computed_values_do_not_block_apply(monkeypatch, tmp_path):
+    policy = spec()
+    data = source(policy)
+    data["rows"].append([{"userEnteredValue": {"formulaValue": "=TODAY()"}, "effectiveValue": {"numberValue": 1}}])
+    reads = []
+
+    def read(*_):
+        # Every read recomputes =TODAY(): only its effective value changes.
+        state = deepcopy(data)
+        reads.append(1)
+        for row in state["rows"]:
+            if row and "formulaValue" in row[0].get("userEnteredValue", {}):
+                row[0]["effectiveValue"] = {"numberValue": len(reads)}
+        return state
+
+    monkeypatch.setattr(log, "snapshot", read)
+
+    def write(book, requests, *, retry):
+        data["rows"].extend(deepcopy(requests[0]["appendCells"]["rows"][i]["values"])
+                            for i in range(len(requests[0]["appendCells"]["rows"])))
+
+    monkeypatch.setattr(log, "batch_update_spreadsheet", write)
+    result = log.record_monthly(SimpleNamespace(id="book"), date(2026, 11, 2), policy,
+                                apply=True, receipt_path=tmp_path / "receipt.json")
+    assert result["verified"]
+
+
+def test_definite_rejection_is_recorded_and_retryable(monkeypatch, tmp_path):
+    policy = spec()
+    data = source(policy)
+    monkeypatch.setattr(log, "snapshot", lambda *_: deepcopy(data))
+    attempts = []
+
+    class Rejected(Exception):
+        response = SimpleNamespace(status_code=403)
+
+    def write(book, requests, *, retry):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise Rejected("permission denied")
+        data["rows"].extend(deepcopy(r["values"]) for r in requests[0]["appendCells"]["rows"])
+
+    monkeypatch.setattr(log, "batch_update_spreadsheet", write)
+    path = tmp_path / "receipt.json"
+    book = SimpleNamespace(id="book")
+    with pytest.raises(Rejected):
+        log.record_monthly(book, date(2026, 11, 2), policy, apply=True, receipt_path=path)
+    saved = json.loads(path.read_text())
+    assert saved["status"] == "rejected" and saved["result"]["rejection_http_status"] == 403
+    assert log.record_monthly(book, date(2026, 11, 2), policy, apply=True, receipt_path=path)["verified"]
+    assert len(attempts) == 2
+
+
+def test_month_rows_in_another_order_are_accepted():
+    policy = spec(pair=True)
+    data = source(policy)
+    data["rows"].extend(reversed(rows(policy, date(2026, 11, 2))))
+    assert log.plan_monthly(data, date(2026, 11, 2), policy)["action"] == "skip"
