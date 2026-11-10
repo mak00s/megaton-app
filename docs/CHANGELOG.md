@@ -2,10 +2,9 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-## Unreleased
+## 0.46.0 - 2026-11-10
 
-- Requires Megaton 2.7.0 or newer (for `mg.gs.sheet.worksheet`). Regenerate
-  `uv.lock` once that release is on PyPI.
+- Requires Megaton 2.7.0 or newer (for `mg.gs.sheet.worksheet`).
 - Add `megaton_lib.todoist_completion`: the guarded per-operation completion
   flow (`completion_receipt_path`, `close_task`, `verify_completion`,
   `list_active_tasks`, `list_completed_tasks`) that consumers previously copied.
