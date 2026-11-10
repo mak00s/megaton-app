@@ -548,7 +548,7 @@ appPropertiesを管理者が確認する。cleanup失敗は `ok=false`。共有�
 | API | 説明 |
 |---|---|
 | `SCOPES_DRAFT` | Gmail draft 作成用 scope。`gmail.compose` のみ |
-| `authorize(client_secrets_path, token_path, scopes, expected_email=None)` | desktop OAuth を実行し、token JSON を `0600` で保存 |
+| `authorize(client_secrets_path, token_path, scopes, expected_email=None)` | desktop OAuth を実行し、token JSON を `0600` で保存。保存済み token の refresh が拒否された（取り消し・期限切れ）ときは認可をやり直す |
 | `credentials_from_authorized_user_info(token_info, scopes)` | GitHub Actions secrets などの token JSON 文字列から認証情報を読み込み refresh |
 | `credentials_from_authorized_user_file(token_path, scopes)` | token JSON file から認証情報を読み込み refresh |
 | `parse_email_list(value)` | comma / semicolon / newline 区切りの宛先文字列を list 化 |

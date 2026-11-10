@@ -4,6 +4,11 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## Unreleased
 
+- `gmail_client.authorize()` now starts a fresh consent flow when the saved
+  token's refresh is rejected (`RefreshError`, e.g. a revoked or expired grant)
+  instead of stopping. The saved token is replaced only after the new flow
+  succeeds and the account matches.
+
 - Treat blank or empty-angle-bracket Content-ID headers as absent when replacing
   or clearing draft attachments, so old ordinary attachments are removed while
   inline resources with nonempty Content-IDs remain preserved.

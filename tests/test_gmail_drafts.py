@@ -933,6 +933,40 @@ def test_explicit_authorize_reconsents_insufficient_existing_grant(setup, monkey
     assert json.loads(token.read_text())['token']=='replacement'
 
 
+def test_authorize_reconsents_when_saved_token_refresh_is_rejected(setup, monkeypatch, tmp_path):
+    from google.auth.exceptions import RefreshError
+    client, service = setup
+    token = tmp_path / "token.json"
+    token.write_text("revoked token")
+    def rejected(*args):
+        raise RefreshError("invalid_grant: Token has been expired or revoked.")
+    monkeypatch.setattr(module, "credentials_from_authorized_user_file", rejected)
+    creds = SimpleNamespace(to_json=lambda: '{"token": "replacement"}')
+    run = SimpleNamespace(run_local_server=lambda **kw: creds)
+    monkeypatch.setitem(sys.modules, "google_auth_oauthlib.flow",
+                        SimpleNamespace(InstalledAppFlow=SimpleNamespace(from_client_secrets_file=lambda *args: run)))
+    monkeypatch.setattr(module, "GmailClient", lambda creds: client)
+    assert module.authorize(tmp_path / "client.json", token, module.SCOPES_REPLY, service.account) is creds
+    assert json.loads(token.read_text())["token"] == "replacement"
+
+
+def test_authorize_keeps_revoked_token_when_reconsent_fails(setup, monkeypatch, tmp_path):
+    from google.auth.exceptions import RefreshError
+    client, service = setup
+    token = tmp_path / "token.json"
+    token.write_text("revoked token")
+    def rejected(*args):
+        raise RefreshError("invalid_grant")
+    monkeypatch.setattr(module, "credentials_from_authorized_user_file", rejected)
+    creds = SimpleNamespace(to_json=lambda: '{"token": "other account"}')
+    run = SimpleNamespace(run_local_server=lambda **kw: creds)
+    monkeypatch.setitem(sys.modules, "google_auth_oauthlib.flow",
+                        SimpleNamespace(InstalledAppFlow=SimpleNamespace(from_client_secrets_file=lambda *args: run)))
+    monkeypatch.setattr(module, "GmailClient", lambda creds: client)
+    with pytest.raises(ValueError, match="does not match"):
+        module.authorize(tmp_path / "client.json", token, module.SCOPES_REPLY, "wrong@example.com")
+    assert token.read_text() == "revoked token"
+
 @pytest.mark.parametrize('grant,required', [('modify','metadata'),('modify','send'),('modify','insert'),('modify','labels'),('compose','send'),('readonly','metadata')])
 def test_documented_additional_scope_equivalents(grant, required):
     prefix='https://www.googleapis.com/auth/gmail.'

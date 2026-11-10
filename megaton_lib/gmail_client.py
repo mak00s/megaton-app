@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 from urllib.parse import unquote
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -160,7 +161,9 @@ def authorize(
     if token_path.exists():
         try:
             creds = credentials_from_authorized_user_file(token_path, scopes)
-        except (RuntimeError, GmailScopeError):
+        except (RuntimeError, GmailScopeError, RefreshError):
+            # A revoked or expired grant (invalid_grant) needs a fresh consent;
+            # the saved token is replaced only after the new flow succeeds.
             pass
         else:
             if expected_email:
