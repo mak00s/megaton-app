@@ -1210,3 +1210,53 @@ Gmailの明示的な `authorize()` は既存grantのscope不足でも同意フ�
 通常のcredentials loaderはscope不足で停止し、勝手に同意画面を開きません。
 scope包含判定はGmailのread/compose/modify/metadata/send/insert/labelsについて
 文書で確認できる関係のみ扱い、管理用scopeを推測で付与しません。
+
+
+## Target shared-audience diagnostics
+
+`python -m megaton_lib.target_audience` provides `validate`, `snapshot`, `probe`, and
+`token-store`. Consumer repositories supply their own thin entrypoint and case JSON.
+`validate` performs no network calls; `snapshot` reads AA segment publishing metadata,
+Target audience-to-AAM mappings and activity references. `probe` uses Visitor ID Service
+blob/locationHint and prefetch only. It does not navigate pages or send execute,
+display notifications, QA overrides or Analytics collection requests.
+
+Pass the credential JSON explicitly through `--adobe-config` or
+`ANALYSIS_ADOBE_CONFIG_PATH`. OAuth caching is disabled for this workflow.
+Use a case with `schema_version: 1`, `tenant_id`, `property_id`, `url`, a dedicated
+`mbox`, an `audiences` alias-to-Target-ID mapping, optional `activities`
+(`id`, `audience_id`, `page_audience_id`), optional `aa_segment_ids`, and optional
+`timings` with named timezone-aware timestamps. Members are a private JSON array
+of `{label, ecid}` records. Labels must be anonymous; no customer identifiers belong
+in source, tests, case examples or public documentation.
+
+For one run, supply a debug token through stdin using `--debug-token-stdin` and
+`--expires-at` with the actual timezone-aware expiry/cutoff. Never pass a token
+as an argument or infer expiry from clipboard time. Explicitly requested persistence
+uses `token-store --keychain-service ... --keychain-account ... --expires-at ...
+--token-state <private-path>` on macOS. That command reads the clipboard and verifies
+Keychain readback; the state file contains no token. A subsequent probe takes
+`--token-state`. Keychain access never prompts or unlocks automatically.
+
+Use unique private `--output` files per run. Reports exclude raw ECIDs, tokens,
+blobs, profile attributes and raw delivery responses. They distinguish unknown
+membership from an explicit empty list, and unattributed offers from confirmed
+activity offers. HTTP 200 with a trace authorization error is a failure. A profile
+change stops the batch without restoration. Page-load prefetch needs explicit
+`--allow-page-load`; the default requires a dedicated mbox.
+
+This tool has no admin mutation or scheduling operation. A consumer owns approvals,
+activity lifecycle, sample selection, recurrence and stop conditions. Do not create
+activities or schedules merely because a diagnosis failed.
+
+## Coordinated validation consumers (0.47.0)
+
+This version packages the read-only `target_audience` CLI, its optional Keychain
+adapter, memory-only Adobe OAuth, and event-correlated collection receipts.
+Consumers must reference a distributed commit containing all these modules,
+not rely on an editable checkout's untracked files. Build a wheel and smoke-test
+the consumer against that artifact before changing its Git dependency reference.
+Publish the shared commit first and then update the consumer; never change
+collection settings or publish tag-manager libraries as part of this package
+rollout. Existing OAuth callers retain their default caching behavior;
+`token_cache_file=None` explicitly disables filesystem token caching.

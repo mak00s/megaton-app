@@ -2,6 +2,16 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## 0.47.0 - 2026-11-13
+
+- Package guarded Target audience diagnostics and an optional Keychain token
+  adapter; API checks remain prefetch-only and stop on missing diagnostic evidence.
+- Support explicit memory-only Adobe OAuth with `token_cache_file=None` while
+  preserving existing cache defaults.
+- Add event-correlated collection receipts for validation. Failed, pending,
+  missing or unrelated requests cannot establish target-event HTTP receipt.
+- Receipt records omit raw payloads, identity values and request URLs.
+
 ## 0.46.0 - 2026-11-10
 
 - Requires Megaton 2.7.0 or newer (for `mg.gs.sheet.worksheet`).

@@ -29,20 +29,21 @@ class AdobeOAuthClient:
 
     Handles token acquisition, file-based caching with expiry buffer,
     and transparent refresh.  Shared across AA, Reactor, and Target clients.
+    Pass token_cache_file=None to keep tokens in memory without filesystem I/O.
     """
 
     client_id: str = ""
     client_secret: str = ""
     org_id: str = ""
     scopes: str = DEFAULT_SCOPES
-    token_cache_file: str | Path = "credentials/.adobe_token_cache.json"
+    token_cache_file: str | Path | None = "credentials/.adobe_token_cache.json"
 
     # Allow env-var indirection (resolved in __post_init__)
     client_id_env: str = "ADOBE_CLIENT_ID"
     client_secret_env: str = "ADOBE_CLIENT_SECRET"
     org_id_env: str = "ADOBE_ORG_ID"
 
-    _token_cache_path: Path = field(init=False, repr=False)
+    _token_cache_path: Path | None = field(init=False, repr=False)
     _access_token: str = field(init=False, repr=False)
 
     # ---- lifecycle --------------------------------------------------------
@@ -70,8 +71,9 @@ class AdobeOAuthClient:
                 f"Adobe org_id is missing: set org_id or env {self.org_id_env}"
             )
 
-        self._token_cache_path = Path(self.token_cache_file)
-        self._token_cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._token_cache_path = Path(self.token_cache_file) if self.token_cache_file is not None else None
+        if self._token_cache_path is not None:
+            self._token_cache_path.parent.mkdir(parents=True, exist_ok=True)
         self._access_token = self._ensure_access_token()
 
     # ---- public API -------------------------------------------------------
@@ -113,7 +115,7 @@ class AdobeOAuthClient:
         return str(token_info["access_token"])
 
     def _load_cached_token(self) -> str | None:
-        if not self._token_cache_path.exists():
+        if self._token_cache_path is None or not self._token_cache_path.exists():
             return None
         try:
             payload = json.loads(self._token_cache_path.read_text(encoding="utf-8"))
@@ -130,6 +132,8 @@ class AdobeOAuthClient:
         return None
 
     def _save_token(self, token_info: dict[str, Any]) -> None:
+        if self._token_cache_path is None:
+            return
         payload = {
             "access_token": token_info.get("access_token"),
             "expires_at": time.time() + float(token_info.get("expires_in", 3600)),

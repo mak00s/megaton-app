@@ -2354,3 +2354,38 @@ info = describe_auth_context(creds_hint="corp")
   HTTPS Box CDNへのredirectだけ許可し、Bearer/cookieをCDNへ渡さない。
 - HTTPエラーは安全なcodeのみ。レスポンス本文・秘密を例外に含めない。
   401/403/429は停止して明示復旧（自動retryなし）。
+
+
+## Target audience diagnostics
+
+- Module/CLI: `megaton_lib.target_audience` (`validate`, `snapshot`, `probe`, `token-store`).
+- Consumer entrypoint: `main(adobe_config_default=..., company_default=..., private_root=...)`.
+  A supplied `private_root` restricts output/token-state locations.
+- `AdobeOAuthClient(token_cache_file=None)` and `AdobeOAuthConfig(token_cache_file=None)`
+  disable persistent token caching without changing existing cache defaults.
+- Results: `completed`, `executionMode`, `tagsOverride`, `snapshot`, anonymized `results`,
+  `counts`, `activityCounts`, `elapsedSeconds`, `settingsChanged`, `aaBeaconsSent`,
+  `notificationsSent`. Membership and condition values are true/false/null; null is
+  unavailable evidence. `completed` means the check finished, not delivery succeeded.
+- Failures exit nonzero and use a safe code (no raw response body). Partial results
+  remain private; `debug_authorization_failed`, `aam_membership_unavailable`,
+  `aam_membership_lists_disagree`, `profile_changed_stop` and expiry/cutoff errors
+  stop the batch. No automatic mutation, token renewal or retry of delivery POSTs.
+- Keychain helper: `megaton_lib.target_debug_keychain`; token values stay in memory.
+
+## Collection receipt validation
+
+`megaton_lib.validation.collection_receipts` (0.47.0+) provides
+`CollectionReceipts` for browser validation consumers. Register each collection
+request with its decoded event names and optional stream, then record the
+response or network failure using the same request object. `require(events,
+stream=...)` requires every matching request to have a 2xx response; a different
+event's success, pending response, or HTTP error cannot satisfy it. Batched
+events share their request outcome. `records` exports only opaque request IDs,
+allowlisted event names, stream, status and failure flags, never payloads,
+identity values or request URLs.
+
+`named_events(body, allowlist)` reads JSON, nested JSON strings and form data.
+Unrecognized or encoded payloads yield no event evidence and fail closed when
+the caller requires receipt. HTTP receipt does not establish downstream report
+storage or UI display.

@@ -43,6 +43,18 @@ def _make_client(tmp_path: Path, **overrides) -> AdobeOAuthClient:
 # ---- init / credential resolution ----
 
 
+def test_none_token_cache_is_memory_only(auth_env, monkeypatch):
+    monkeypatch.chdir(auth_env)
+    mock = MagicMock(return_value=_TokenResponse(200, {"access_token": "memory-only", "expires_in": 3600}))
+    monkeypatch.setattr("megaton_lib.audit.providers.adobe_auth.requests.post", mock)
+    client = _make_client(auth_env, token_cache_file=None)
+    assert client.access_token == "memory-only"
+    assert client._load_cached_token() is None
+    client.refresh_access_token()
+    assert mock.call_count == 2
+    assert list(auth_env.iterdir()) == []
+
+
 def test_missing_client_id_raises(monkeypatch, tmp_path):
     monkeypatch.delenv("ADOBE_CLIENT_ID", raising=False)
     monkeypatch.setenv("ADOBE_CLIENT_SECRET", "s")

@@ -36,7 +36,7 @@ class AdobeOAuthConfig:
     org_id_env: str = "ADOBE_ORG_ID"
     org_id: str | None = None
     scopes: str = DEFAULT_ADOBE_SCOPES
-    token_cache_file: str = "credentials/.adobe_token_cache.json"
+    token_cache_file: str | None = "credentials/.adobe_token_cache.json"
 
 
 @dataclass(frozen=True)
