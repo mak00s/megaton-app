@@ -9,7 +9,7 @@ import requests
 
 from megaton_lib.target_audience import (
     AudienceDiagnostics, DiagnosticError, DiagnosticSession, analyze_delivery,
-    check_expiry, load_members, main, prefetch, private_json, validate_case,
+    check_expiry, load_members, main, prefetch, private_json, valid_debug_token, validate_case,
 )
 
 
@@ -189,3 +189,82 @@ def test_cli_probe_anonymized_report_and_counts(tmp_path, monkeypatch, capsys):
     assert saved["elapsedSeconds"]["publishedAt"] > 0
     combined = output.read_text() + capsys.readouterr().out
     assert "1" * 38 not in combined and "synthetic-debug-token-1234567890" not in combined
+
+
+def probe_with_profiles(before, after):
+    ecid = "1" * 38
+    responses = iter([before, {"d_mid": ecid, "d_blob": "blob", "dcs_region": 1}, body(), after])
+    class Session:
+        delivery = "https://example.tt.omtrdc.net/rest/v1/delivery"
+        def get(self, *a, **kw):
+            return SimpleNamespace(status_code=200, json=lambda: next(responses))
+        post = get
+    diag = object.__new__(AudienceDiagnostics)
+    diag.case, diag.org, diag.allow_page_load = case(), "ORG", False
+    diag.target = SimpleNamespace(get=lambda endpoint: {"token": "property"})
+    diag.session = Session()
+    return diag.probe_one({"label": "one", "ecid": ecid}, "debug-token", {"copy": "222"})
+
+
+def test_timestamp_only_profile_update_is_touched_not_stopped():
+    before = {"modifiedAt": "t1", "profileAttributes": {"user.UserAgent": {"value": "UA", "modifiedAt": "t1"}}}
+    after = {"modifiedAt": "t2", "profileAttributes": {"user.UserAgent": {"value": "UA", "modifiedAt": "t2"}}}
+    result = probe_with_profiles(before, after)
+    assert result["profileChanged"] is False and result["profileTouched"] is True
+
+
+@pytest.mark.parametrize("after_attributes", [
+    {"user.UserAgent": {"value": "other", "modifiedAt": "t1"}},
+    {"user.UserAgent": {"value": "UA", "modifiedAt": "t1"}, "profile.added": {"value": "x"}},
+    {},
+])
+def test_profile_value_change_still_stops(after_attributes):
+    before = {"modifiedAt": "t1", "profileAttributes": {"user.UserAgent": {"value": "UA", "modifiedAt": "t1"}}}
+    with pytest.raises(DiagnosticError, match="profile_changed_stop"):
+        probe_with_profiles(before, {"modifiedAt": "t1", "profileAttributes": after_attributes})
+
+
+@pytest.mark.parametrize("change,code", [
+    ({"timings": {"publishedAt": 1700000000}}, "invalid_timestamp"),
+    ({"timings": ["2030-01-01T00:00:00+00:00"]}, "invalid_timestamp"),
+    ({"audiences": [11, 22]}, "invalid_audience_ids"),
+    ({"url": 42}, "invalid_or_qa_url"),
+    ({"activities": [101]}, "invalid_activity_id"),
+    ({"activities": {"id": 101}}, "invalid_activity_id"),
+    ({"aa_segment_ids": ["s/../x"]}, "invalid_aa_segment_id"),
+    ({"aa_segment_ids": "s1"}, "invalid_aa_segment_id"),
+])
+def test_malformed_case_fields_stop_with_validation_codes(change, code):
+    with pytest.raises(DiagnosticError, match=code):
+        validate_case({**case(), **change})
+    with pytest.raises(DiagnosticError, match="unsupported_case_schema"):
+        validate_case([case()])
+
+
+def test_private_json_is_atomic_and_keeps_previous_report_on_failure(tmp_path):
+    path = tmp_path / "result.json"
+    private_json(path, {"members": 1})
+    with pytest.raises(TypeError):
+        private_json(path, {"members": object()})
+    assert json.loads(path.read_text()) == {"members": 1}
+    assert [p.name for p in tmp_path.iterdir()] == ["result.json"]
+
+
+def test_token_storage_is_supplied_by_the_consumer(tmp_path, monkeypatch, capsys):
+    state = tmp_path / "state.json"
+    future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    argv = ["check", "token-store", "--expires-at", future, "--token-state", str(state),
+            "--keychain-service", "svc", "--keychain-account", "acct"]
+    monkeypatch.setattr("sys.argv", argv)
+    assert main() == 1
+    assert "token_adapter_not_configured" in capsys.readouterr().out
+    assert not state.exists()
+    stored = []
+    assert main(token_store=lambda service, account: stored.append((service, account))) == 0
+    assert stored == [("svc", "acct")]
+    assert json.loads(state.read_text()) == {"expires_at": future, "service": "svc", "account": "acct"}
+    assert "token_saved_and_verified" in capsys.readouterr().out
+
+
+def test_debug_token_shape():
+    assert valid_debug_token("a" * 20) and not valid_debug_token("short") and not valid_debug_token(None)

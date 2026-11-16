@@ -2359,19 +2359,23 @@ info = describe_auth_context(creds_hint="corp")
 ## Target audience diagnostics
 
 - Module/CLI: `megaton_lib.target_audience` (`validate`, `snapshot`, `probe`, `token-store`).
-- Consumer entrypoint: `main(adobe_config_default=..., company_default=..., private_root=...)`.
-  A supplied `private_root` restricts output/token-state locations.
+- Consumer entrypoint: `main(adobe_config_default=..., company_default=..., private_root=...,
+  token_store=None, token_reader=None)`. A supplied `private_root` restricts output/token-state
+  locations. `token_store(service, account)` / `token_reader(service, account)` are the
+  consumer's secret-storage adapter; `valid_debug_token(value)` checks the token shape.
 - `AdobeOAuthClient(token_cache_file=None)` and `AdobeOAuthConfig(token_cache_file=None)`
   disable persistent token caching without changing existing cache defaults.
 - Results: `completed`, `executionMode`, `tagsOverride`, `snapshot`, anonymized `results`,
   `counts`, `activityCounts`, `elapsedSeconds`, `settingsChanged`, `aaBeaconsSent`,
   `notificationsSent`. Membership and condition values are true/false/null; null is
-  unavailable evidence. `completed` means the check finished, not delivery succeeded.
+  unavailable evidence. Each result has `profileChanged: false` and `profileTouched`
+  (timestamps changed, values did not). `completed` means the check finished, not delivery succeeded.
 - Failures exit nonzero and use a safe code (no raw response body). Partial results
   remain private; `debug_authorization_failed`, `aam_membership_unavailable`,
   `aam_membership_lists_disagree`, `profile_changed_stop` and expiry/cutoff errors
   stop the batch. No automatic mutation, token renewal or retry of delivery POSTs.
-- Keychain helper: `megaton_lib.target_debug_keychain`; token values stay in memory.
+- Output files are written atomically (owner-only temp file, then replace); symlink
+  destinations are refused. Malformed case fields stop with their validation code.
 
 ## Collection receipt validation
 
@@ -2381,7 +2385,9 @@ request with its decoded event names and optional stream, then record the
 response or network failure using the same request object. `require(events,
 stream=...)` requires every matching request to have a 2xx response; a different
 event's success, pending response, or HTTP error cannot satisfy it. Batched
-events share their request outcome. `records` exports only opaque request IDs,
+events share their request outcome. A redirect hop (`request.redirected_from`
+pointing to a registered request) joins the original record, so the final response
+decides; a 3xx without a followed redirect stays an HTTP error. `records` exports only opaque request IDs,
 allowlisted event names, stream, status and failure flags, never payloads,
 identity values or request URLs.
 

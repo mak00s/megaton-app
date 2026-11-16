@@ -286,3 +286,29 @@ def test_token_saved_to_disk(auth_env, monkeypatch):
     saved = json.loads(cache_path.read_text(encoding="utf-8"))
     assert saved["access_token"] == "disk-tok"
     assert saved["expires_at"] > time.time()
+
+
+def test_memory_only_auth_stays_memory_only_for_classification_reports(monkeypatch, tmp_path):
+    """A derived AA report client must not turn a None cache into a file named "None"."""
+    from megaton_lib.audit.providers.analytics import aa
+    from megaton_lib.audit.providers.analytics.classifications import ClassificationsClient
+
+    monkeypatch.chdir(tmp_path)
+    auth = MagicMock(client_id="id", client_secret="secret", org_id="org", _token_cache_path=None)
+    client = ClassificationsClient(auth, "company")
+    monkeypatch.setattr(client, "find_dataset_id", lambda **_: "dataset")
+    monkeypatch.setattr(client, "_resolve_classification_dim", lambda *a, **kw: "variables/evar1.1")
+    captured = {}
+
+    class Stop(Exception):
+        pass
+
+    def fake_client(*, config):
+        captured["config"] = config
+        raise Stop
+
+    monkeypatch.setattr(aa, "AdobeAnalyticsClient", fake_client)
+    with pytest.raises(Stop):
+        client.verify_column_via_report("rsid", "variables/evar1", "col", {}, verbose=False)
+    assert captured["config"].token_cache_file is None
+    assert not (tmp_path / "None").exists()

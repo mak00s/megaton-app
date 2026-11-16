@@ -4,12 +4,17 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 
 ## 0.47.0 - 2026-11-13
 
-- Package guarded Target audience diagnostics and an optional Keychain token
-  adapter; API checks remain prefetch-only and stop on missing diagnostic evidence.
+- Package guarded Target audience diagnostics; API checks remain prefetch-only and
+  stop on missing diagnostic evidence. Debug-token storage is supplied by the consumer
+  (`main(token_store=..., token_reader=...)`); the Keychain adapter is not packaged.
+  Only attribute value changes stop a probe; timestamp-only updates are reported as
+  `profileTouched`. Reports are written atomically and malformed cases stop with
+  validation codes.
 - Support explicit memory-only Adobe OAuth with `token_cache_file=None` while
   preserving existing cache defaults.
 - Add event-correlated collection receipts for validation. Failed, pending,
   missing or unrelated requests cannot establish target-event HTTP receipt.
+  Redirect hops join the original request, so the final response decides.
 - Receipt records omit raw payloads, identity values and request URLs.
 
 ## 0.46.0 - 2026-11-10

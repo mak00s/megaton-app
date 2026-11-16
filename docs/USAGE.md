@@ -1234,15 +1234,18 @@ For one run, supply a debug token through stdin using `--debug-token-stdin` and
 `--expires-at` with the actual timezone-aware expiry/cutoff. Never pass a token
 as an argument or infer expiry from clipboard time. Explicitly requested persistence
 uses `token-store --keychain-service ... --keychain-account ... --expires-at ...
---token-state <private-path>` on macOS. That command reads the clipboard and verifies
-Keychain readback; the state file contains no token. A subsequent probe takes
-`--token-state`. Keychain access never prompts or unlocks automatically.
+--token-state <private-path>`. Secret storage belongs to the consumer: its entrypoint
+passes `main(token_store=..., token_reader=...)` (for example a macOS Keychain adapter
+in the consumer repository). Without them, `token-store` and `--token-state` stop with
+`token_adapter_not_configured`. The state file contains no token; a subsequent probe
+takes `--token-state`.
 
 Use unique private `--output` files per run. Reports exclude raw ECIDs, tokens,
 blobs, profile attributes and raw delivery responses. They distinguish unknown
 membership from an explicit empty list, and unattributed offers from confirmed
-activity offers. HTTP 200 with a trace authorization error is a failure. A profile
-change stops the batch without restoration. Page-load prefetch needs explicit
+activity offers. HTTP 200 with a trace authorization error is a failure. An added,
+removed or changed profile attribute value stops the batch without restoration;
+timestamp-only updates from the delivery call are reported as `profileTouched`. Page-load prefetch needs explicit
 `--allow-page-load`; the default requires a dedicated mbox.
 
 This tool has no admin mutation or scheduling operation. A consumer owns approvals,
@@ -1251,8 +1254,8 @@ activities or schedules merely because a diagnosis failed.
 
 ## Coordinated validation consumers (0.47.0)
 
-This version packages the read-only `target_audience` CLI, its optional Keychain
-adapter, memory-only Adobe OAuth, and event-correlated collection receipts.
+This version packages the read-only `target_audience` CLI (with consumer-supplied
+token storage hooks), memory-only Adobe OAuth, and event-correlated collection receipts.
 Consumers must reference a distributed commit containing all these modules,
 not rely on an editable checkout's untracked files. Build a wheel and smoke-test
 the consumer against that artifact before changing its Git dependency reference.

@@ -12,7 +12,8 @@ import os
 from pathlib import Path
 import re
 import sys
-from typing import Any
+import tempfile
+from typing import Any, Callable
 from urllib.parse import urlparse, parse_qs
 from uuid import uuid4
 
@@ -28,7 +29,17 @@ class DiagnosticError(RuntimeError):
         super().__init__(code)
 
 
+DEBUG_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9._~+/=-]{20,4096}")
+
+
+def valid_debug_token(value: object) -> bool:
+    """True when value has the shape of a Target debug authorization token."""
+    return isinstance(value, str) and DEBUG_TOKEN_PATTERN.fullmatch(value) is not None
+
+
 def aware_time(value: str) -> datetime:
+    if not isinstance(value, str):
+        raise DiagnosticError("invalid_timestamp")
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except (ValueError, TypeError):
@@ -44,28 +55,42 @@ def check_expiry(value: str) -> None:
 
 
 def validate_case(case: dict) -> None:
+    if not isinstance(case, dict):
+        raise DiagnosticError("unsupported_case_schema")
     if case.get("schema_version") != 1:
         raise DiagnosticError("unsupported_case_schema")
     if not re.fullmatch(r"[A-Za-z0-9_-]+", str(case.get("tenant_id", ""))):
         raise DiagnosticError("invalid_tenant")
-    url = urlparse(case.get("url", ""))
+    if not isinstance(case.get("url"), str):
+        raise DiagnosticError("invalid_or_qa_url")
+    url = urlparse(case["url"])
     query = {key.lower() for key in parse_qs(url.query)}
     if (url.scheme != "https" or not url.hostname or url.username or url.password
             or url.fragment or any(key.startswith(("at_preview", "mboxoverride", "mboxmcgvid")) for key in query)):
         raise DiagnosticError("invalid_or_qa_url")
     if not isinstance(case.get("property_id"), int) or case["property_id"] <= 0:
         raise DiagnosticError("invalid_property_id")
-    if not case.get("audiences") or not all(isinstance(v, int) and v > 0 for v in case["audiences"].values()):
+    if not isinstance(case.get("audiences"), dict) or not case["audiences"] or not all(isinstance(v, int) and v > 0 for v in case["audiences"].values()):
         raise DiagnosticError("invalid_audience_ids")
     if any(not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,31}", key) for key in case["audiences"]):
         raise DiagnosticError("invalid_audience_alias")
     if case.get("mbox") is not None and (not isinstance(case["mbox"], str) or not case["mbox"].strip()):
         raise DiagnosticError("invalid_mbox")
-    for activity in case.get("activities", []):
-        if not isinstance(activity.get("id"), int) or activity["id"] <= 0:
+    activities = case.get("activities", [])
+    if not isinstance(activities, list):
+        raise DiagnosticError("invalid_activity_id")
+    for activity in activities:
+        if not isinstance(activity, dict) or not isinstance(activity.get("id"), int) or activity["id"] <= 0:
             raise DiagnosticError("invalid_activity_id")
-    for value in case.get("timings", {}).values():
+    timings = case.get("timings", {})
+    if not isinstance(timings, dict):
+        raise DiagnosticError("invalid_timestamp")
+    for value in timings.values():
         aware_time(value)
+    segments = case.get("aa_segment_ids", [])
+    if not isinstance(segments, list) or not all(
+            isinstance(sid, str) and re.fullmatch(r"[A-Za-z0-9_-]+", sid) for sid in segments):
+        raise DiagnosticError("invalid_aa_segment_id")
 
 
 def load_members(path: Path) -> list[dict]:
@@ -244,8 +269,6 @@ class AudienceDiagnostics:
             raw = fetch_activity(client, row["id"])
             result["activities"][str(row["id"])] = {key: raw.get(key) for key in ["id", "name", "state", "startsAt", "endsAt", "createdAt", "modifiedAt", "locations", "experiences", "reportingSource", "propertyIds"]}
         for sid in self.case.get("aa_segment_ids", []):
-            if not re.fullmatch(r"[A-Za-z0-9_-]+", sid):
-                raise DiagnosticError("invalid_aa_segment_id")
             response = self.session.get(f"https://analytics.adobe.io/api/{self.company}/segments/{sid}",
                 params={"includeType": "all", "expansion": "definition,publishingStatus,modified,definitionLastModified,compatibility"},
                 headers=self.target._auth.get_headers(), timeout=30)
@@ -279,22 +302,55 @@ class AudienceDiagnostics:
         body = json_response(self.session.post(self.session.delivery, params={"client": tenant, "sessionId": uuid4().hex}, json=data, timeout=30))
         # Read back even if debug authorization fails; never restore attributes automatically.
         after = profile()
-        changed = any(before.get(k) != after.get(k) for k in ["profileAttributes", "modifiedAt"])
-        if changed:
+        # Stop on any added, removed or changed attribute value. Timestamps alone
+        # (profile/attribute modifiedAt) are delivery bookkeeping, not a change.
+        if attribute_values(before) != attribute_values(after):
             raise DiagnosticError("profile_changed_stop")
-        return {"label": row["label"], **analyze_delivery(body, aam_ids, self.case.get("activities", [])), "profileChanged": False}
+        touched = before != after
+        return {"label": row["label"], **analyze_delivery(body, aam_ids, self.case.get("activities", [])),
+                "profileChanged": False, "profileTouched": touched}
+
+
+def attribute_values(profile: dict) -> dict:
+    """Profile attribute values without per-attribute or profile timestamps."""
+    attributes = profile.get("profileAttributes") or {}
+    if not isinstance(attributes, dict):
+        raise DiagnosticError("invalid_response_shape")
+    return {name: value.get("value") if isinstance(value, dict) else value
+            for name, value in attributes.items()}
 
 
 def private_json(path: Path, value: Any) -> None:
+    """Write owner-only JSON atomically; an interrupted write keeps the old file."""
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     # Refuse symlink outputs; never replace an unrelated destination through one.
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
-    with os.fdopen(fd, "w") as stream:
-        os.fchmod(stream.fileno(), 0o600)
-        json.dump(value, stream, ensure_ascii=False, indent=2)
+    if path.is_symlink():
+        raise OSError(f"refusing symlink output: {path.name}")
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            json.dump(value, stream, ensure_ascii=False, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
-def main(*, adobe_config_default: str = "", company_default: str = "", private_root: Path | None = None) -> int:
+TokenStore = Callable[[str, str], None]
+TokenReader = Callable[[str, str], str]
+
+
+def main(*, adobe_config_default: str = "", company_default: str = "", private_root: Path | None = None,
+         token_store: TokenStore | None = None, token_reader: TokenReader | None = None) -> int:
+    """CLI entry point.
+
+    ``token_store(service, account)`` and ``token_reader(service, account)`` are the
+    consumer's secret-storage adapter for ``token-store`` and ``--token-state``;
+    without them those paths stop with ``token_adapter_not_configured``.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["validate", "snapshot", "probe", "token-store"])
     parser.add_argument("--case", type=Path)
@@ -319,10 +375,11 @@ def main(*, adobe_config_default: str = "", company_default: str = "", private_r
             if not all([args.expires_at, args.token_state, args.keychain_service, args.keychain_account]):
                 raise DiagnosticError("token_store_requires_expiry_state_service_account")
             check_expiry(args.expires_at)
-            from megaton_lib.target_debug_keychain import store_clipboard
-            store_clipboard(args.keychain_service, args.keychain_account)
+            if token_store is None:
+                raise DiagnosticError("token_adapter_not_configured")
+            token_store(args.keychain_service, args.keychain_account)
             private_json(args.token_state, {"expires_at": args.expires_at, "service": args.keychain_service, "account": args.keychain_account})
-            print(json.dumps({"status": "keychain_saved_and_verified", "expiresAt": args.expires_at}))
+            print(json.dumps({"status": "token_saved_and_verified", "expiresAt": args.expires_at}))
             return 0
         if not args.case:
             raise DiagnosticError("case_required")
@@ -349,11 +406,12 @@ def main(*, adobe_config_default: str = "", company_default: str = "", private_r
                 state = json.loads(args.token_state.read_text())
                 expiry = state["expires_at"]
                 check_expiry(expiry)
-                from megaton_lib.target_debug_keychain import read_token
-                token = read_token(state["service"], state["account"])
+                if token_reader is None:
+                    raise DiagnosticError("token_adapter_not_configured")
+                token = token_reader(state["service"], state["account"])
             else:
                 raise DiagnosticError("token_state_or_stdin_required")
-            if not re.fullmatch(r"[A-Za-z0-9._~+/=-]{20,4096}", token):
+            if not valid_debug_token(token):
                 raise DiagnosticError("invalid_debug_token_format")
         diag = AudienceDiagnostics(case, Path(args.adobe_config), company=args.company_id, allow_page_load=args.allow_page_load)
         snapshot = diag.snapshot()

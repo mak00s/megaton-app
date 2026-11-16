@@ -889,7 +889,9 @@ class ClassificationsClient:
             client_id=self._auth.client_id,
             client_secret=self._auth.client_secret,
             org_id=self._auth.org_id,
-            token_cache_file=str(self._auth._token_cache_path),
+            token_cache_file=(
+                None if self._auth._token_cache_path is None else str(self._auth._token_cache_path)
+            ),
         )
         aa_client = AdobeAnalyticsClient(config=aa_config)
 

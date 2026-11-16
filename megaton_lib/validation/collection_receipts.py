@@ -75,6 +75,13 @@ class CollectionReceipts:
         self._requests: dict[object, dict] = {}
 
     def request(self, request, events, *, stream=None) -> dict:
+        origin = self._redirect_origin(request)
+        if origin is not None:
+            # A redirect hop continues the original request; its final response decides.
+            origin["status"] = None
+            origin["events"] = sorted(set(origin["events"]) | set(events))
+            self._requests[request] = origin
+            return origin
         if request not in self._requests:
             record = {"requestId": len(self.records) + 1,
                       "events": sorted(set(events)), "stream": stream,
@@ -82,6 +89,16 @@ class CollectionReceipts:
             self._requests[request] = record
             self.records.append(record)
         return self._requests[request]
+
+    def _redirect_origin(self, request) -> dict | None:
+        previous = getattr(request, "redirected_from", None)
+        seen = 0
+        while previous is not None and seen < 20:
+            if previous in self._requests:
+                return self._requests[previous]
+            previous = getattr(previous, "redirected_from", None)
+            seen += 1
+        return None
 
     def response(self, response) -> dict | None:
         record = self._requests.get(response.request)

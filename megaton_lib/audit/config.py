@@ -95,7 +95,7 @@ class AdobeAnalyticsConfig:
         "openid,AdobeID,read_organizations,"
         "additional_info.projectedProductContext,additional_info.roles"
     )
-    token_cache_file: str = "credentials/.adobe_token_cache.json"
+    token_cache_file: str | None = "credentials/.adobe_token_cache.json"
 
 
 @dataclass(frozen=True)

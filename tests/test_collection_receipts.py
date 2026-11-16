@@ -90,3 +90,37 @@ def test_no_expected_events_is_not_delivery_evidence():
 def test_mentioning_event_in_unrelated_payload_is_not_delivery_evidence():
     assert named_events('{"log":"identify","lastEvent":"attribute"}',
                         {"identify", "attribute"}) == []
+
+
+class Hop:
+    """Hashable stand-in for a Playwright Request with redirect linkage."""
+
+    def __init__(self, redirected_from=None):
+        self.redirected_from = redirected_from
+
+
+def test_redirect_hop_joins_original_request_and_final_response_decides():
+    tracker = CollectionReceipts()
+    first = Hop()
+    tracker.request(first, ["page_view"], stream="aa")
+    tracker.response(SimpleNamespace(request=first, status=302))
+    hop = Hop(first)
+    tracker.request(hop, [], stream="aa")
+    assert not tracker.received(["page_view"], stream="aa")  # pending until the final hop answers
+    tracker.response(SimpleNamespace(request=hop, status=200))
+    tracker.require(["page_view"], stream="aa")
+    assert len(tracker.records) == 1
+
+
+def test_unfollowed_redirect_and_failed_hop_are_not_receipts():
+    tracker = CollectionReceipts()
+    first = Hop()
+    tracker.request(first, ["page_view"])
+    tracker.response(SimpleNamespace(request=first, status=302))
+    with pytest.raises(CollectionReceiptError, match="http_error:page_view"):
+        tracker.require(["page_view"])
+    hop = Hop(first)
+    tracker.request(hop, [])
+    tracker.failure(hop)
+    with pytest.raises(CollectionReceiptError, match="request_failed:page_view"):
+        tracker.require(["page_view"])
