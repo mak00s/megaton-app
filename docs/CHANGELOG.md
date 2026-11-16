@@ -2,7 +2,7 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
-## 0.47.0 - 2026-11-13
+## 0.47.0 - 2026-11-16
 
 - Package guarded Target audience diagnostics; API checks remain prefetch-only and
   stop on missing diagnostic evidence. Debug-token storage is supplied by the consumer

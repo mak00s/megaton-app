@@ -1256,10 +1256,11 @@ activities or schedules merely because a diagnosis failed.
 
 This version packages the read-only `target_audience` CLI (with consumer-supplied
 token storage hooks), memory-only Adobe OAuth, and event-correlated collection receipts.
-Consumers must reference a distributed commit containing all these modules,
-not rely on an editable checkout's untracked files. Build a wheel and smoke-test
-the consumer against that artifact before changing its Git dependency reference.
-Publish the shared commit first and then update the consumer; never change
+Consumers must install a pushed commit containing all these modules (the
+`v0.47.0` tag or a later `main`), not rely on an editable checkout's untracked
+files. Build a wheel and smoke-test the consumer against that artifact before
+changing its Git dependency reference. Push the shared commit first and then
+update the consumer; never change
 collection settings or publish tag-manager libraries as part of this package
 rollout. Existing OAuth callers retain their default caching behavior;
 `token_cache_file=None` explicitly disables filesystem token caching.
