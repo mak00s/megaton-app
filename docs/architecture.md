@@ -218,7 +218,7 @@ so a new module must be placed in a tier when it is added.
 
 | Tier | Modules |
 | --- | --- |
-| 1 | `megaton_client`, `query_runner`, `query_normalization`, `params_validator`, `result_inspector`, `batch_runner`, `job_manager`, `site_aliases`, `credentials`, `audit/`, `validation/`, `report_run`, `report_run_summary`, `report_validation`, `report_work_log`, `run_journal`, `sheets`, `gspread_lowlevel`, `ga4_helpers`, `gsc_utils`, `bigquery_utils`, `traffic`, `table_utils`, `dates` and its shims (`date_utils`, `date_template`, `periods`), `csv_validation`, `notebook`, `analysis`, `gtm_client`, `gtm_review`, `cli_help`, `params_diff`, `docs_sites` |
+| 1 | `megaton_client`, `query_runner`, `query_normalization`, `params_validator`, `result_inspector`, `batch_runner`, `job_manager`, `site_aliases`, `credentials`, `audit/`, `validation/`, `report_run`, `report_run_summary`, `report_validation`, `report_work_log`, `run_journal`, `sheets`, `gspread_lowlevel`, `ga4_helpers`, `gsc_utils`, `bigquery_utils`, `traffic`, `table_utils`, `dates` and its shims (`date_utils`, `date_template`, `periods`), `csv_validation`, `notebook`, `analysis`, `gtm_client`, `gtm_review`, `target_audience`, `target_debug_keychain`, `cli_help`, `params_diff`, `docs_sites` |
 | 2 | `playwright_browser`, `browser_workflow`, `box_api`, `box_ui`, `gmail_client`, `gmail_draft`, `report_gmail_draft`, `todoist_client`, `todoist_tasks`, `todoist_completion`, `docs_client`, `docs_edit`, `docs_mutate`, `docs_mutations`, `docs_mutation_io`, `docs_assets`, `google_workspace` |
 | Existing utilities | the modules listed above |
 
