@@ -150,3 +150,23 @@ def test_unclassified_redirect_hop_inherits_the_original_stream():
     tracker.request(hop, [], stream=None)
     tracker.response(SimpleNamespace(request=hop, status=200))
     tracker.require(["page_view"], stream="aa")
+
+
+def test_attached_observers_follow_unclassified_redirects_and_ignore_other_requests():
+    callbacks = {}
+    page = SimpleNamespace(on=lambda event, callback: callbacks.setdefault(event, callback))
+    tracker = CollectionReceipts()
+    first, unrelated = Hop(), Hop()
+    tracker.attach(page, lambda request: (["page_view"], "aa") if request is first else None)
+    callbacks["request"](unrelated)
+    callbacks["response"](SimpleNamespace(request=unrelated, status=200))
+    assert tracker.records == []
+    callbacks["request"](first)
+    callbacks["response"](SimpleNamespace(request=first, status=302))
+    hop = Hop(first)
+    callbacks["request"](hop)
+    assert not tracker.received(["page_view"], stream="aa")
+    callbacks["response"](SimpleNamespace(request=hop, status=200))
+    tracker.require(["page_view"], stream="aa")
+    callbacks["requestfailed"](hop)
+    assert not tracker.received(["page_view"], stream="aa")

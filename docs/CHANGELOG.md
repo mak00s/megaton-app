@@ -16,6 +16,9 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
   missing or unrelated requests cannot establish target-event HTTP receipt.
   Redirect hops join the original request, so the final response decides.
   A redirect into a different stream is rejected rather than attributed to either.
+- Add `CollectionReceipts.attach(page, classify_request)` to track collection
+  requests and redirect hops through browser events, including hops that bypass
+  route handlers or change endpoint. Explicit stream changes remain failures.
 - Receipt records omit raw payloads, identity values and request URLs.
 
 ## 0.46.0 - 2026-11-10

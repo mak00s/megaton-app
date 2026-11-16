@@ -2393,6 +2393,13 @@ under a different `stream` fails the record with `collection_redirect_stream_cha
 allowlisted event names, stream, status and failure flags, never payloads,
 identity values or request URLs.
 
+Use `receipts.attach(page, classify_request)` to observe browser request, response
+and failure events together. The classifier returns `(event_names, stream)` for
+collection requests or `None` otherwise. Redirects of tracked requests are observed
+even when their new endpoint is unclassified; those inherit the original stream.
+An explicitly different stream makes the receipt fail. Do not register receipts
+only inside routing handlers: those do not see subsequent redirect hops.
+
 `named_events(body, allowlist)` reads JSON, nested JSON strings and form data.
 Unrecognized or encoded payloads yield no event evidence and fail closed when
 the caller requires receipt. HTTP receipt does not establish downstream report

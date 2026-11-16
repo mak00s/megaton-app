@@ -76,6 +76,25 @@ class CollectionReceipts:
         self.records: list[dict] = []
         self._requests: dict[object, dict] = {}
 
+    def attach(self, page, classify_request) -> None:
+        """Observe requests, including redirects that bypass route handlers.
+
+        ``classify_request`` returns ``(events, stream)`` for collection requests,
+        otherwise None. Unclassified redirects of tracked requests inherit their
+        original events and stream, even when the endpoint changes.
+        """
+        def observe(request):
+            classification = classify_request(request)
+            if classification is not None:
+                events, stream = classification
+                self.request(request, events, stream=stream)
+            elif self._redirect_origin(request) is not None:
+                self.request(request, [], stream=None)
+
+        page.on("request", observe)
+        page.on("response", self.response)
+        page.on("requestfailed", self.failure)
+
     def request(self, request, events, *, stream=None) -> dict:
         origin = self._redirect_origin(request)
         if origin is not None:
