@@ -15,6 +15,7 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
 - Add event-correlated collection receipts for validation. Failed, pending,
   missing or unrelated requests cannot establish target-event HTTP receipt.
   Redirect hops join the original request, so the final response decides.
+  A redirect into a different stream is rejected rather than attributed to either.
 - Receipt records omit raw payloads, identity values and request URLs.
 
 ## 0.46.0 - 2026-11-10

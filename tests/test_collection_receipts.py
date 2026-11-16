@@ -124,3 +124,29 @@ def test_unfollowed_redirect_and_failed_hop_are_not_receipts():
     tracker.failure(hop)
     with pytest.raises(CollectionReceiptError, match="request_failed:page_view"):
         tracker.require(["page_view"])
+
+
+def test_redirect_into_another_stream_is_not_a_receipt_for_either_stream():
+    tracker = CollectionReceipts()
+    first = Hop()
+    tracker.request(first, ["identify"], stream="stream-a")
+    tracker.response(SimpleNamespace(request=first, status=302))
+    hop = Hop(first)
+    tracker.request(hop, ["purchase"], stream="stream-b")
+    tracker.response(SimpleNamespace(request=hop, status=200))
+    for event in ("identify", "purchase"):
+        with pytest.raises(CollectionReceiptError, match="redirect_stream_changed:" + event):
+            tracker.require([event], stream="stream-a")
+    with pytest.raises(CollectionReceiptError, match="missing_event_receipt:purchase"):
+        tracker.require(["purchase"], stream="stream-b")
+
+
+def test_unclassified_redirect_hop_inherits_the_original_stream():
+    tracker = CollectionReceipts()
+    first = Hop()
+    tracker.request(first, ["page_view"], stream="aa")
+    tracker.response(SimpleNamespace(request=first, status=302))
+    hop = Hop(first)
+    tracker.request(hop, [], stream=None)
+    tracker.response(SimpleNamespace(request=hop, status=200))
+    tracker.require(["page_view"], stream="aa")

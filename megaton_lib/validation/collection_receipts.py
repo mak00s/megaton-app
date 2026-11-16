@@ -59,6 +59,8 @@ def require_event_receipts(records: list[dict], events, *, stream=None) -> None:
         if not matching:
             raise CollectionReceiptError("missing_event_receipt:" + event)
         for row in matching:
+            if row.get("streamChanged"):
+                raise CollectionReceiptError("collection_redirect_stream_changed:" + event)
             if row.get("failed"):
                 raise CollectionReceiptError("collection_request_failed:" + event)
             if row.get("status") is None:
@@ -78,6 +80,9 @@ class CollectionReceipts:
         origin = self._redirect_origin(request)
         if origin is not None:
             # A redirect hop continues the original request; its final response decides.
+            # A hop classified under another stream cannot be attributed to either one.
+            if stream is not None and stream != origin["stream"]:
+                origin["streamChanged"] = True
             origin["status"] = None
             origin["events"] = sorted(set(origin["events"]) | set(events))
             self._requests[request] = origin

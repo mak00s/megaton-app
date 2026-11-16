@@ -2387,7 +2387,9 @@ stream=...)` requires every matching request to have a 2xx response; a different
 event's success, pending response, or HTTP error cannot satisfy it. Batched
 events share their request outcome. A redirect hop (`request.redirected_from`
 pointing to a registered request) joins the original record, so the final response
-decides; a 3xx without a followed redirect stays an HTTP error. `records` exports only opaque request IDs,
+decides; a 3xx without a followed redirect stays an HTTP error. A hop registered
+under a different `stream` fails the record with `collection_redirect_stream_changed`
+(a hop with `stream=None` inherits the original stream). `records` exports only opaque request IDs,
 allowlisted event names, stream, status and failure flags, never payloads,
 identity values or request URLs.
 
