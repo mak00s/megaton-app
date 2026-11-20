@@ -10,6 +10,9 @@ Only user-impacting changes are listed here (feature additions, bug fixes, and b
   connections and redirects with another state are ignored until the expected
   redirect arrives; a denied consent or the 15-minute timeout saves nothing.
   `authorize_gtm_user(..., port=, open_browser=, timeout_seconds=)` exposes the same.
+- GTM review reads are paced (about 28 queries/min) and wait out HTTP 429 up to three
+  times, so `containers` no longer fails on accounts with many containers under the
+  default 30 queries/min quota. Other HTTP errors still stop immediately.
 
 ## 0.47.0 - 2026-11-16
 

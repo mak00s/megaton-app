@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 import tempfile
 from datetime import datetime, timezone
 
@@ -218,8 +219,32 @@ def _numeric_path(path: str, suffix: str = "") -> str:
 class GtmClient:
     """Narrow read-only audit client; no edits, preview creation, sync or publish."""
 
+    # GTM's default quota is 30 queries/min per user and per project; accounts with
+    # many containers exceed it in a burst, so pace calls and wait out 429s.
+    MIN_INTERVAL_SECONDS = 2.1
+    RATE_LIMIT_WAITS = (65, 65, 130)
+
     def __init__(self, service):
         self._service = service
+        self._last_call = None
+
+    def _execute(self, request):
+        import time
+        from googleapiclient.errors import HttpError
+
+        for wait in (*self.RATE_LIMIT_WAITS, None):
+            if self._last_call is not None:
+                pause = self.MIN_INTERVAL_SECONDS - (time.monotonic() - self._last_call)
+                if pause > 0:
+                    time.sleep(pause)
+            self._last_call = time.monotonic()
+            try:
+                return request.execute()
+            except HttpError as exc:
+                if getattr(exc.resp, "status", None) != 429 or wait is None:
+                    raise
+                print(f"gtm_rate_limited=true wait_seconds={wait}", file=sys.stderr, flush=True)
+                time.sleep(wait)
 
     @classmethod
     def from_oauth_file(cls, token_path: str | Path, *, expected_email: str):
@@ -227,12 +252,11 @@ class GtmClient:
         creds = _load_credentials(token_path, expected_email=expected_email)
         return cls(build_service("tagmanager", "v2", credentials=creds))
 
-    @staticmethod
-    def _list(resource, key: str, **kwargs) -> list[dict]:
+    def _list(self, resource, key: str, **kwargs) -> list[dict]:
         items = []
         seen = set()
         while True:
-            response = resource.list(**kwargs).execute()
+            response = self._execute(resource.list(**kwargs))
             items.extend(response.get(key, []))
             page = response.get("nextPageToken")
             if not page:
@@ -258,13 +282,13 @@ class GtmClient:
         """
         path = _numeric_path(container_path)
         containers = self._service.accounts().containers()
-        container = containers.get(path=path).execute()
+        container = self._execute(containers.get(path=path))
         features = container.get("features")
         if not isinstance(features, dict) or any(
             not isinstance(value, bool) for value in features.values()
         ):
             raise RuntimeError("GTM container feature metadata is missing or invalid; review stopped.")
-        live = containers.versions().live(parent=path).execute()
+        live = self._execute(containers.versions().live(parent=path))
         workspaces = containers.workspaces()
         snapshots = []
         for workspace in self._list(workspaces, "workspace", parent=path):
@@ -278,7 +302,7 @@ class GtmClient:
                 resource = getattr(workspaces, plural)()
                 resources[plural] = self._list(resource, singular, parent=ws_path)
             snapshots.append({"workspace": workspace,
-                              "status": workspaces.getStatus(path=ws_path).execute(),
+                              "status": self._execute(workspaces.getStatus(path=ws_path)),
                               "resources": resources,
                               "unsupported_resources": unsupported})
         return {"schema_version": 1, "mode": "read_only", "container": container,

@@ -351,7 +351,7 @@ def test_repeated_pagination_token_fails_instead_of_partial_success():
     resource = MagicMock()
     resource.list().execute.return_value = {"tag": [], "nextPageToken": "same"}
     with pytest.raises(RuntimeError, match="repeated page token"):
-        gtm_client.GtmClient._list(resource, "tag", parent="fixture")
+        gtm_client.GtmClient(MagicMock())._list(resource, "tag", parent="fixture")
 
 
 def test_review_invalid_path_makes_no_request():
@@ -504,3 +504,59 @@ def test_review_cli_passes_relay_options(monkeypatch, tmp_path):
                             "--port", "8772", "--no-browser"]) == 0
     assert authorize.call_args.kwargs["port"] == 8772
     assert authorize.call_args.kwargs["open_browser"] is False
+
+
+@pytest.fixture(autouse=True)
+def _no_gtm_pacing(monkeypatch):
+    monkeypatch.setattr(gtm_client.GtmClient, "MIN_INTERVAL_SECONDS", 0)
+
+
+def _http_error(status):
+    from googleapiclient.errors import HttpError
+    return HttpError(SimpleNamespace(status=status, reason="fixture"), b"{}")
+
+
+def test_rate_limited_call_waits_and_retries(monkeypatch, capsys):
+    import time
+    sleeps = []
+    monkeypatch.setattr(time, "sleep", sleeps.append)
+    request = MagicMock()
+    request.execute.side_effect = [_http_error(429), {"ok": True}]
+    assert gtm_client.GtmClient(MagicMock())._execute(request) == {"ok": True}
+    assert sleeps == [65]
+    assert "gtm_rate_limited=true" in capsys.readouterr().err
+
+
+def test_rate_limit_retries_are_bounded(monkeypatch):
+    import time
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+    request = MagicMock()
+    request.execute.side_effect = _http_error(429)
+    from googleapiclient.errors import HttpError
+    with pytest.raises(HttpError):
+        gtm_client.GtmClient(MagicMock())._execute(request)
+    assert request.execute.call_count == len(gtm_client.GtmClient.RATE_LIMIT_WAITS) + 1
+
+
+def test_other_http_errors_are_not_retried(monkeypatch):
+    import time
+    monkeypatch.setattr(time, "sleep", lambda _: pytest.fail("should not wait"))
+    request = MagicMock()
+    request.execute.side_effect = _http_error(403)
+    from googleapiclient.errors import HttpError
+    with pytest.raises(HttpError):
+        gtm_client.GtmClient(MagicMock())._execute(request)
+    assert request.execute.call_count == 1
+
+
+def test_calls_are_paced(monkeypatch):
+    import time
+    monkeypatch.setattr(gtm_client.GtmClient, "MIN_INTERVAL_SECONDS", 2.1)
+    sleeps = []
+    monkeypatch.setattr(time, "sleep", sleeps.append)
+    client = gtm_client.GtmClient(MagicMock())
+    request = MagicMock()
+    request.execute.return_value = {}
+    client._execute(request)
+    client._execute(request)
+    assert len(sleeps) == 1 and 0 < sleeps[0] <= 2.1

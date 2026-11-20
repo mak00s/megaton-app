@@ -241,7 +241,8 @@ This is the `client.review()` result. The `review` CLI wraps these results in
 `{schema_version: 1, mode: "read_only", reviews: [...]}`; `containers` outputs
 `{schema_version: 1, mode: "read_only", containers: [...], fetched_at: ...}`.
 `status` is GTM's delta from the workspace base, not automatically the delta from live.
-No published-version baseline is synthesized if the live API fails. API failures stop the
+Calls are paced to stay under GTM's default 30 queries/min quota; HTTP 429 is waited out
+up to three times (other errors stop immediately). No published-version baseline is synthesized if the live API fails. API failures stop the
 command without replacing a previous output. Outputs are atomically written with mode 0600.
 API/OAuth exception contents are not dumped to terminal because they can contain secrets.
 This snapshot supports static review; it does not prove endpoint reachability or production tag delivery.
