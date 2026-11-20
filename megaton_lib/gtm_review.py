@@ -49,6 +49,10 @@ def main(argv=None) -> int:
             command.add_argument("--client-secrets", required=True, type=Path, help="Desktop OAuth client JSON.")
             command.add_argument("--access", choices=("read", "edit"), default="read",
                                  help="Explicit grant: read (default), or container/version editing without publish/delete/access administration. Existing tokens are never upgraded automatically.")
+            command.add_argument("--port", type=int, default=0,
+                                 help="Fixed loopback port (required with --no-browser).")
+            command.add_argument("--no-browser", action="store_true",
+                                 help="Print the consent URL instead of opening a browser here; relay it with ssh -L PORT:127.0.0.1:PORT and approve in the other machine's browser.")
         else:
             command.add_argument("--output", required=True, type=Path, help="Private local JSON output (gitignored).")
         if name == "review":
@@ -65,7 +69,8 @@ def main(argv=None) -> int:
     try:
         if args.command == "auth":
             authorize_gtm_user(client_secrets_path=args.client_secrets, token_path=args.token,
-                               expected_email=args.expected_email, access=args.access)
+                               expected_email=args.expected_email, access=args.access,
+                               port=args.port, open_browser=not args.no_browser)
             print("gtm_auth=verified token_saved_or_reused=true", file=sys.stderr)
             return 0
         if args.output.expanduser().resolve() == args.token.expanduser().resolve():

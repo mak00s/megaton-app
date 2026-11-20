@@ -210,6 +210,11 @@ without an existing stored token still uses the explicit file/email form.
 `auth` requires `--client-secrets`,
 reads require `--output`, and `review` requires one or more `--container-path` values.
 `auth --access read|edit` selects the initial grant (default read); review commands remain read-only.
+`auth --port PORT --no-browser` prints the consent URL and waits on `127.0.0.1:PORT`
+without opening a browser (fixed port required). Relay it from the machine whose browser
+is used: `ssh -L PORT:127.0.0.1:PORT <host>`, then open the URL there. Unrelated or stale
+redirects are ignored until the expected `state` arrives; denial or timeout (15 minutes)
+saves nothing.
 Paths are numeric API paths (`accounts/123/containers/456`), not public `GTM-*` IDs or browser URLs.
 No project-specific IDs/accounts or credential-path discovery defaults are built in.
 

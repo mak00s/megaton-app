@@ -2,6 +2,15 @@
 
 Only user-impacting changes are listed here (feature additions, bug fixes, and behavior/spec changes). Minor wording edits are omitted.
 
+## Unreleased
+
+- `gtm_review auth --port PORT --no-browser` prints the consent URL instead of
+  opening a browser and waits on a fixed loopback port, so consent can be relayed
+  from another machine with `ssh -L PORT:127.0.0.1:PORT`. Empty speculative
+  connections and redirects with another state are ignored until the expected
+  redirect arrives; a denied consent or the 15-minute timeout saves nothing.
+  `authorize_gtm_user(..., port=, open_browser=, timeout_seconds=)` exposes the same.
+
 ## 0.47.0 - 2026-11-16
 
 - Package guarded Target audience diagnostics; API checks remain prefetch-only and

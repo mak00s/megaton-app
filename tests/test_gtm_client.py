@@ -400,3 +400,107 @@ def test_cli_writes_private_snapshot(tmp_path, monkeypatch):
                            "test@example.com", "--output", str(output)]) == 0
     assert json.loads(output.read_text())["containers"] == [{"publicId": "GTM-A"}]
     assert output.stat().st_mode & 0o777 == 0o600
+
+
+def test_no_browser_requires_fixed_port(tmp_path, monkeypatch):
+    client, _, flow, factory, _ = install_flow(tmp_path, monkeypatch)
+    with pytest.raises(gtm_client.GtmAuthError, match="fixed port"):
+        gtm_client.authorize_gtm_user(client_secrets_path=client, token_path=tmp_path / "token.json",
+                                      expected_email="test@example.com", open_browser=False)
+    factory.assert_not_called()
+
+
+def test_no_browser_uses_relay_not_local_browser(tmp_path, monkeypatch):
+    client, creds, flow, _, _ = install_flow(tmp_path, monkeypatch)
+    relay = MagicMock(return_value=creds)
+    monkeypatch.setattr(gtm_client, "_relay_consent", relay)
+    token = tmp_path / "token.json"
+    gtm_client.authorize_gtm_user(client_secrets_path=client, token_path=token,
+                                  expected_email="test@example.com", port=8772, open_browser=False)
+    flow.run_local_server.assert_not_called()
+    assert relay.call_args.kwargs["port"] == 8772
+    assert relay.call_args.kwargs["login_hint"] == "test@example.com"
+    assert token.stat().st_mode & 0o777 == 0o600
+
+
+def _free_port():
+    import socket
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _send(port, raw: bytes | None):
+    import socket
+    import time
+    for _ in range(100):
+        try:
+            s = socket.create_connection(("127.0.0.1", port), timeout=5)
+            break
+        except OSError:
+            time.sleep(0.05)
+    else:
+        raise AssertionError("relay server did not start")
+    with s:
+        if raw is not None:
+            s.sendall(raw)
+            s.recv(1024)
+
+
+def _relay_flow():
+    flow = MagicMock()
+    flow.authorization_url.return_value = ("https://accounts.example/auth", "expected-state")
+    flow.credentials = "fixture-creds"
+    return flow
+
+
+def test_relay_ignores_empty_and_stale_requests(capsys):
+    import threading
+    port = _free_port()
+    flow = _relay_flow()
+
+    def browser():
+        _send(port, None)  # speculative connection that never sends a request
+        _send(port, b"GET /?state=old-state&code=stale HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        _send(port, b"GET /?state=expected-state&code=fresh HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+    thread = threading.Thread(target=browser)
+    thread.start()
+    creds = gtm_client._relay_consent(flow, port=port, login_hint="test@example.com", timeout_seconds=30)
+    thread.join()
+    assert creds == "fixture-creds"
+    assert flow.redirect_uri == f"http://localhost:{port}/"
+    assert flow.authorization_url.call_args.kwargs["login_hint"] == "test@example.com"
+    response = flow.fetch_token.call_args.kwargs["authorization_response"]
+    assert response.startswith("https://") and "code=fresh" in response
+    assert "https://accounts.example/auth" in capsys.readouterr().out
+
+
+def test_relay_denied_consent_saves_nothing():
+    import threading
+    port = _free_port()
+    flow = _relay_flow()
+    thread = threading.Thread(target=_send, args=(
+        port, b"GET /?state=expected-state&error=access_denied HTTP/1.1\r\nHost: localhost\r\n\r\n"))
+    thread.start()
+    with pytest.raises(gtm_client.GtmAuthError, match="access_denied"):
+        gtm_client._relay_consent(flow, port=port, login_hint="test@example.com", timeout_seconds=30)
+    thread.join()
+    flow.fetch_token.assert_not_called()
+
+
+def test_relay_times_out_without_redirect():
+    flow = _relay_flow()
+    with pytest.raises(gtm_client.GtmAuthError, match="Timed out"):
+        gtm_client._relay_consent(flow, port=_free_port(), login_hint="test@example.com", timeout_seconds=1)
+    flow.fetch_token.assert_not_called()
+
+
+def test_review_cli_passes_relay_options(monkeypatch, tmp_path):
+    authorize = MagicMock()
+    monkeypatch.setattr(gtm_review, "authorize_gtm_user", authorize)
+    assert gtm_review.main(["auth", "--client-secrets", str(tmp_path / "c.json"),
+                            "--token", str(tmp_path / "t.json"), "--expected-email", "test@example.com",
+                            "--port", "8772", "--no-browser"]) == 0
+    assert authorize.call_args.kwargs["port"] == 8772
+    assert authorize.call_args.kwargs["open_browser"] is False

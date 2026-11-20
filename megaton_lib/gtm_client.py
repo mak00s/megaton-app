@@ -84,16 +84,76 @@ def _load_credentials(token_path: str | Path, *, expected_email: str, access: st
     return creds
 
 
+def _relay_consent(flow, *, port: int, login_hint: str, timeout_seconds: int):
+    """Fixed-port consent without opening a browser here (for an `ssh -L` relay).
+
+    Browsers may open an empty speculative connection or replay an older
+    redirect first, so keep serving until the expected state arrives.
+    """
+    import time
+    import wsgiref.simple_server
+    import wsgiref.util
+    from urllib.parse import parse_qs, urlsplit
+
+    received = {}
+
+    def app(environ, start_response):
+        received["uri"] = wsgiref.util.request_uri(environ)
+        start_response("200 OK", [("Content-Type", "text/plain; charset=utf-8")])
+        return [b"Authorization received. Return to the CLI for account verification."]
+
+    class Handler(wsgiref.simple_server.WSGIRequestHandler):
+        timeout = 10  # drop idle speculative connections instead of blocking the real redirect
+
+        def log_message(self, *args):
+            pass
+
+    server = wsgiref.simple_server.make_server("127.0.0.1", port, app, handler_class=Handler)
+    try:
+        flow.redirect_uri = f"http://localhost:{port}/"
+        auth_url, state = flow.authorization_url(prompt="consent", access_type="offline",
+                                                 login_hint=login_hint)
+        print(f"Listening on 127.0.0.1:{port}. Open this URL in the relaying machine's browser:\n"
+              f"{auth_url}", flush=True)
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise GtmAuthError("Timed out waiting for the OAuth redirect; nothing was saved.")
+            server.timeout = remaining
+            received.clear()
+            server.handle_request()
+            query = parse_qs(urlsplit(received.get("uri", "")).query)
+            if query.get("state", [None])[0] != state:
+                continue
+            if "error" in query:
+                raise GtmAuthError(f"Authorization was not granted ({query['error'][0]}); nothing was saved.")
+            if "code" in query:
+                break
+        # oauthlib only accepts https authorization responses.
+        flow.fetch_token(authorization_response=received["uri"].replace("http://", "https://", 1))
+        return flow.credentials
+    finally:
+        server.server_close()
+
+
 def authorize_gtm_user(*, client_secrets_path: str | Path, token_path: str | Path,
-                       expected_email: str, access: str = "read") -> None:
+                       expected_email: str, access: str = "read", port: int = 0,
+                       open_browser: bool = True, timeout_seconds: int = 900) -> None:
     """Explicit initial desktop consent; verify identity before atomically saving.
 
     An existing token is validated/reused, never overwritten or automatically
     reauthorized. Runtime reads use GtmClient.from_oauth_file instead.
+    ``open_browser=False`` requires a fixed ``port`` so another machine can
+    relay the redirect with ``ssh -L port:127.0.0.1:port``.
     """
     scopes = _access_scopes(access)
     if not expected_email or not expected_email.strip():
         raise GtmAuthError("expected_email is required.")
+    if not isinstance(port, int) or not (port == 0 or 1024 <= port <= 65535):
+        raise GtmAuthError("port must be 0 or 1024-65535.")
+    if not open_browser and port == 0:
+        raise GtmAuthError("open_browser=False requires a fixed port for the relay.")
     token = Path(token_path).expanduser()
     client = Path(client_secrets_path).expanduser()
     if token.resolve() == client.resolve():
@@ -108,12 +168,16 @@ def authorize_gtm_user(*, client_secrets_path: str | Path, token_path: str | Pat
 
     flow = InstalledAppFlow.from_client_secrets_file(str(client), scopes)
     try:
-        creds = flow.run_local_server(
-            port=0, open_browser=True, prompt="consent", access_type="offline",
-            login_hint=expected_email,
-            authorization_prompt_message="Authorize the explicitly selected GTM account in your browser.",
-            success_message="Authorization received. Return to the CLI for account verification.",
-        )
+        if open_browser:
+            creds = flow.run_local_server(
+                port=port, open_browser=True, prompt="consent", access_type="offline",
+                login_hint=expected_email, timeout_seconds=timeout_seconds,
+                authorization_prompt_message="Authorize the explicitly selected GTM account in your browser.",
+                success_message="Authorization received. Return to the CLI for account verification.",
+            )
+        else:
+            creds = _relay_consent(flow, port=port, login_hint=expected_email,
+                                   timeout_seconds=timeout_seconds)
     except Warning as exc:
         # oauthlib rejects even harmless added openid scopes. Validate the actual
         # grant locally instead of globally relaxing token-scope verification.
